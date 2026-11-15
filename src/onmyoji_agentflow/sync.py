@@ -50,7 +50,19 @@ from .supervisor.supervisor import NEEDS_CONFIRM_MERGE, SYSTEM_PROMPT
 from .workflow.schema import SENSITIVE, bundled_dir, load_workflow
 from .yamlio import dump_yaml, load_yaml
 
-CONVERTER_VERSION = 1
+def _converter_version() -> str:
+    """Changes whenever the converters or the workflow builder change, so a package upgrade that
+    fixes generated workflows (v0.1.3: realm_raid's 未入寮 blocker) is applied by the next
+    ``oaf sync`` even when upstream has no new commits. Line endings are normalised because a
+    Windows git checkout may turn them into CRLF."""
+    h = hashlib.sha256()
+    for f in sorted((Path(__file__).parent / "convert").glob("*.py")):
+        h.update(f.name.encode())
+        h.update(f.read_bytes().replace(b"\r\n", b"\n"))
+    return "1+" + h.hexdigest()[:12]
+
+
+CONVERTER_VERSION = _converter_version()
 UP = "resources/upstream"
 GEN = f"{UP}/generated"
 MANIFEST = f"{UP}/upstream.yaml"

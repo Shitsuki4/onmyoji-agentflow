@@ -400,3 +400,28 @@ def test_schedule_due(env):
     assert app.sync.due() is True
     app.store.execute("INSERT INTO syncs(started, trigger, status) VALUES (?,?,?)", (1000.0, "schedule", "merged"))
     assert app.sync.due(now=1000 + 3600) is False and app.sync.due(now=1000 + 25 * 3600) is True
+
+
+def test_converter_change_reconverts_without_new_upstream(env, monkeypatch):
+    """Upgrading the package (new builder, e.g. v0.1.3's realm_raid blocker) must not be skipped as
+    '上游没有新提交' on the next sync."""
+    app, up, src = env
+    assert app.sync.sync(local=src).status == "merged"
+    monkeypatch.setattr(syncmod, "remote_head", lambda spec, timeout=60: (
+        "b" * 40 if "Onmyoji" in spec["urls"][0] else "a" * 40, spec["urls"][0]))
+    r = app.sync.sync()
+    assert r.status == "unchanged" and "上游没有新提交" in r.message
+    monkeypatch.setattr(syncmod, "CONVERTER_VERSION", syncmod.CONVERTER_VERSION + "-new")
+    calls = []
+
+    def _no_fetch(name, spec, cache, timeout):
+        calls.append(name)
+        raise syncmod.SyncError("offline in test")
+    monkeypatch.setattr(syncmod, "fetch_source", _no_fetch)
+    r = app.sync.sync()
+    assert calls and r.status != "unchanged"
+
+
+def test_converter_version_tracks_converter_sources():
+    v = syncmod._converter_version()
+    assert v == syncmod.CONVERTER_VERSION and v.startswith("1+") and len(v) == 14
