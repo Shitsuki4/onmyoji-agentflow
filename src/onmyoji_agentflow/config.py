@@ -55,6 +55,9 @@ DEFAULT_CONFIG = {
     },
     "supervisor": {
         "max_local_retries": 2,
+        # failure kinds (unknown_screen / stuck / loop) after which a local retry presses the back key
+        # first. Empty by default: on 庭院 the back key opens the game's 「退出游戏」 dialog.
+        "recover_back_on": [],
         "auto_merge": {"params": True, "images": False, "workflow": False},
         "observe_seconds": 60,
         "trial_actions": 30,

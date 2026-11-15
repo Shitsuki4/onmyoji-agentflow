@@ -46,6 +46,7 @@ class FakeUpstream:
         self.oas_doc = {"source": "OnmyojiAutoScript", "license": "GPL-3.0",
                         "resources": {"I_BTN": {"type": "click", "rect": [1, 2, 3, 4]}}}
         self.fail_assttyys = False
+        self.workflow_edits = {}   # workflow name -> callable(doc) applied to the generated copy
         self.commit = {"assttyys": "a" * 40, "oas": "b" * 40}
 
     def convert(self, fetched, out):
@@ -60,6 +61,11 @@ class FakeUpstream:
                 (d / "LICENSE").write_text("MIT License\nCopyright (c) 2019 Chaos\n")
                 g = out / GEN
                 shutil.copytree(bundled_dir() / "workflows", g / "workflows")
+                for wname, edit in self.workflow_edits.items():
+                    wp = g / "workflows" / f"{wname}.yaml"
+                    doc = yaml.safe_load(wp.read_text(encoding="utf-8"))
+                    edit(doc)
+                    wp.write_text(_dump(doc), encoding="utf-8")
                 (g / "resources" / "assttyys").mkdir(parents=True)
                 (g / "resources" / "assttyys" / "colors.yaml").write_text(_dump(self.colors), encoding="utf-8")
                 shutil.copyfile(bundled_dir() / "resources" / "assttyys" / "schemes.yaml",
@@ -425,3 +431,66 @@ def test_converter_change_reconverts_without_new_upstream(env, monkeypatch):
 def test_converter_version_tracks_converter_sources():
     v = syncmod._converter_version()
     assert v == syncmod.CONVERTER_VERSION and v.startswith("1+") and len(v) == 14
+
+
+# ---------------------------------------------------------------- v0.1.5: list-shaped workflow resources
+def _wf_bytes(doc) -> bytes:
+    return _dump(doc).encode("utf-8")
+
+
+def test_resource_diff_handles_workflow_resource_list():
+    """Workflows declare ``resources:`` as a list of file refs; v0.1.4 indexed it like a mapping (TypeError)."""
+    base = {"name": "realm_raid", "resources": ["assttyys/colors.yaml"], "states": [{"id": "a"}]}
+    new = {**base, "states": [{"id": "a"}, {"id": "b"}]}
+    assert syncmod.resource_diff(_wf_bytes(base), _wf_bytes(new)) == {"added": [], "removed": [], "changed": []}
+    new2 = {**base, "resources": ["assttyys/colors.yaml", "oas/RealmRaid.yaml"]}
+    d = syncmod.resource_diff(_wf_bytes(base), _wf_bytes(new2))
+    assert d == {"added": ["oas/RealmRaid.yaml"], "removed": [], "changed": []}
+    d = syncmod.resource_diff(_wf_bytes(new2), _wf_bytes(base))
+    assert d["removed"] == ["oas/RealmRaid.yaml"]
+
+
+def test_resource_diff_handles_inline_resources_and_unhashable_items():
+    base = {"resources": ["assttyys/colors.yaml"],
+            "inline_resources": {"chapter_xy": {"type": "click", "rect": [1, 2, 3, 4]}}}
+    new = {"resources": ["assttyys/colors.yaml", {"file": "x.yaml"}],
+           "inline_resources": {"chapter_xy": {"type": "click", "rect": [1, 2, 3, 5]},
+                                "extra": {"type": "click", "rect": [0, 0, 1, 1]}}}
+    d = syncmod.resource_diff(_wf_bytes(base), _wf_bytes(new))
+    assert d["changed"] == ["chapter_xy"]
+    assert "extra" in d["added"] and any("x.yaml" in k for k in d["added"])
+    # mixed shapes (mapping before, list after) must not raise either
+    d = syncmod.resource_diff(_wf_bytes({"resources": {"A": 1}}), _wf_bytes({"resources": ["A"]}))
+    assert d["added"] == [] and d["removed"] == [] and d["changed"] == ["A"]
+    # resource files keep their old name-level behaviour
+    d = syncmod.resource_diff(_wf_bytes({"resources": {"A": 1, "B": 2}}), _wf_bytes({"resources": {"B": 3, "C": 1}}))
+    assert d == {"added": ["C"], "removed": ["A"], "changed": ["B"]}
+
+
+def test_sync_with_changed_workflow_does_not_crash(env):
+    """Regression for v0.1.4: any upstream change to a generated workflow crashed ``oaf sync``."""
+    app, up, src = env
+    assert app.sync.sync(local=src).status == "merged"
+
+    def edit(doc):
+        doc["description"] = (doc.get("description") or "") + "（上游更新）"
+    up.workflow_edits["realm_raid"] = edit
+    up.commit["assttyys"] = "d" * 40
+    r = app.sync.sync(local=src)
+    assert r.status not in ("failed", "error"), r.message
+    assert "TypeError" not in (r.message or "")
+    assert r.details["kind"] == "workflow"
+    assert "workflows/realm_raid.yaml" in r.details["diff"]["files"]["modified"]
+    rep = Path(r.report_path).read_text(encoding="utf-8")
+    assert "workflows/realm_raid.yaml" in rep
+
+
+def test_sync_with_new_workflow_state_does_not_crash(env):
+    app, up, src = env
+    assert app.sync.sync(local=src).status == "merged"
+    up.workflow_edits["orochi"] = lambda doc: doc.setdefault("states", []).append(
+        {"id": "upstream_new_state", "when": {"expr": "False"}, "do": []})
+    up.commit["assttyys"] = "e" * 40
+    r = app.sync.sync(local=src)
+    assert r.status not in ("failed", "error"), r.message
+    assert "workflows/orochi.yaml" in r.details["diff"]["files"]["modified"]

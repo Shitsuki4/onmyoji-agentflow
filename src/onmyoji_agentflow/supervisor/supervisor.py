@@ -2,8 +2,11 @@
 
 Escalation ladder after a failed run:
 
-1. **local**: press back and retry with the remaining count (``max_local_retries``).
+1. **local**: retry with the remaining count (``max_local_retries``).
    Device errors reopen the device first. ``confirm_denied`` never retries.
+   The back key is pressed before a retry only for the failure kinds listed in
+   ``supervisor.recover_back_on`` (empty by default): on 庭院 the back key opens the
+   game's 「退出游戏」 confirmation, so pressing it blindly is unsafe.
 2. **diagnose**: compare the failure screenshot with every state (near misses) and,
    if an LLM is configured and the budget allows, ask it for a repair in the
    patch language of ``repair.py``.
@@ -139,12 +142,14 @@ class Supervisor:
             outcome.level = "local"
             outcome.notes.append(f"第 {retries} 次本地重试（{res.failure_kind}: {res.reason}）")
             self.store.event("warn", "supervisor", f"{name}@{instance} 失败，本地重试 {retries}：{res.reason}")
-            try:
-                ctl = self.controller_factory(instance, False)
-                if res.failure_kind in ("unknown_screen", "stuck", "loop"):
+            back_on = self.scfg.get("recover_back_on") or []
+            if res.failure_kind in back_on:
+                try:
+                    ctl = self.controller_factory(instance, False)
                     ctl.back(800)
-            except Exception as e:  # noqa: BLE001
-                outcome.notes.append(f"恢复操作失败：{e}")
+                    outcome.notes.append(f"重试前按了一次返回键（{res.failure_kind}）")
+                except Exception as e:  # noqa: BLE001
+                    outcome.notes.append(f"恢复操作失败：{e}")
             params = remaining_params(wf, params, res.variables)
             res = self._run_once(wf, instance, params)
             outcome.result = res

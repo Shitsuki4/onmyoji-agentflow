@@ -311,14 +311,42 @@ def _yaml_bytes(data: bytes | None):
         return None
 
 
+def _res_key(item) -> str:
+    if isinstance(item, (str, int, float, bool)) or item is None:
+        return str(item)
+    return json.dumps(item, sort_keys=True, ensure_ascii=False, default=str)
+
+
+def _res_map(doc: dict) -> dict:
+    """Name -> spec for everything a document declares as resources.
+
+    Resource files carry a ``resources:`` *mapping*; workflows carry a ``resources:`` *list* of
+    file references plus an optional ``inline_resources:`` mapping. Both shapes are handled.
+    """
+    out: dict = {}
+    res = doc.get("resources")
+    if isinstance(res, dict):
+        out.update({str(k): v for k, v in res.items()})
+    elif isinstance(res, (list, tuple)):
+        for item in res:
+            out[_res_key(item)] = item
+    inline = doc.get("inline_resources")
+    if isinstance(inline, dict):
+        out.update({str(k): v for k, v in inline.items()})
+    return out
+
+
 def resource_diff(old: bytes | None, new: bytes | None) -> dict:
-    """Name-level diff of a resource file (``resources:`` mapping) or a whole document."""
+    """Name-level diff of the resources a document declares (resource file or workflow)."""
     o, n = _yaml_bytes(old), _yaml_bytes(new)
-    if isinstance(o, dict) and isinstance(n, dict) and ("resources" in o or "resources" in n):
-        ro, rn = o.get("resources") or {}, n.get("resources") or {}
-        return {"added": sorted(set(rn) - set(ro)), "removed": sorted(set(ro) - set(rn)),
-                "changed": sorted(k for k in set(ro) & set(rn) if ro[k] != rn[k])}
-    return {}
+    if not (isinstance(o, dict) and isinstance(n, dict)):
+        return {}
+    keys = ("resources", "inline_resources")
+    if not any(k in o or k in n for k in keys):
+        return {}
+    ro, rn = _res_map(o), _res_map(n)
+    return {"added": sorted(set(rn) - set(ro)), "removed": sorted(set(ro) - set(rn)),
+            "changed": sorted(k for k in set(ro) & set(rn) if ro[k] != rn[k])}
 
 
 def summarize_changes(changes: dict[str, bytes | None], old: dict[str, bytes | None]) -> dict:
