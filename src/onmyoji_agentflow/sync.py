@@ -841,9 +841,10 @@ class SyncManager:
         schemes = (schemes_doc or {}).get("schemes") or {}
         changed_funcs = {int(x) for x in diff.get("funcs_changed", []) if x.isdigit()}
         out = []
-        budget = int(tcfg.get("max_per_sync", 2))
+        mps = tcfg.get("max_per_sync")
+        budget = None if mps in (None, "") else int(mps)    # None: no limit (the default)
         for scheme in tcfg.get("schemes") or []:
-            if budget <= 0:
+            if budget is not None and budget <= 0:
                 out.append({"scheme": scheme, "status": "skipped", "message": "超过每次同步的翻译上限 max_per_sync"})
                 continue
             if scheme not in schemes:
@@ -855,7 +856,8 @@ class SyncManager:
                 out.append({"scheme": scheme, "workflow": name, "status": "unchanged",
                             "message": "方案用到的功能这次没变，不用重新翻译"})
                 continue
-            budget -= 1
+            if budget is not None:
+                budget -= 1
             out.append(self._translate_one(cand, base, scheme, name, schemes[scheme], instance))
         return out
 

@@ -144,6 +144,7 @@ def build_realm_raid(F: Funcs) -> dict:
         "desc": ("在个人结界突破界面按「呱太->4->5->3->2->1->0」勋章顺序选结界并进攻，"
                  "进攻连续无反应（突破券用完）或达到次数后停止。由 assttyys 008/009 翻译；"
                  "「打九退四」、自动刷新、锁定阵容没有做。"),
+        "requires": ["账号已加入阴阳寮（没入寮时进不了结界突破，会提示先加入阴阳寮）"],
         "resources": ["assttyys/colors.yaml"],
         "similarity": 93,
         "params": {"max_runs": {"default": 30, "min": 1, "max": 300, "desc": "进攻次数上限"}},

@@ -5,9 +5,10 @@ the API key comes from the Windows Credential Manager (``credentials.get_key``).
 Calls go to ``POST {base_url}/chat/completions``. Providers are tried in order;
 a failing provider is skipped for ``cooldown_s``.
 
-Limits (``llm.budget``): tokens per day / per 30 days, calls per hour and an
-optional daily cost. When a limit is reached, ``BudgetExceeded`` is raised and
-the supervisor falls back to handing the problem to the user.
+Limits (``llm.budget``): tokens per day / per 30 days, calls per hour and a
+daily cost. Every limit is off by default (null); when the user sets one and it
+is reached, ``BudgetExceeded`` is raised and the supervisor falls back to
+handing the problem to the user.
 """
 from __future__ import annotations
 
@@ -27,6 +28,17 @@ from .log import logger
 DAY = 86400
 
 
+def _limit(v):
+    """A configured limit as a number, or None for "no limit" (null, empty, 0 or negative)."""
+    if v is None or isinstance(v, bool) or v == "":
+        return None
+    try:
+        n = float(v)
+    except (TypeError, ValueError):
+        return None
+    return n if n > 0 else None
+
+
 class Budget:
     def __init__(self, store, cfg: dict):
         self.store = store
@@ -38,23 +50,29 @@ class Budget:
             " COALESCE(SUM(cost), 0) AS cost FROM llm_usage WHERE ts >= ?", (since,))
         return rows[0]
 
+    def limits(self) -> dict:
+        """The limits that are switched on; an empty dict means no limit at all."""
+        return {k: v for k, v in self.cfg.items() if _limit(v) is not None}
+
     def snapshot(self, now: float | None = None) -> dict:
         now = now or time.time()
         return {"hour": self.usage(now - 3600), "day": self.usage(now - DAY), "month": self.usage(now - 30 * DAY),
-                "limits": self.cfg}
+                "limits": self.limits() or "不限"}
 
     def check(self, now: float | None = None) -> None:
         now = now or time.time()
-        c = self.cfg
-        if c.get("calls_per_hour") and self.usage(now - 3600)["calls"] >= c["calls_per_hour"]:
-            raise BudgetExceeded(f"大模型调用已达每小时上限 {c['calls_per_hour']} 次")
+        c = {k: _limit(v) for k, v in self.cfg.items()}
+        if not any(v is not None for v in c.values()):
+            return                                          # no limit configured (the default)
+        if c.get("calls_per_hour") is not None and self.usage(now - 3600)["calls"] >= c["calls_per_hour"]:
+            raise BudgetExceeded(f"大模型调用已达每小时上限 {c['calls_per_hour']:g} 次")
         day = self.usage(now - DAY)
-        if c.get("daily_tokens") and day["tokens"] >= c["daily_tokens"]:
-            raise BudgetExceeded(f"大模型用量已达每日上限 {c['daily_tokens']} token")
-        if c.get("daily_cost") and day["cost"] >= c["daily_cost"]:
-            raise BudgetExceeded(f"大模型费用已达每日上限 {c['daily_cost']}")
-        if c.get("monthly_tokens") and self.usage(now - 30 * DAY)["tokens"] >= c["monthly_tokens"]:
-            raise BudgetExceeded(f"大模型用量已达 30 天上限 {c['monthly_tokens']} token")
+        if c.get("daily_tokens") is not None and day["tokens"] >= c["daily_tokens"]:
+            raise BudgetExceeded(f"大模型用量已达每日上限 {c['daily_tokens']:g} token")
+        if c.get("daily_cost") is not None and day["cost"] >= c["daily_cost"]:
+            raise BudgetExceeded(f"大模型费用已达每日上限 {c['daily_cost']:g}")
+        if c.get("monthly_tokens") is not None and self.usage(now - 30 * DAY)["tokens"] >= c["monthly_tokens"]:
+            raise BudgetExceeded(f"大模型用量已达 30 天上限 {c['monthly_tokens']:g} token")
 
     def record(self, provider, model, purpose, prompt_tokens, completion_tokens, cost, ok):
         self.store.execute(

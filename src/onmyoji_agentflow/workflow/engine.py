@@ -263,8 +263,16 @@ class Runner:
                         matched = st
                         break
                 if matched is None:
+                    for b in wf.blockers:
+                        self._found = None
+                        if self._match(b["when"], img):
+                            res.history.append((round(now - start, 2), "blocker:" + b["id"]))
+                            raise RunFailure("prerequisite", "前置条件没满足：" + b["message"], b["id"])
                     if not observe and now - last_known > limits["unknown_timeout_s"]:
-                        raise RunFailure("unknown_screen", f"{limits['unknown_timeout_s']} 秒内认不出当前画面")
+                        msg = f"{limits['unknown_timeout_s']} 秒内认不出当前画面"
+                        if wf.requires:
+                            msg += "（先确认账号满足：" + "、".join(wf.requires) + "）"
+                        raise RunFailure("unknown_screen", msg)
                     self.ctl.sleep(loop_delay)
                     continue
                 last_known = now

@@ -208,3 +208,66 @@ def test_llm_text_only_fallback_strips_images(tmp_path):
     c.chat([{"role": "user", "content": [{"type": "text", "text": "t"},
                                           {"type": "image_url", "image_url": {"url": "data:x"}}]}], need_vision=True)
     assert isinstance(seen["payload"]["messages"][0]["content"], str)
+
+
+def test_llm_has_no_limit_by_default(tmp_path):
+    """No usage limit unless the user sets one (llm.budget defaults to null)."""
+    assert all(v is None for v in DEFAULT_CONFIG["llm"]["budget"].values())
+    assert DEFAULT_CONFIG["upstream"]["translate"]["max_per_sync"] is None
+    store = Store(tmp_path / "s.db")
+
+    def transport(url, payload, key, timeout):
+        return {"choices": [{"message": {"content": "ok"}}],
+                "usage": {"prompt_tokens": 400_000, "completion_tokens": 400_000}}
+
+    cfg = json.loads(json.dumps(DEFAULT_CONFIG["llm"]))
+    cfg["providers"] = [{"name": "a", "base_url": "https://a/v1", "model": "m", "vision": True}]
+    c = LLMClient(cfg, store, transport=transport, key_getter=lambda n: "k")
+    for _ in range(40):                                  # 32M tokens and 40 calls in an hour: still fine
+        assert c.chat([{"role": "user", "content": "hi"}]) == "ok"
+    snap = c.budget.snapshot()
+    assert snap["limits"] == "不限" and snap["day"]["calls"] == 40
+    # 0 and empty values also mean "no limit"; a limit the user sets still works
+    c.budget.cfg = {"daily_tokens": 0, "calls_per_hour": "", "monthly_tokens": None}
+    c.chat([{"role": "user", "content": "hi"}])
+    c.budget.cfg = {"calls_per_hour": 42}       # 41 calls so far
+    c.chat([{"role": "user", "content": "hi"}])
+    with pytest.raises(BudgetExceeded):
+        c.chat([{"role": "user", "content": "hi"}])
+
+
+def test_untouched_v010_limits_are_removed_but_user_limits_kept(tmp_path):
+    from onmyoji_agentflow.config import Config
+    from onmyoji_agentflow.yamlio import dump_yaml
+    home = tmp_path / "h"
+    home.mkdir()
+    v010 = {"monthly_tokens": 10_000_000, "daily_tokens": 400_000, "calls_per_hour": 30, "daily_cost": None}
+    (home / "config.yaml").write_text(dump_yaml({"llm": {"budget": dict(v010)},
+                                                 "upstream": {"translate": {"schemes": [], "max_per_sync": 2}}}),
+                                      encoding="utf-8")
+    cfg = Config(home)
+    assert all(v is None for v in cfg["llm"]["budget"].values())
+    assert cfg["upstream"]["translate"]["max_per_sync"] is None
+    assert Config(home)["llm"]["budget"]["daily_tokens"] is None          # written back to the file
+    (home / "config.yaml").write_text(dump_yaml({"llm": {"budget": {**v010, "daily_tokens": 123}}}), encoding="utf-8")
+    assert Config(home)["llm"]["budget"]["daily_tokens"] == 123          # edited by the user: kept as is
+    assert Config(home)["llm"]["budget"]["monthly_tokens"] == 10_000_000
+
+
+def test_prerequisite_goes_to_user_without_repair(tmp_path):
+    from helpers import blank
+    import yaml as _y
+    llm = FakeLLM(None)
+    img = blank()
+    img[30, 30] = (0, 255, 0)
+    sup, store, ws, devices = make_sup(tmp_path, lambda: [img], llm=llm, cfg_over={"max_local_retries": 2})
+    p = ws.path / "workflows" / "orochi.yaml"
+    raw = _y.safe_load(p.read_text(encoding="utf-8"))
+    raw["requires"] = ["账号已加入阴阳寮"]
+    raw["blockers"] = [{"id": "no_guild", "when": {"colors": [[30, 30, "#00ff00"]]}, "message": "账号还没加入阴阳寮"}]
+    p.write_text(_y.safe_dump(raw, allow_unicode=True), encoding="utf-8")
+    out = sup.run("orochi", "main")
+    assert out.result.failure_kind == "prerequisite"
+    assert out.level == "human" and any("阴阳寮" in n for n in out.notes)
+    assert llm.calls == 0                         # no LLM diagnosis, no patch
+    assert not any(n.startswith("第 ") for n in out.notes)   # no local retries
