@@ -66,23 +66,16 @@ class NemuDevice(Device):
 def choose_touch(touch: str, adb: AdbDevice | None) -> str:
     """Which channel sends taps and swipes: ``nemu`` (MuMu's dll) or ``adb``.
 
-    OAS/ALAS's nemu touch path maps 1280x720 game coordinates into MuMu's frame assuming the
-    emulator is set to the tablet layout (landscape 1280x720). On the phone layout (``wm size``
-    720x1280, game rotated to landscape) the dll rotates again and taps land off-screen
-    (seen on a real MuMu: (1010,175) -> x=-290). ``auto`` therefore uses nemu touch only when
-    adb reports a landscape display; screenshots stay on nemu either way.
+    v0.1.1 sent taps on MuMu's phone layout through adb because nemu touches landed off-screen
+    ((1010,175) -> x=-290). The real cause was a double conversion: the dll already maps frame
+    coordinates itself (it knows the display rotation) and ``convert_xy`` mapped them again.
+    With ``convert_xy`` now an identity, nemu touch was verified on the phone layout of a real
+    MuMu 12 (nx_main), so ``auto`` means ``nemu`` again. ``adb`` stays available as an override
+    (instance setting ``nemu_touch: adb``); it needs an adb connection.
     """
     touch = (touch or "auto").lower()
-    if touch in ("nemu", "adb"):
-        return touch if (touch == "nemu" or adb is not None) else "nemu"
-    if adb is None:
-        return "nemu"
-    try:
-        size = adb.display().get("wm_size")
-    except Exception as e:  # noqa: BLE001
-        logger.warning("读不到 wm size（%s），点击改走 adb 更稳妥", e)
+    if touch == "adb" and adb is not None:
         return "adb"
-    if size and size[0] < size[1]:
-        logger.warning("MuMu 是竖屏手机版（wm size %sx%s），点击改走 adb；推荐在 MuMu 里改成平板版 1280x720", *size)
-        return "adb"
+    if touch == "adb":
+        logger.warning("nemu_touch: adb 需要 adb 连接，没有 adb，点击仍走 nemu")
     return "nemu"

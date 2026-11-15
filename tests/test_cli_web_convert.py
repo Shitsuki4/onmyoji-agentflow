@@ -148,3 +148,18 @@ def test_web_panel_requires_token(tmp_path):
         assert app.broker.status(cid) == "denied"
     finally:
         httpd.shutdown()
+
+
+def test_diagnose_frame_seeds_vars():
+    """Real Win10 report: `oaf diagnose` showed "名字 'runs' 未定义" on every guarded state."""
+    import numpy as np
+    from onmyoji_agentflow.workflow.engine import Runner
+    from onmyoji_agentflow.workflow.schema import bundled_dir, load_workflow
+
+    class _O:
+        def sleep(self, s):
+            pass
+    for name in ("orochi", "realm_raid", "exploration"):
+        wf = load_workflow(bundled_dir() / "workflows" / f"{name}.yaml")
+        rows = Runner(wf, _O()).diagnose_frame(np.zeros((720, 1280, 3), np.uint8))
+        assert rows and not [r for r in rows if "error" in r], (name, rows)

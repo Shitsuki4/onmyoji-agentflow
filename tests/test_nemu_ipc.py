@@ -79,20 +79,53 @@ class _FakeAdb:
 
 def test_choose_touch():
     from onmyoji_agentflow.device.nemu import choose_touch
-    assert choose_touch("auto", _FakeAdb((720, 1280))) == "adb"      # phone layout: the real Win10 machine
-    assert choose_touch("auto", _FakeAdb((1280, 720))) == "nemu"     # tablet layout (recommended)
-    assert choose_touch("auto", _FakeAdb(RuntimeError("x"))) == "adb"
+    # v0.1.2: the dll converts coordinates itself, so nemu touch works on the phone layout too
+    assert choose_touch("auto", _FakeAdb((720, 1280))) == "nemu"     # phone layout: the real Win10 machine
+    assert choose_touch("auto", _FakeAdb((1280, 720))) == "nemu"     # tablet layout
+    assert choose_touch("adb", _FakeAdb((720, 1280))) == "adb"       # explicit override
     assert choose_touch("auto", None) == "nemu"
     assert choose_touch("nemu", _FakeAdb((720, 1280))) == "nemu"
     assert choose_touch("adb", None) == "nemu"
 
 
-def test_phone_layout_taps_through_adb(tmp_path):
+def test_adb_touch_override(tmp_path):
     from onmyoji_agentflow.device import nemu
     adb = _FakeAdb((720, 1280))
-    d = nemu.NemuDevice(str(tmp_path), 0, adb=adb)
+    d = nemu.NemuDevice(str(tmp_path), 0, adb=adb, touch="adb")
     d.ipc.click_nemu_ipc = lambda x, y: (_ for _ in ()).throw(AssertionError("nemu touch used"))
     d.tap(1010, 175)
     d.swipe((100, 100), (300, 100))
     assert adb.taps == [(1010, 175)] and adb.swipes == [((100, 100), (300, 100))]
     assert d.name == "nemu_ipc+adb_touch"
+
+
+def test_phone_layout_taps_through_nemu_by_default(tmp_path):
+    from onmyoji_agentflow.device import nemu
+    adb = _FakeAdb((720, 1280))
+    d = nemu.NemuDevice(str(tmp_path), 0, adb=adb)
+    clicks = []
+    d.ipc.click_nemu_ipc = lambda x, y: clicks.append((x, y))
+    d.tap(1010, 175)
+    assert clicks == [(1010, 175)] and adb.taps == []
+    assert d.touch == "nemu"
+
+
+class _FakeLib:
+    def __init__(self):
+        self.downs = []
+
+    def nemu_input_event_touch_down(self, connect_id, display_id, x, y):
+        self.downs.append((x, y))
+        return 0
+
+
+def test_touch_coordinates_not_converted_twice():
+    """The dll maps frame coordinates itself (it prints 'after convert'); real Win10 + MuMu 12:
+    converting in Python too sent (1010,175) to x_point=-290. Frame coordinates go through as-is."""
+    impl = N.NemuIpcImpl.__new__(N.NemuIpcImpl)
+    impl.lib = _FakeLib()
+    impl.connect_id, impl.display_id, impl.width, impl.height = 1, 0, 1280, 720
+    impl.ev_run_sync = lambda func, *a, **k: func(*a, **k)
+    assert impl.convert_xy(1010.7, 175) == (1010, 175)
+    impl.down(675, 178)
+    assert impl.lib.downs == [(675, 178)]

@@ -133,11 +133,17 @@ class Runner:
         return {**self.params, **self.vars}
 
     def diagnose_frame(self, img: np.ndarray) -> list[dict]:
-        """Per state: does it match, and for colour states the fraction of matching points."""
+        """Per state (and per blocker): does it match, and for colour conditions the fraction of
+        matching points. Variables start at the workflow's initial values, as at the start of a
+        run, so conditions such as ``runs < max_runs`` can be evaluated."""
+        if not self.vars:
+            self.vars = {**(self.wf.raw.get("vars") or {}), "elapsed_s": 0, "actions": 0}
         out = []
-        for st in self.wf.states:
+        items = [(st, False) for st in self.wf.states] + [(b, True) for b in self.wf.blockers]
+        for st, is_blocker in items:
             cond = st["when"]
-            info = {"id": st["id"], "match": False}
+            info = {"id": ("blocker:" + st["id"]) if is_blocker else st["id"], "match": False}
+            self._found = None
             try:
                 info["match"] = self._match(cond, img)
             except Exception as e:  # noqa: BLE001
