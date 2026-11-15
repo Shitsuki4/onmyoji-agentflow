@@ -49,6 +49,59 @@ def test_orochi_full_cycle():
     assert 1148 <= x <= 1235 and 602 <= y <= 663
 
 
+def _battle_frames(wf, n):
+    # the real battle screen animates: alternate two backgrounds so "screen unchanged" never fires
+    return [frame_for(wf, "in_battle", base=40 if i % 2 else 70) for i in range(n)]
+
+
+def test_orochi_long_battle_without_victory_drum_counts_and_stops():
+    """Win10 + MuMu 12 run 000029/000031: battle > 60 s, then 统计 -> 达摩 (no drum), back on the challenge
+    screen with max_runs=1. It used to fail with "60 秒内认不出当前画面" and done=0."""
+    wf = load_workflow(WF_DIR / "orochi.yaml")
+    frames = ([frame_for(wf, "challenge_0")] * 2 + _battle_frames(wf, 200)
+              + [frame_for(wf, "settle_11")] * 2 + [frame_for(wf, "settle_4")] * 2
+              + [frame_for(wf, "challenge_done_0")])
+    ctl, dev = ctl_for(frames, advance_on_input=False)
+    clock = FakeClock()
+    res = Runner(wf, ctl, params={"max_runs": 1}, clock=clock).run()
+    assert res.status == "success", res.summary()
+    assert res.variables["runs"] == 1 and res.variables["done"] == 1 and res.variables["pending"] == 0
+    assert res.ended - res.started > 60  # the fight alone lasted longer than unknown_timeout_s
+    states = [s for _, s in res.history]
+    assert "in_battle" in states and "settle_6" not in states
+    # one click on 挑战, then one per result screen visit; nothing after the run is used up
+    taps = [i for i in dev.inputs if i[0] == "tap"]
+    assert len(taps) == 3
+
+
+def test_orochi_counts_each_battle_once_across_result_screens():
+    wf = load_workflow(WF_DIR / "orochi.yaml")
+    one = ([frame_for(wf, "challenge_0")] + _battle_frames(wf, 4) + [frame_for(wf, "settle_6")]
+           + [frame_for(wf, "settle_11")] + [frame_for(wf, "settle_4")])
+    ctl, dev = ctl_for(one * 3 + [frame_for(wf, "challenge_0")], advance_on_input=False)
+    res = Runner(wf, ctl, params={"max_runs": 5}, clock=FakeClock()).run()
+    # 3 battles happened, each counted once even though it showed three result screens
+    assert res.variables["runs"] == 4 and res.variables["done"] == 3, res.summary()
+
+
+def test_orochi_challenge_screen_counts_a_battle_whose_result_was_missed():
+    wf = load_workflow(WF_DIR / "orochi.yaml")
+    frames = [frame_for(wf, "challenge_0"), *_battle_frames(wf, 4), frame_for(wf, "challenge_0"),
+              *_battle_frames(wf, 4), frame_for(wf, "challenge_done_0")]
+    ctl, dev = ctl_for(frames, advance_on_input=False)
+    res = Runner(wf, ctl, params={"max_runs": 2}, clock=FakeClock()).run()
+    assert res.status == "success" and res.variables["done"] == 2, res.summary()
+
+
+def test_realm_raid_stops_on_raid_screen_when_runs_used_up():
+    wf = load_workflow(WF_DIR / "realm_raid.yaml")
+    frames = [frame_for(wf, "medal_呱太"), frame_for(wf, "attack"), *_battle_frames(wf, 4),
+              frame_for(wf, "settle_11"), frame_for(wf, "raid_done")]
+    ctl, dev = ctl_for(frames, advance_on_input=False)
+    res = Runner(wf, ctl, params={"max_runs": 1}, clock=FakeClock()).run()
+    assert res.status == "success" and res.variables["done"] == 1, res.summary()
+
+
 def test_orochi_stops_when_challenge_does_not_react():
     wf = load_workflow(WF_DIR / "orochi.yaml")
     ctl, dev = ctl_for([frame_for(wf, "challenge_0")])

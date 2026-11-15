@@ -17,6 +17,8 @@ vars:
   runs: 0
   done: 0
   losses: 0
+  pending: 0
+  started: 0
 limits:
   timeout_s: 14400
   unknown_timeout_s: 60
@@ -38,11 +40,13 @@ states:
   when:
     res: 退出结算_单人_胜利太鼓
   do:
+  - set:
+      done: done + pending
+      pending: 0
+      started: 0
+    first: true
   - click_random: [[165, 60, 1070, 604], [165, 60, 1263, 530]]
     delay: 400
-  - set:
-      done: done + 1
-    first: true
   max_repeat: 10
   progress: true
 - id: settle_0
@@ -51,77 +55,121 @@ states:
   when:
     res: 退出结算_左上角贪吃鬼
   do:
+  - set:
+      done: done + pending
+      pending: 0
+      started: 0
+    first: true
   - click_random: [[15, 139, 83, 309], [12, 391, 93, 548], [1202, 140, 1267, 630]]
     delay: 1000
   max_repeat: 10
+  progress: true
 - id: settle_1
   desc: 结算界面：左上角贪吃鬼(MuMu)，点击退出
   from: 'assttyys 002 #1'
   when:
     res: 退出结算_左上角贪吃鬼_mumu
   do:
+  - set:
+      done: done + pending
+      pending: 0
+      started: 0
+    first: true
   - click_random: [[15, 139, 83, 309], [12, 391, 93, 548], [1202, 140, 1267, 630]]
     delay: 1000
   max_repeat: 10
+  progress: true
 - id: settle_2
   desc: 结算界面：已打开的达摩 1，点击退出
   from: 'assttyys 002 #2'
   when:
     res: 退出结算_已打开的达摩_1
   do:
+  - set:
+      done: done + pending
+      pending: 0
+      started: 0
+    first: true
   - click_random: [[15, 139, 83, 309], [12, 391, 93, 548], [1202, 140, 1267, 630]]
     delay: 1000
   max_repeat: 10
+  progress: true
 - id: settle_3
   desc: 结算界面：已打开的达摩 2，点击退出
   from: 'assttyys 002 #3'
   when:
     res: 退出结算_已打开的达摩_2
   do:
+  - set:
+      done: done + pending
+      pending: 0
+      started: 0
+    first: true
   - click_random: [[15, 139, 83, 309], [12, 391, 93, 548], [1202, 140, 1267, 630]]
     delay: 1000
   max_repeat: 10
+  progress: true
 - id: settle_4
   desc: 结算界面：已打开的达摩 3，点击退出
   from: 'assttyys 002 #4'
   when:
     res: 退出结算_已打开的达摩_3
   do:
+  - set:
+      done: done + pending
+      pending: 0
+      started: 0
+    first: true
   - click_random: [[15, 139, 83, 309], [12, 391, 93, 548], [1202, 140, 1267, 630]]
     delay: 1000
   max_repeat: 10
+  progress: true
 - id: settle_11
   desc: 结算界面：左上角统计图标，点击退出
   from: 'assttyys 002 #11'
   when:
     res: 退出结算_左上角统计图标
   do:
+  - set:
+      done: done + pending
+      pending: 0
+      started: 0
+    first: true
   - click_random: [[1217, 106, 1272, 700], [600, 672, 1216, 712]]
     delay: 400
   max_repeat: 10
+  progress: true
 - id: settle_14
   desc: 结算界面：掉落物金框，点击退出
   from: 'assttyys 002 #14'
   when:
     res: 退出结算_经验金币buff_掉落物金框
   do:
+  - set:
+      done: done + pending
+      pending: 0
+      started: 0
+    first: true
   - click_random: [[59, 32, 106, 662], [1192, 49, 1261, 654]]
     delay: 1000
   max_repeat: 10
+  progress: true
 - id: settle_lose
   desc: 单人失败太鼓，点击退出
   from: 'assttyys 002 #9'
   when:
     res: 退出结算_单人_失败太鼓
   do:
+  - set:
+      done: done + pending
+      pending: 0
+      started: 0
+      losses: losses + pending
+    first: true
   - click_random: [[69, 171, 170, 320], [1104, 72, 1200, 528]]
     delay: 2000
-  - inc: losses
-    first: true
-  - set:
-      done: done + 1
-    first: true
   max_repeat: 10
+  progress: true
 - id: settle_overflow
   desc: 御魂溢出确认框，点确认
   from: 'assttyys 002 #13'
@@ -146,6 +194,9 @@ states:
   when:
     res: 战斗界面_手动状态
   do:
+  - set: &id001
+      started: pending
+    first: true
   - click: [37, 637, 86, 686]
     delay: 1000
   max_repeat: 5
@@ -155,20 +206,83 @@ states:
   when:
     res: 准备界面_未准备
   do:
+  - set: *id001
+    first: true
   - click: [1137, 542, 1228, 632]
     delay: 1000
   max_repeat: 10
+- id: in_battle
+  desc: 战斗中（自动），等待
+  from: assttyys 资源 战斗界面
+  when:
+    res: 战斗界面
+  do:
+  - set: *id001
+    first: true
+  - wait: 1000
+  max_repeat: 3600
+- id: challenge_done_0
+  desc: 挑战界面，次数已打满，结束
+  from: 'assttyys 006 #0'
+  when:
+    all:
+    - colors: &id003 [[1011, 595, '#e3d7c2'], [1012, 668, '#e7dac3'], [964, 591, '#543825'], [1149, 585, '#5b3d2d'], [1188, 588, '#e2d5c1'], [1153, 679, '#392418']]
+    - expr: runs >= max_runs and (pending == 0 or started == 1)
+  do:
+  - set: &id002
+      done: done + started
+      pending: pending * (1 - started)
+      started: 0
+    first: true
+  - wait: 1500
+  max_repeat: 2
+  on_repeat: stop
+  repeat_reason: 挑战次数已打满，停止
+- id: challenge_done_1
+  desc: 挑战界面，次数已打满，结束
+  from: 'assttyys 006 #1'
+  when:
+    all:
+    - colors: &id004 [[1059, 583, '#5d402e'], [1095, 592, '#e1d6c0'], [1140, 586, '#553b2c'], [1056, 673, '#392318'], [1100, 676, '#e3d9c2']]
+    - expr: runs >= max_runs and (pending == 0 or started == 1)
+  do:
+  - set: *id002
+    first: true
+  - wait: 1500
+  max_repeat: 2
+  on_repeat: stop
+  repeat_reason: 挑战次数已打满，停止
+- id: challenge_done_2
+  desc: 挑战界面，次数已打满，结束
+  from: 'assttyys 006 #2'
+  when:
+    all:
+    - colors: &id006 [[1056, 566, '#533522'], [1144, 564, '#59392a'], [1064, 606, '#e3d7c2'], [1142, 605, '#e5d9c4'], [1059, 651, '#392418']]
+    - expr: runs >= max_runs and (pending == 0 or started == 1)
+  do:
+  - set: *id002
+    first: true
+  - wait: 1500
+  max_repeat: 2
+  on_repeat: stop
+  repeat_reason: 挑战次数已打满，停止
 - id: challenge_0
   desc: 挑战界面，点挑战
   from: 'assttyys 006 #0'
   when:
     all:
-    - colors: [[1011, 595, '#e3d7c2'], [1012, 668, '#e7dac3'], [964, 591, '#543825'], [1149, 585, '#5b3d2d'], [1188, 588, '#e2d5c1'], [1153, 679, '#392418']]
-    - expr: runs < max_runs
+    - colors: *id003
+    - expr: runs < max_runs or (pending == 1 and started == 0)
   do:
+  - set: *id002
+    first: true
   - click: [1148, 602, 1235, 663]
     delay: 1000
   - inc: runs
+    first: true
+  - set: &id005
+      pending: 1
+      started: 0
     first: true
   max_repeat: 3
   on_repeat: stop
@@ -179,12 +293,16 @@ states:
   from: 'assttyys 006 #1'
   when:
     all:
-    - colors: [[1059, 583, '#5d402e'], [1095, 592, '#e1d6c0'], [1140, 586, '#553b2c'], [1056, 673, '#392318'], [1100, 676, '#e3d9c2']]
-    - expr: runs < max_runs
+    - colors: *id004
+    - expr: runs < max_runs or (pending == 1 and started == 0)
   do:
+  - set: *id002
+    first: true
   - click: [1055, 595, 1143, 669]
     delay: 1000
   - inc: runs
+    first: true
+  - set: *id005
     first: true
   max_repeat: 3
   on_repeat: stop
@@ -195,12 +313,16 @@ states:
   from: 'assttyys 006 #2'
   when:
     all:
-    - colors: [[1056, 566, '#533522'], [1144, 564, '#59392a'], [1064, 606, '#e3d7c2'], [1142, 605, '#e5d9c4'], [1059, 651, '#392418']]
-    - expr: runs < max_runs
+    - colors: *id006
+    - expr: runs < max_runs or (pending == 1 and started == 0)
   do:
+  - set: *id002
+    first: true
   - click: [1052, 568, 1153, 648]
     delay: 1000
   - inc: runs
+    first: true
+  - set: *id005
     first: true
   max_repeat: 3
   on_repeat: stop
