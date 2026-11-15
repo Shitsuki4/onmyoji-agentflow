@@ -17,7 +17,8 @@ class NemuDevice(Device):
 
     def __init__(self, root: str, instance_id: int, adb: AdbDevice | None = None):
         from ._oas.nemu_ipc import NemuIpc  # Windows only (ctypes DLL)
-        self.ipc = NemuIpc(root, instance_id)
+        from .mumu import find_ipc_dll
+        self.ipc = NemuIpc(root, instance_id, ipc_dll=find_ipc_dll(root))
         self.adb = adb
 
     def screenshot(self) -> np.ndarray:

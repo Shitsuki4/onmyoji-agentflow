@@ -31,6 +31,30 @@ class NemuIpcError(Exception):
     pass
 
 
+class stdout_to_stderr:
+    """Send C-level writes to fd 1 (printf in external_renderer_ipc.dll) to fd 2 for a while,
+    so machine-readable stdout (``oaf ... --json``, the MCP stdio server) stays clean."""
+
+    def __enter__(self):
+        try:
+            sys.stdout.flush()
+            self._saved = os.dup(1)
+            os.dup2(2, 1)
+        except (OSError, ValueError, AttributeError):
+            self._saved = None
+        return self
+
+    def __exit__(self, *exc):
+        if self._saved is not None:
+            try:
+                sys.stdout.flush()
+            except (OSError, ValueError):
+                pass
+            os.dup2(self._saved, 1)
+            os.close(self._saved)
+        return False
+
+
 class CaptureStd:
     """
     Capture stdout and stderr from both python and C library
@@ -205,7 +229,7 @@ def retry(func):
 
 
 class NemuIpcImpl:
-    def __init__(self, nemu_folder: str, instance_id: int, display_id: int = 0):
+    def __init__(self, nemu_folder: str, instance_id: int, display_id: int = 0, ipc_dll: str | None = None):
         """
         Args:
             nemu_folder: Installation path of MuMu12, e.g. E:/ProgramFiles/MuMuPlayer-12.0
@@ -217,6 +241,9 @@ class NemuIpcImpl:
         self.display_id: int = display_id
 
         list_dll = [
+            # onmyoji-agentflow: the dll found by device.mumu.find_ipc_dll() comes first, so the path
+            # `oaf devices` reports is the one that is loaded
+            *([os.path.abspath(ipc_dll)] if ipc_dll else []),
             # MuMuPlayer12
             os.path.abspath(os.path.join(nemu_folder, './shell/sdk/external_renderer_ipc.dll')),
             # MuMuPlayer12 5.0
@@ -232,7 +259,8 @@ class NemuIpcImpl:
             if not os.path.exists(ipc_dll):
                 continue
             try:
-                self.lib = ctypes.CDLL(ipc_dll)
+                with stdout_to_stderr():
+                    self.lib = ctypes.CDLL(ipc_dll)
                 break
             except OSError as e:
                 logger.error(e)
@@ -260,10 +288,11 @@ class NemuIpcImpl:
         if self.connect_id > 0:
             return
 
-        connect_id = self.ev_run_sync(
-            self.lib.nemu_connect,
-            self.nemu_folder, self.instance_id
-        )
+        with stdout_to_stderr():  # the dll prints "nemu_connect instance_name: ..." to stdout
+            connect_id = self.ev_run_sync(
+                self.lib.nemu_connect,
+                self.nemu_folder, self.instance_id
+            )
         if connect_id == 0:
             raise NemuIpcError(
                 'Connection failed, please check if nemu_folder is correct and emulator is running'
@@ -468,10 +497,11 @@ class NemuIpc:
     (see ``onmyoji_agentflow.device.mumu`` for the detection logic).
     """
 
-    def __init__(self, nemu_folder: str, instance_id: int, display_id: int = 0):
+    def __init__(self, nemu_folder: str, instance_id: int, display_id: int = 0, ipc_dll: str | None = None):
         self.nemu_folder = nemu_folder
         self.instance_id = instance_id
         self.display_id = display_id
+        self.ipc_dll = ipc_dll
         self._impl = None
 
     def sleep(self, second):
@@ -486,6 +516,7 @@ class NemuIpc:
                     nemu_folder=self.nemu_folder,
                     instance_id=self.instance_id,
                     display_id=self.display_id,
+                    ipc_dll=self.ipc_dll,
                 ).__enter__()
             except (NemuIpcIncompatible, NemuIpcError) as e:
                 logger.error(e)
@@ -502,7 +533,9 @@ class NemuIpc:
     def screenshot_nemu_ipc(self):
         image = self.nemu_ipc.screenshot()
 
-        image = cv2.cvtColor(image, cv2.COLOR_BGRA2BGR)
+        # onmyoji-agentflow works in BGR (cv2). nemu_capture_display fills RGBA (OAS/ALAS keep RGB
+        # internally); verified on a real MuMu: BGRA2BGR swapped red and blue.
+        image = cv2.cvtColor(image, cv2.COLOR_RGBA2BGR)
         cv2.flip(image, 0, dst=image)
         return image
 

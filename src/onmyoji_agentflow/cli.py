@@ -103,7 +103,10 @@ def cmd_validate(args):
     print(f"格式正确：{wf.name}，{len(wf.states)} 个状态，{len(wf.resources)} 个资源")
     results = run_cases(wf, load_cases(cases_dir))
     bad = [r for r in results if not r.ok]
-    print(f"回放测试：{len(results) - len(bad)}/{len(results)} 通过")
+    if results:
+        print(f"回放测试：{len(results) - len(bad)}/{len(results)} 通过")
+    else:
+        print(f"回放测试：没有回放样本（{cases_dir} 下没有截图），跳过")
     for r in bad:
         print(f"  {r.case}: 期望 {r.expected}，实际 {r.got}")
     return 1 if bad else 0
