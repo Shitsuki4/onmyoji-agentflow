@@ -42,6 +42,15 @@ def isolate_stdout() -> bool:
     except OSError:
         stream.close()
         return False
+    if os.name == "nt":
+        # a dll with its own (static) C runtime takes its stdout from the Win32 standard handle
+        # when it is loaded, not from our fd 1: point that at stderr as well
+        try:
+            import ctypes
+            import msvcrt
+            ctypes.windll.kernel32.SetStdHandle(-11, msvcrt.get_osfhandle(2))  # STD_OUTPUT_HANDLE
+        except Exception:  # noqa: BLE001
+            pass
     sys.stdout = stream
     _isolated = True
     return True
