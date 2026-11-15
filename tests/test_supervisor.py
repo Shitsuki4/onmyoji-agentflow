@@ -271,3 +271,27 @@ def test_prerequisite_goes_to_user_without_repair(tmp_path):
     assert out.level == "human" and any("阴阳寮" in n for n in out.notes)
     assert llm.calls == 0                         # no LLM diagnosis, no patch
     assert not any(n.startswith("第 ") for n in out.notes)   # no local retries
+
+
+def _ops(devices, kind):
+    return [i for d in devices.get("all", []) for i in d.inputs if i and i[0] == kind]
+
+
+def test_local_retry_does_not_press_back_by_default(tmp_path):
+    """v0.1.4 pressed back before every local retry; on 庭院 that opens 「退出游戏」 (seen on the real device)."""
+    img = blank()
+    sup, store, ws, devices = make_sup(tmp_path, lambda: [img], cfg_over={"max_local_retries": 2})
+    out = sup.run("orochi", "main", repair=False)
+    assert out.result.failure_kind == "unknown_screen"
+    assert sum(n.startswith("第 ") for n in out.notes) == 2          # two local retries happened
+    assert _ops(devices, "back") == []                              # ...without any back key
+
+
+def test_local_retry_presses_back_only_when_configured(tmp_path):
+    img = blank()
+    sup, store, ws, devices = make_sup(tmp_path, lambda: [img],
+                                       cfg_over={"max_local_retries": 1, "recover_back_on": ["unknown_screen"]})
+    out = sup.run("orochi", "main", repair=False)
+    assert out.result.failure_kind == "unknown_screen"
+    assert len(_ops(devices, "back")) == 1
+    assert any("返回键" in n for n in out.notes)
