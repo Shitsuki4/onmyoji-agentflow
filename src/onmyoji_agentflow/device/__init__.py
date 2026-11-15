@@ -17,7 +17,8 @@ __all__ = ["AdbDevice", "Controller", "Device", "HumanizeConfig", "MuMuInstance"
 def open_device(instance_cfg: dict, mumu_root: str | None = None, adb_path: str | None = None) -> Device:
     """Open a device for one configured instance.
 
-    instance_cfg keys: ``serial`` (or ``mumu_id``), ``method``: ``auto`` | ``nemu_ipc`` | ``adb``.
+    instance_cfg keys: ``serial`` (or ``mumu_id``), ``method``: ``auto`` | ``nemu_ipc`` | ``adb``,
+    ``nemu_touch``: ``auto`` | ``nemu`` | ``adb`` (which channel taps when screenshots use nemu_ipc).
     ``auto`` follows OAS's recommendation for MuMu 12: nemu_ipc when available, else adb.
     """
     serial = instance_cfg.get("serial")
@@ -47,9 +48,9 @@ def open_device(instance_cfg: dict, mumu_root: str | None = None, adb_path: str 
     if method in ("auto", "nemu_ipc") and sys.platform == "win32" and root and mumu_id is not None:
         try:
             from .nemu import NemuDevice
-            dev = NemuDevice(root, int(mumu_id), adb=adb)
+            dev = NemuDevice(root, int(mumu_id), adb=adb, touch=instance_cfg.get("nemu_touch", "auto"))
             dev.screenshot()  # probe
-            logger.info("instance %s: using nemu_ipc (MuMu root %s, id %s)", serial, root, mumu_id)
+            logger.info("instance %s: using nemu_ipc (MuMu root %s, id %s, touch via %s)", serial, root, mumu_id, dev.touch)
             return dev
         except Exception as e:  # noqa: BLE001 - fall back like OAS
             if method == "nemu_ipc":

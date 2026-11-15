@@ -59,3 +59,40 @@ def test_stdout_to_stderr(capfd):
     out, err = capfd.readouterr()
     assert out == "before\nafter\n"
     assert "nemu_connect" in err
+
+
+class _FakeAdb:
+    def __init__(self, size):
+        self.size, self.taps, self.swipes = size, [], []
+
+    def display(self):
+        if isinstance(self.size, Exception):
+            raise self.size
+        return {"wm_size": self.size}
+
+    def tap(self, x, y, press_ms=40):
+        self.taps.append((x, y))
+
+    def swipe(self, p1, p2, duration_ms=400):
+        self.swipes.append((p1, p2))
+
+
+def test_choose_touch():
+    from onmyoji_agentflow.device.nemu import choose_touch
+    assert choose_touch("auto", _FakeAdb((720, 1280))) == "adb"      # phone layout: the real Win10 machine
+    assert choose_touch("auto", _FakeAdb((1280, 720))) == "nemu"     # tablet layout (recommended)
+    assert choose_touch("auto", _FakeAdb(RuntimeError("x"))) == "adb"
+    assert choose_touch("auto", None) == "nemu"
+    assert choose_touch("nemu", _FakeAdb((720, 1280))) == "nemu"
+    assert choose_touch("adb", None) == "nemu"
+
+
+def test_phone_layout_taps_through_adb(tmp_path):
+    from onmyoji_agentflow.device import nemu
+    adb = _FakeAdb((720, 1280))
+    d = nemu.NemuDevice(str(tmp_path), 0, adb=adb)
+    d.ipc.click_nemu_ipc = lambda x, y: (_ for _ in ()).throw(AssertionError("nemu touch used"))
+    d.tap(1010, 175)
+    d.swipe((100, 100), (300, 100))
+    assert adb.taps == [(1010, 175)] and adb.swipes == [((100, 100), (300, 100))]
+    assert d.name == "nemu_ipc+adb_touch"
