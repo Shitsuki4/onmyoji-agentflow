@@ -8,4 +8,4 @@ Foundation, either version 3 of the License, or (at your option) any later
 version. See LICENSE and NOTICE.md.
 """
 
-__version__ = "0.1.3"
+__version__ = "0.1.4"
