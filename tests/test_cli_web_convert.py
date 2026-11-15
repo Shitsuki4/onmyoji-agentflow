@@ -163,3 +163,18 @@ def test_diagnose_frame_seeds_vars():
         wf = load_workflow(bundled_dir() / "workflows" / f"{name}.yaml")
         rows = Runner(wf, _O()).diagnose_frame(np.zeros((720, 1280, 3), np.uint8))
         assert rows and not [r for r in rows if "error" in r], (name, rows)
+
+
+def test_realm_raid_no_guild_blocker():
+    """The 未入寮 prompt seen on a real Win10 + MuMu 12 stops realm_raid as a prerequisite."""
+    import numpy as np
+    from onmyoji_agentflow.vision.colors import compare_colors
+    from onmyoji_agentflow.workflow.schema import bundled_dir, load_workflow
+    wf = load_workflow(bundled_dir() / "workflows" / "realm_raid.yaml")
+    b = [x for x in wf.blockers if x["id"] == "no_guild"][0]
+    img = np.zeros((720, 1280, 3), np.uint8)
+    for x, y, hx in b["when"]["colors"]:
+        r, g, bl = int(hx[1:3], 16), int(hx[3:5], 16), int(hx[5:7], 16)
+        img[y, x] = (bl, g, r)                                  # screenshots are BGR
+    assert compare_colors(img, b["when"]["colors"], 93)
+    assert not compare_colors(np.zeros((720, 1280, 3), np.uint8), b["when"]["colors"], 93)

@@ -152,6 +152,21 @@ def build_realm_raid(F: Funcs) -> dict:
         "limits": dict(LIMITS),
         "stop_when": "done >= max_runs",
         "states": states,
+        # The 「暂未加入任何阴阳寮，是否前往申请加入？」 prompt (no counterpart in assttyys/OAS).
+        # Points taken by the agent on a real Win10 + MuMu 12 screenshot (1280x720, RGB hex) and
+        # checked there: all match the prompt, none match the 御魂 / 探索 / 庭院 screens.
+        "blockers": [{
+            "id": "no_guild",
+            "desc": "点结界突破时弹出「暂未加入任何阴阳寮，是否前往申请加入？」",
+            "when": {"colors": [
+                [451, 428, "#da624a"], [481, 426, "#d9614a"],      # red 取消
+                [679, 422, "#e9b05e"], [688, 452, "#e9b05e"],      # yellow 前往申请
+                [450, 362, "#d9c5ae"], [490, 362, "#d9c5ae"], [530, 362, "#d9c5ae"],  # dialog
+                [470, 240, "#c6b19c"], [700, 240, "#c6b29b"],      # title bar
+                [1140, 627, "#4d472f"],                            # dimmed background
+            ]},
+            "message": "账号还没加入阴阳寮，进不了个人结界突破。请先在游戏里加入一个阴阳寮再运行",
+        }],
     }
 
 
