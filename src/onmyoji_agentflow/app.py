@@ -26,6 +26,19 @@ class App:
         from .sync import SyncManager
         self.sync = SyncManager(self.cfg.data, self.store, self.ws, self.supervisor, llm=self.llm, home=self.cfg.home)
 
+    def refresh_llm(self):
+        """Pick up changed llm settings (providers switched on/off, new limits) without a restart."""
+        providers = [p for p in self.cfg["llm"].get("providers") or [] if p.get("enabled")]
+        if not providers:
+            self.llm = None
+        elif self.llm is None:
+            self.llm = LLMClient(self.cfg["llm"], self.store)
+        else:
+            self.llm.cfg = self.cfg["llm"]
+            self.llm.budget.cfg = self.cfg["llm"].get("budget") or {}
+        self.supervisor.llm = self.llm
+        self.sync.llm = self.llm
+
     def _open_device(self, instance: str):
         return open_device(self.cfg.instance(instance), self.cfg.get("mumu_root"), self.cfg.get("adb_path"))
 

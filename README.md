@@ -11,7 +11,7 @@
 > - 花勾玉、抽卡、购买、出售、分解这些操作每次都要你确认，没人回答就当作拒绝；但工具仍可能误识别、误点。
 > - 本项目和网易、assttyys、OAS 的作者都没有关系。按 GPL-3.0 "原样"提供，不带任何担保，后果自负。
 
-当前版本 0.1.0 **还没有在真实的 Windows + MuMu 12 + 阴阳师上跑过**，测试用的都是程序合成的截图，见文末「已知限制」。
+当前版本 0.1.1 **还没有在真实的 Windows + MuMu 12 + 阴阳师上跑过**，测试用的都是程序合成的截图，见文末「已知限制」。
 
 ## 功能
 
@@ -23,6 +23,8 @@
 - **上游自动同步**（`oaf sync`）：自动拉取 assttyys 和 OAS 的最新代码，转换、验证、合并或等你批准，可以回滚，见下文。
 - **MuMu 12**：自动找安装目录和多开实例，优先用 `external_renderer_ipc.dll` 专用通道截图和点按，用不了就退回 adb。
 - **命令行 `oaf`** 和 **本机网页面板**（只监听 127.0.0.1，改动类请求都要带令牌）。
+- **给 agent 用的 MCP 服务**（`oaf mcp`）：Codex、Claude Code 等客户端可以直接列实例、截图、跑工作流、同步上游、
+  改配置。敏感操作和改识别 / 流程的修复照样要你本人批准，agent 绕不过去，见「在 Codex / Claude Code 里用（MCP）」。
 
 ## 安装
 
@@ -112,10 +114,10 @@ llm:
     - {name: openai, base_url: "https://api.openai.com/v1", model: gpt-4o-mini, vision: true, enabled: true,
        price_per_mtok: 1.0}        # 可选，配了才能用 daily_cost 限额
   timeout_s: 60
-  budget:
-    monthly_tokens: 10000000   # 30 天内最多用多少 token（默认约 1000 万）
-    daily_tokens: 400000       # 每天上限
-    calls_per_hour: 30         # 每小时调用次数上限
+  budget:                      # 用量上限，默认全部 null = 不限
+    monthly_tokens: null       # 30 天内最多用多少 token
+    daily_tokens: null         # 每天 token 上限
+    calls_per_hour: null       # 每小时调用次数上限
     daily_cost: null           # 每天费用上限（单位同 price_per_mtok）
 ```
 
@@ -129,9 +131,13 @@ oaf key delete deepseek
 
 也可以用环境变量 `OAF_KEY_<名字大写>`（比如 `OAF_KEY_DEEPSEEK`）临时提供。
 
-**token 上限怎么改**：默认按「30 天内 1000 万 token、每天 40 万」算。如果你想要的是「每天 1000 万」，就把
-`daily_tokens` 改成 `10000000`，`monthly_tokens` 改成 `300000000` 或 `null`（不限）。任何一项写 `null` 就是不限。
-到上限后不再调用大模型，失败会直接交给你处理。用量在网页面板和 `oaf status` 里看。
+**用量上限**：默认不限制调用次数和 token 用量。想设上限就填数字，比如每天最多 100 万 token：
+`oaf config set llm.budget.daily_tokens 1000000`；改回不限：`oaf config set llm.budget.daily_tokens null`
+（写 `null`、`0` 或留空都是不限）。设了上限的话，到了就不再调用大模型，失败直接交给你处理。
+用量和当前上限在网页面板和 `oaf status` 里看。
+
+从 0.1.0 升级：0.1.0 会把「30 天 1000 万 / 每天 40 万 / 每小时 30 次」写进 config.yaml。0.1.1 第一次读配置时，
+如果这几项还是 0.1.0 的原样，就自动改成不限（翻译的 `max_per_sync: 2` 一起改成不限）；你改过其中任何一项的，原样保留。
 
 没配大模型也能用：工作流照常跑，只是出错和上游改动导致失效时只给报告，不会自动修。
 
@@ -189,7 +195,7 @@ assttyys 里有 100 多个功能带自定义代码，没法机械转换。想把
 upstream:
   translate:
     schemes: ["业原火", "斗技"]
-    max_per_sync: 2       # 每次同步最多翻译几个，控制用量
+    max_per_sync: null    # 每次同步最多翻译几个，默认 null = 不限；想控制用量就填数字
 ```
 
 同步时大模型会按转换结果和 auto.js 源码写出工作流（不能写代码，只能用条件、计数和变量），有花勾玉等敏感操作却没标确认的
@@ -218,6 +224,81 @@ upstream:
 ```
 
 想换源、加自己的镜像，改 `urls` 就行。定时同步也可以用 Windows 任务计划程序每天跑一次 `oaf sync`。
+
+## 在 Codex / Claude Code 里用（MCP）
+
+`oaf mcp` 是一个 [MCP](https://modelcontextprotocol.io) 服务，让 Codex、Claude Code、Cursor 等 agent 直接操作本工具。
+默认走 stdio（客户端自己启动它），也可以 `oaf mcp --http` 开一个只监听本机的 HTTP 服务。
+
+**工具**：`list_instances`（设备 / 实例）、`screenshot`、`list_workflows`、`validate_workflow`、`run_workflow`
+（`mode` 可选 run / observe / trial）、`stop_workflow`、`observe`、`status`、`logs`、`diagnose`、`sync`（等同 `oaf sync`，
+还能 check / status / show）、`list_pending`、`approve`、`reject`、`rollback`、`get_config`、`set_config`。
+
+**批准仍然由你来做**：花勾玉、抽卡、购买、出售、分解这类敏感操作，以及改识别数据 / 流程的修复，agent 调 `approve`
+不会直接通过——
+
+- 客户端支持 MCP elicitation（stdio）时，会在客户端里弹出确认框直接问你，你选「批准」才生效；关掉确认框不算批准；
+- 不支持时（包括所有 HTTP 连接）返回 `needs_user`，你在网页面板或终端（`oaf confirm <编号> yes` / `oaf approve <编号>`）里批准。
+
+不想让客户端弹框批准，把 `mcp.elicitation_approval` 设成 `false`，就只能在网页面板或终端批准。`reject` 随时可用。
+放宽安全规则的设置（`supervisor.auto_merge`、`mcp`、把网页面板开到本机以外、改已存 key 的供应商地址）通过 `set_config`
+修改也要你批准。API key 不能经 MCP 设置，请自己在终端 `oaf key set <名字>`。
+
+下面的 `oaf` 要换成实际路径时（比如装在虚拟环境里），用 `where oaf`（Windows）或 `which oaf` 查。
+不用默认工作区的，在 `mcp` 前面加 `--home <工作区>`。
+
+**Codex**（命令行，写进 `~/.codex/config.toml`）：
+
+```bash
+codex mcp add onmyoji -- oaf mcp
+```
+
+或者手写 `~/.codex/config.toml`：
+
+```toml
+[mcp_servers.onmyoji]
+command = "oaf"
+args = ["mcp"]
+tool_timeout_sec = 900   # run_workflow / observe 可能要等几分钟
+```
+
+**Claude Code**：
+
+```bash
+claude mcp add -s user onmyoji -- oaf mcp
+```
+
+或者在项目根目录放 `.mcp.json`：
+
+```json
+{
+  "mcpServers": {
+    "onmyoji": {"command": "oaf", "args": ["mcp"]}
+  }
+}
+```
+
+**HTTP 方式**（多个客户端共用一个服务；只能监听 127.0.0.1 / localhost / ::1，非本机的 Host、Origin 都会被拒）：
+
+```powershell
+$env:OAF_MCP_TOKEN = "换成一串随机字符"   # 可选，设了客户端就要带令牌
+oaf mcp --http                            # 默认 http://127.0.0.1:8766/mcp，端口可用 --port 改
+```
+
+```bash
+claude mcp add -s user --transport http onmyoji http://127.0.0.1:8766/mcp -H "Authorization: Bearer 换成一串随机字符"
+```
+
+Codex 用 HTTP：`codex mcp add onmyoji --url http://127.0.0.1:8766/mcp --bearer-token-env-var OAF_MCP_TOKEN`
+（等于在 `config.toml` 里写 `url` 和 `bearer_token_env_var`，令牌从环境变量读）。
+HTTP 连接没法弹框问你，敏感操作和修复都要到网页面板或终端里批准。
+
+**Skill**：仓库里的 [`skills/onmyoji-agentflow/SKILL.md`](skills/onmyoji-agentflow/SKILL.md) 是给 agent 看的操作说明
+（安装、配置 MCP、常见流程、注意事项）。Claude Code 复制到 `~/.claude/skills/onmyoji-agentflow/`，
+Codex 复制到 `~/.codex/skills/onmyoji-agentflow/`（或项目里的 `.agents/skills/`）即可。
+
+**命令行里改配置**：`oaf config get llm.budget`、`oaf config set llm.providers.0.enabled true`、
+`oaf config set llm.budget.daily_tokens null`。另外新增 `oaf reject <编号>`（拒绝改动）和 `oaf revert <编号>`（撤销已合并的改动）。
 
 ## 工作流格式（简要）
 
@@ -260,6 +341,8 @@ CI（GitHub Actions）在 Windows 和 Linux 上跑全部测试，还会拉取真
 - OAS 的资源会转换进工作区，但内置工作流还没有用它们；OAS 的任务流程是 Python 代码，还没有翻译通道。
 - 大模型修复和翻译只用模拟的大模型测试过，没接真实的 API 跑过。
 - OCR 是可选组件，没测过。
+- MCP：Claude Code 2.1.304 用 stdio 和 HTTP 都能连上并读到工具列表，Codex 0.163.0 能用 `codex mcp add` 加上配置；
+  两个客户端都没有实际让 agent 调用工具跑过，客户端里弹框批准（elicitation）只用模拟客户端测过。
 
 ## 许可
 

@@ -266,7 +266,7 @@ def test_llm_translation_waits_for_approval_and_rejects_unmarked_sensitive(env):
     app.sync.llm = FakeLLM(good)
     schemes = yaml.safe_load((bundled_dir() / "resources" / "assttyys" / "schemes.yaml").read_text(encoding="utf-8"))
     scheme = next(iter(schemes["schemes"]))
-    app.sync.ucfg["translate"] = {"schemes": [scheme, "不存在的方案"], "max_per_sync": 2}
+    app.sync.ucfg["translate"] = {"schemes": [scheme, "不存在的方案"], "max_per_sync": None}   # default: no limit
 
     orig = FakeUpstream.convert
 

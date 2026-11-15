@@ -301,6 +301,26 @@ class Supervisor:
             raise AgentflowError("这个改动不在等待确认的状态")
         return self.merge_change(change_id)
 
+    def reject_change(self, change_id: int) -> None:
+        """User refusal of a change waiting for confirmation; the branch stays for reference."""
+        cur = self.store.execute("UPDATE changes SET status='rejected' WHERE id=? AND status='waiting_user'",
+                                 (change_id,))
+        if cur.rowcount != 1:
+            raise AgentflowError("这个改动不在等待确认的状态")
+        self.store.event("info", "supervisor", f"改动 #{change_id} 被拒绝，没有合并")
+
+    def rollback_change(self, change_id: int) -> str:
+        """Undo a merged change by reverting its merge commit (a new commit; history is kept)."""
+        rows = self.store.query("SELECT * FROM changes WHERE id=?", (change_id,))
+        if not rows or rows[0]["status"] != "merged" or not rows[0]["merged_commit"]:
+            raise AgentflowError("这个改动没有合并过，不用回滚")
+        ch = rows[0]
+        with self.git_lock:
+            commit = self.ws.revert(ch["merged_commit"], f"回滚改动 #{change_id}（{ch['workflow']}, {ch['kind']}）")
+        self.store.execute("UPDATE changes SET status='rolled_back' WHERE id=?", (change_id,))
+        self.store.event("warn", "supervisor", f"已回滚改动 #{change_id}（{ch['workflow']}）")
+        return commit
+
     # ------------------------------------------------------------------ rollback
     def check_rollback(self, name: str) -> str | None:
         rows = self.store.query("SELECT * FROM changes WHERE workflow=? AND status='merged' ORDER BY id DESC LIMIT 1",

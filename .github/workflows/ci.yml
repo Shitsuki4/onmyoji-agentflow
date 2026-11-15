@@ -41,6 +41,18 @@ jobs:
           oaf --home "$RUNNER_TEMP/oaf" validate realm_raid
           oaf --home "$RUNNER_TEMP/oaf" validate exploration
           oaf --home "$RUNNER_TEMP/oaf" sync status
+          oaf --home "$RUNNER_TEMP/oaf" config get llm.budget
+      - name: MCP smoke test (stdio)
+        shell: bash
+        run: |
+          printf '%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"0"}}}' \
+            '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+            '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+            '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_workflows","arguments":{}}}' \
+            '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"get_config","arguments":{"path":"llm.budget"}}}' \
+            | oaf --home "$RUNNER_TEMP/oaf" mcp > "$RUNNER_TEMP/mcp.out"
+          python tests/mcp_smoke_check.py "$RUNNER_TEMP/mcp.out"
 
   upstream-sync:
     name: real upstream sync (${{ matrix.os }})

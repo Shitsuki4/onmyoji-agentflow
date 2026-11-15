@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import getpass
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -180,7 +181,10 @@ def cmd_status(args):
         print(f"#{r['id']} {r['workflow']}@{r['instance']} {r['mode']} {r['status']} {r['failure_kind'] or ''} {r['reason']}")
     if app.llm:
         snap = app.llm.budget.snapshot()
-        print(f"大模型今日 {snap['day']['tokens']} token / {snap['day']['calls']} 次，30 天 {snap['month']['tokens']} token")
+        lim = snap["limits"]
+        lim_txt = "不限" if lim == "不限" else "，".join(f"{k}={v}" for k, v in lim.items())
+        print(f"大模型今日 {snap['day']['tokens']} token / {snap['day']['calls']} 次，30 天 {snap['month']['tokens']} token"
+              f"（上限：{lim_txt}）")
     pend = app.broker.pending()
     for c in pend:
         print(f"待确认 #{c['id']}: {c['category']} - {c['detail']}")
@@ -200,6 +204,64 @@ def cmd_approve(args):
     app = _app(args)
     commit = app.supervisor.approve_change(args.id)
     print(f"已合并，提交 {commit[:8]}")
+    return 0
+
+
+def cmd_reject(args):
+    app = _app(args)
+    app.supervisor.reject_change(args.id)
+    print(f"已拒绝改动 #{args.id}，没有合并")
+    return 0
+
+
+def cmd_revert(args):
+    app = _app(args)
+    commit = app.supervisor.rollback_change(args.id)
+    print(f"已回滚改动 #{args.id}，提交 {commit[:8]}")
+    return 0
+
+
+def cmd_config(args):
+    import json as _json
+
+    from .config import Config, get_path, parse_value, set_path, validate_setting
+    cfg = Config(args.home)
+    if args.action == "path":
+        print(cfg.path)
+        return 0
+    if args.action == "get":
+        value = get_path(cfg.data, args.key) if args.key else cfg.data
+        print(_json.dumps(value, ensure_ascii=False, indent=2, default=str))
+        return 0
+    if not args.key or args.value is None:
+        print("用法：oaf config set <路径> <值>，比如 oaf config set llm.budget.daily_tokens 200000"
+              "（null 表示不限）", file=sys.stderr)
+        return 2
+    value = parse_value(args.value)
+    validate_setting(args.key, value)
+    old = set_path(cfg.data, args.key, value)
+    cfg.save()
+    print(f"{args.key}：{_json.dumps(old, ensure_ascii=False, default=str)} → "
+          f"{_json.dumps(get_path(cfg.data, args.key), ensure_ascii=False, default=str)}")
+    return 0
+
+
+def cmd_mcp(args):
+    from .app import App
+    from .mcp_server import MCPServer, serve_http, serve_stdio
+    if args.http:
+        app = App(args.home)
+        mcfg = (app.cfg.get("mcp") or {}).get("http") or {}
+        host = args.host or mcfg.get("host", "127.0.0.1")
+        port = args.port if args.port is not None else int(mcfg.get("port", 8766))
+        token = args.token or os.environ.get("OAF_MCP_TOKEN") or None
+        serve_http(MCPServer(app), host, port, token)
+        return 0
+    # stdio: stdout carries the protocol only; anything else printed goes to stderr
+    proto_out = sys.stdout.buffer
+    sys.stdout = sys.stderr
+    app = App(args.home)
+    serve_stdio(MCPServer(app), sys.stdin.buffer, proto_out)
     return 0
 
 
@@ -359,6 +421,23 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("approve", help="批准一个已通过验证、等你确认的改动")
     s.add_argument("id", type=int)
     s.set_defaults(func=cmd_approve)
+    s = sub.add_parser("reject", help="拒绝一个等你确认的改动（不合并）")
+    s.add_argument("id", type=int)
+    s.set_defaults(func=cmd_reject)
+    s = sub.add_parser("revert", help="撤销一个已经合并的改动（新提交，历史保留）")
+    s.add_argument("id", type=int)
+    s.set_defaults(func=cmd_revert)
+    s = sub.add_parser("config", help="读写 config.yaml 的设置，如 oaf config set llm.budget.daily_tokens null")
+    s.add_argument("action", choices=["get", "set", "path"])
+    s.add_argument("key", nargs="?", help="用点分隔的路径，如 llm.budget.daily_tokens")
+    s.add_argument("value", nargs="?", help="新值，按 YAML 解析：123、true、null（不限）、[a, b]")
+    s.set_defaults(func=cmd_config)
+    s = sub.add_parser("mcp", help="启动 MCP 服务，给 Codex、Claude Code 等 agent 调用（默认 stdio）")
+    s.add_argument("--http", action="store_true", help="改用 HTTP（Streamable HTTP），只监听本机")
+    s.add_argument("--host", help="HTTP 监听地址，只能是 127.0.0.1 / localhost / ::1（默认 mcp.http.host）")
+    s.add_argument("--port", type=int, help="HTTP 端口（默认 mcp.http.port，8766）")
+    s.add_argument("--token", help="HTTP 访问令牌，客户端要带 Authorization: Bearer <token>；也可以用环境变量 OAF_MCP_TOKEN")
+    s.set_defaults(func=cmd_mcp)
     s = sub.add_parser("web", help="启动本机网页面板")
     s.add_argument("--host")
     s.add_argument("--port", type=int)
@@ -389,7 +468,7 @@ def main(argv=None) -> int:
         return 130
     except Exception as e:  # noqa: BLE001
         from .errors import AgentflowError
-        if isinstance(e, AgentflowError) or isinstance(e, (FileNotFoundError, KeyError)):
+        if isinstance(e, AgentflowError) or isinstance(e, (FileNotFoundError, KeyError, ValueError)):
             print(f"错误：{e}", file=sys.stderr)
             return 2
         raise
