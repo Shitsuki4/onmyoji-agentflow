@@ -332,7 +332,8 @@ class AgentTools:
         for name in self.app.workflows():
             try:
                 wf = self.app.supervisor.load(name)
-                out.append({"name": name, "title": wf.title, "states": len(wf.states), "params": wf.param_defaults()})
+                out.append({"name": name, "title": wf.title, "states": len(wf.states), "params": wf.param_defaults(),
+                            "requires": wf.requires})
             except Exception as e:  # noqa: BLE001
                 out.append({"name": name, "error": str(e)})
         return _result({"workflows": out})

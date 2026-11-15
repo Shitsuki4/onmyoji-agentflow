@@ -86,6 +86,8 @@ def cmd_list(args):
         wf = app.supervisor.load(name)
         params = ", ".join(f"{k}={v}" for k, v in wf.param_defaults().items())
         print(f"{name:14s} {wf.title}  ({params})")
+        if wf.requires:
+            print(f"{'':14s} 前置条件：{'、'.join(wf.requires)}")
     return 0
 
 
@@ -101,6 +103,8 @@ def cmd_validate(args):
         wf = app.supervisor.load(args.workflow)
         cases_dir = app.ws.path / "tests" / wf.name
     print(f"格式正确：{wf.name}，{len(wf.states)} 个状态，{len(wf.resources)} 个资源")
+    if wf.requires:
+        print("前置条件：" + "、".join(wf.requires))
     results = run_cases(wf, load_cases(cases_dir))
     bad = [r for r in results if not r.ok]
     if results:

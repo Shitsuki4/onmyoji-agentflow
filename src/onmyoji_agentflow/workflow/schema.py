@@ -11,6 +11,9 @@ See docs/workflow-format.md for the full description. Summary::
     vars: {runs: 0}
     limits: {timeout_s: 3600, unknown_timeout_s: 60, stuck_timeout_s: 90, no_progress_timeout_s: 600, max_repeat: 20}
     stop_when: "runs >= max_runs"
+    requires: [已加入阴阳寮]          # optional, account prerequisites shown to the user
+    blockers:                          # optional, screens meaning a prerequisite is missing
+      - {id: no_guild, when: {colors: [...]}, message: 账号还没加入阴阳寮}
     states:
       - id: challenge
         when: {colors: [[1180, 630, "#f3cc8a"], ...]}
@@ -68,6 +71,17 @@ class Workflow:
     @property
     def similarity(self) -> float:
         return float(self.raw.get("similarity", 93))
+
+    @property
+    def requires(self) -> list[str]:
+        """Account prerequisites (e.g. 已加入阴阳寮). Not checked automatically; shown to the user."""
+        return list(self.raw.get("requires") or [])
+
+    @property
+    def blockers(self) -> list[dict]:
+        """Screens meaning a prerequisite is missing (e.g. the 未入寮 prompt). Matching one stops the
+        run with failure kind ``prerequisite``; the supervisor never repairs the workflow for it."""
+        return list(self.raw.get("blockers") or [])
 
     def param_defaults(self) -> dict:
         return {k: (v.get("default") if isinstance(v, dict) else v) for k, v in (self.raw.get("params") or {}).items()}
@@ -255,6 +269,16 @@ def validate(raw: dict, resources: dict) -> None:
             raise WorkflowError(f"{where}: sensitive 只能是 {SENSITIVE}")
         if st.get("on_repeat", "fail") not in ("fail", "stop"):
             raise WorkflowError(f"{where}: on_repeat 只能是 fail 或 stop")
+    req = raw.get("requires") or []
+    if not isinstance(req, list) or not all(isinstance(x, str) and x.strip() for x in req):
+        raise WorkflowError("requires 必须是一组文字说明（账号前置条件），如 [已加入阴阳寮]")
+    for i, b in enumerate(raw.get("blockers") or []):
+        where = f"blockers[{i}]"
+        if not isinstance(b, dict) or not b.get("id") or not b.get("message") or "when" not in b:
+            raise WorkflowError(f"{where}: 需要 id、when、message 三项")
+        if b["id"] in ids:
+            raise WorkflowError(f"{where}: id 和状态重复")
+        validate_condition(b["when"], resources, variables, f"blocker {b['id']}.when")
     if raw.get("stop_when"):
         compile_expr(raw["stop_when"])
         unknown = names_in(raw["stop_when"]) - variables

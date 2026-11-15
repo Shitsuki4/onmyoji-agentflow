@@ -144,3 +144,38 @@ def test_exploration_swipes_then_leaves():
     res = Runner(wf, ctl, params={"max_rounds": 1, "max_swipes": 3}, clock=FakeClock(), max_actions=5).run()
     kinds = [i[0] for i in dev.inputs]
     assert kinds[:3] == ["swipe", "swipe", "swipe"] and kinds[3] == "tap"
+
+
+# --- account prerequisites (requires / blockers) -----------------------------------------------
+
+def _guild_wf():
+    return load_workflow({"format": 1, "name": "t", "requires": ["账号已加入阴阳寮"],
+                          "blockers": [{"id": "no_guild", "when": {"colors": [[30, 30, "#00ff00"]]},
+                                        "message": "账号还没加入阴阳寮，请先在游戏里加入一个阴阳寮"}],
+                          "states": [{"id": "a", "when": {"colors": [[10, 10, "#ff0000"]]}, "do": [{"wait": 100}]}]})
+
+
+def test_blocker_stops_with_prerequisite():
+    wf = _guild_wf()
+    img = blank()
+    img[30, 30] = (0, 255, 0)
+    ctl, dev = ctl_for([img])
+    res = Runner(wf, ctl, clock=FakeClock()).run()
+    assert res.status == "failed" and res.failure_kind == "prerequisite"
+    assert "阴阳寮" in res.reason and dev.inputs == []
+
+
+def test_unknown_screen_mentions_requires():
+    wf = _guild_wf()
+    ctl, _ = ctl_for([blank()])
+    res = Runner(wf, ctl, clock=FakeClock(step=5)).run()
+    assert res.failure_kind == "unknown_screen" and "账号已加入阴阳寮" in res.reason
+
+
+def test_requires_and_blockers_validated():
+    with pytest.raises(WorkflowError):
+        load_workflow({"format": 1, "name": "t", "requires": "入寮", "states": [{"id": "a", "when": {"expr": "1"}}]})
+    with pytest.raises(WorkflowError):
+        load_workflow({"format": 1, "name": "t", "blockers": [{"id": "b", "when": {"expr": "1"}}],
+                       "states": [{"id": "a", "when": {"expr": "1"}}]})
+    assert load_workflow(WF_DIR / "realm_raid.yaml").requires

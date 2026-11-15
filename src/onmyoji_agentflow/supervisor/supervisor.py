@@ -57,7 +57,9 @@ SYSTEM_PROMPT = """你是阴阳师自动化工作流的监管助手。工作流�
 {"op":"set_similarity","state":"<id>","value":90}
 {"op":"recapture_colors","state":"<id>","points":[[x,y],...]}   # 3-30 个点，颜色由程序从截图采样
 {"op":"add_state","before":"<id>","state":{...}}  {"op":"replace_state","state":{...}}  {"op":"remove_state","id":"<id>"}
-规则：坐标是 1280x720。永远不要去掉已有的 confirm/sensitive。涉及花勾玉、抽卡、购买、出售、分解的新状态必须加 sensitive。
+规则：坐标是 1280x720。永远不要去掉已有的 confirm/sensitive。
+如果截图说明是账号条件不满足（account_requires 里列的条件，例如提示要先加入阴阳寮、等级不够、功能未解锁），
+这不是脚本故障：action 用 "human"，diagnosis 里写清楚缺什么条件，不要给 ops。涉及花勾玉、抽卡、购买、出售、分解的新状态必须加 sensitive。
 弄不清楚就返回 action=human。"""
 
 
@@ -131,7 +133,7 @@ class Supervisor:
         res = self._run_once(wf, instance, params)
         outcome = Outcome(res)
         retries = 0
-        while res.status == "failed" and res.failure_kind != "confirm_denied" and retries < int(
+        while res.status == "failed" and res.failure_kind not in ("confirm_denied", "prerequisite") and retries < int(
                 self.scfg.get("max_local_retries", 2)) and not self.stop_flags[instance].is_set():
             retries += 1
             outcome.level = "local"
@@ -151,7 +153,7 @@ class Supervisor:
             if res.status == "failed":
                 outcome.level = "human"
             return outcome
-        if res.failure_kind in ("confirm_denied", "device"):
+        if res.failure_kind in ("confirm_denied", "device", "prerequisite"):
             outcome.level = "human"
             outcome.notes.append("需要你处理：" + res.reason)
             self.store.event("error", "supervisor", f"{name}@{instance} 需要人工处理：{res.reason}")
@@ -174,6 +176,9 @@ class Supervisor:
         diag = Runner(wf, _Observe()).diagnose_frame(frame) if frame is not None else []
         text = {
             "workflow": wf.name, "failure": res.summary(), "state_matches": diag,
+            # account prerequisites: if the screenshot shows one is missing (e.g. 未加入阴阳寮), answer
+            # action "human" and say so; never patch the workflow for it
+            "account_requires": wf.requires,
             "workflow_yaml": wf.dump()[:12000],
         }
         content = [{"type": "text", "text": json.dumps(text, ensure_ascii=False, default=str)}]

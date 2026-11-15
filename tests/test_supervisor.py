@@ -252,3 +252,22 @@ def test_untouched_v010_limits_are_removed_but_user_limits_kept(tmp_path):
     (home / "config.yaml").write_text(dump_yaml({"llm": {"budget": {**v010, "daily_tokens": 123}}}), encoding="utf-8")
     assert Config(home)["llm"]["budget"]["daily_tokens"] == 123          # edited by the user: kept as is
     assert Config(home)["llm"]["budget"]["monthly_tokens"] == 10_000_000
+
+
+def test_prerequisite_goes_to_user_without_repair(tmp_path):
+    from helpers import blank
+    import yaml as _y
+    llm = FakeLLM(None)
+    img = blank()
+    img[30, 30] = (0, 255, 0)
+    sup, store, ws, devices = make_sup(tmp_path, lambda: [img], llm=llm, cfg_over={"max_local_retries": 2})
+    p = ws.path / "workflows" / "orochi.yaml"
+    raw = _y.safe_load(p.read_text(encoding="utf-8"))
+    raw["requires"] = ["账号已加入阴阳寮"]
+    raw["blockers"] = [{"id": "no_guild", "when": {"colors": [[30, 30, "#00ff00"]]}, "message": "账号还没加入阴阳寮"}]
+    p.write_text(_y.safe_dump(raw, allow_unicode=True), encoding="utf-8")
+    out = sup.run("orochi", "main")
+    assert out.result.failure_kind == "prerequisite"
+    assert out.level == "human" and any("阴阳寮" in n for n in out.notes)
+    assert llm.calls == 0                         # no LLM diagnosis, no patch
+    assert not any(n.startswith("第 ") for n in out.notes)   # no local retries
