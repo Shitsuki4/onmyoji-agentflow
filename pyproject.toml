@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "onmyoji-agentflow"
+dynamic = ["version"]
+description = "阴阳师 MuMu 12 工作流引擎：把 assttyys / OnmyojiAutoScript 的识别数据转成 YAML 状态机，带大模型监管和上游自动同步"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "GPL-3.0-or-later"}
+authors = [{name = "Shitsuki4"}]
+keywords = ["onmyoji", "mumu", "adb", "automation", "workflow"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Natural Language :: Chinese (Simplified)",
+]
+dependencies = [
+    "numpy>=1.24",
+    "opencv-python-headless>=4.8",
+    "PyYAML>=6.0",
+    "keyring>=24",
+]
+
+[project.optional-dependencies]
+ocr = ["rapidocr_onnxruntime>=1.3"]
+test = ["pytest>=7.4"]
+
+[project.scripts]
+oaf = "onmyoji_agentflow.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/Shitsuki4/onmyoji-agentflow"
+Issues = "https://github.com/Shitsuki4/onmyoji-agentflow/issues"
+
+[tool.setuptools.dynamic]
+version = {attr = "onmyoji_agentflow.__version__"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+onmyoji_agentflow = ["data/**/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "tests"]

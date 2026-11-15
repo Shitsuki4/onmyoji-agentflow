@@ -1,0 +1,301 @@
+# 由 onmyoji_agentflow.convert.build_mvp 从 assttyys_autojs 的识别数据生成，请勿手改坐标；
+# 需要调整时改 build_mvp.py 或交给 agent 监管修复（会在 git 分支上提交）。
+# 识别数据来源 https://github.com/zzliux/assttyys_autojs  MIT License, Copyright (c) 2019 Chaos
+format: 1
+name: exploration
+title: 探索（个人）
+desc: 在探索地图里优先打首领，其次打小怪（无差别），没怪时划动地图，划满次数后退出重进。由 assttyys 方案「个人探索」的 014 翻译；「打经验」「打掉落」模式没有做。
+resources: [assttyys/colors.yaml]
+inline_resources:
+  chapter_xy:
+    type: click
+    rect: [1146, 491, 1166, 511]
+    desc: 章节坐标，默认 1156,501 (assttyys 014 xy 默认值)
+similarity: 93
+params:
+  max_rounds:
+    default: 20
+    min: 1
+    max: 500
+    desc: 探索轮数（打完首领算一轮）
+  max_swipes:
+    default: 4
+    min: 1
+    max: 30
+    desc: 没怪时最多划几次再退出（assttyys 默认 4）
+vars:
+  rounds: 0
+  boss: 0
+  losses: 0
+  swipes: 0
+limits:
+  timeout_s: 14400
+  unknown_timeout_s: 60
+  stuck_timeout_s: 120
+  no_progress_timeout_s: 600
+  max_repeat: 20
+stop_when: rounds >= max_rounds
+states:
+- id: stamina_empty
+  desc: 体力不足，停止
+  from: 'assttyys 002 #19'
+  when:
+    res: 退出结算_体力不足
+  do:
+  - stop: 体力不足
+- id: settle_6
+  desc: 结算界面：单人胜利太鼓，点击退出
+  from: 'assttyys 002 #6'
+  when:
+    res: 退出结算_单人_胜利太鼓
+  do:
+  - click_random: [[165, 60, 1070, 604], [165, 60, 1263, 530]]
+    delay: 400
+  - set: &id001
+      rounds: rounds + boss
+      boss: 0
+    first: true
+  max_repeat: 10
+  progress: true
+- id: settle_0
+  desc: 结算界面：左上角贪吃鬼，点击退出
+  from: 'assttyys 002 #0'
+  when:
+    res: 退出结算_左上角贪吃鬼
+  do:
+  - click_random: [[15, 139, 83, 309], [12, 391, 93, 548], [1202, 140, 1267, 630]]
+    delay: 1000
+  max_repeat: 10
+- id: settle_1
+  desc: 结算界面：左上角贪吃鬼(MuMu)，点击退出
+  from: 'assttyys 002 #1'
+  when:
+    res: 退出结算_左上角贪吃鬼_mumu
+  do:
+  - click_random: [[15, 139, 83, 309], [12, 391, 93, 548], [1202, 140, 1267, 630]]
+    delay: 1000
+  max_repeat: 10
+- id: settle_2
+  desc: 结算界面：已打开的达摩 1，点击退出
+  from: 'assttyys 002 #2'
+  when:
+    res: 退出结算_已打开的达摩_1
+  do:
+  - click_random: [[15, 139, 83, 309], [12, 391, 93, 548], [1202, 140, 1267, 630]]
+    delay: 1000
+  max_repeat: 10
+- id: settle_3
+  desc: 结算界面：已打开的达摩 2，点击退出
+  from: 'assttyys 002 #3'
+  when:
+    res: 退出结算_已打开的达摩_2
+  do:
+  - click_random: [[15, 139, 83, 309], [12, 391, 93, 548], [1202, 140, 1267, 630]]
+    delay: 1000
+  max_repeat: 10
+- id: settle_4
+  desc: 结算界面：已打开的达摩 3，点击退出
+  from: 'assttyys 002 #4'
+  when:
+    res: 退出结算_已打开的达摩_3
+  do:
+  - click_random: [[15, 139, 83, 309], [12, 391, 93, 548], [1202, 140, 1267, 630]]
+    delay: 1000
+  max_repeat: 10
+- id: settle_11
+  desc: 结算界面：左上角统计图标，点击退出
+  from: 'assttyys 002 #11'
+  when:
+    res: 退出结算_左上角统计图标
+  do:
+  - click_random: [[1217, 106, 1272, 700], [600, 672, 1216, 712]]
+    delay: 400
+  max_repeat: 10
+- id: settle_14
+  desc: 结算界面：掉落物金框，点击退出
+  from: 'assttyys 002 #14'
+  when:
+    res: 退出结算_经验金币buff_掉落物金框
+  do:
+  - click_random: [[59, 32, 106, 662], [1192, 49, 1261, 654]]
+    delay: 1000
+  max_repeat: 10
+- id: settle_lose
+  desc: 单人失败太鼓，点击退出
+  from: 'assttyys 002 #9'
+  when:
+    res: 退出结算_单人_失败太鼓
+  do:
+  - click_random: [[69, 171, 170, 320], [1104, 72, 1200, 528]]
+    delay: 2000
+  - inc: losses
+    first: true
+  - set: *id001
+    first: true
+  max_repeat: 10
+- id: settle_overflow
+  desc: 御魂溢出确认框，点确认
+  from: 'assttyys 002 #13'
+  when:
+    res: 退出结算_御魂溢出确认
+  do:
+  - click: [686, 398, 799, 445]
+    delay: 300
+  max_repeat: 5
+- id: settle_cancel_box
+  desc: 取消确认框，点确认
+  from: 'assttyys 002 #21'
+  when:
+    res: 退出结算_取消确认框
+  do:
+  - click: [680, 411, 838, 452]
+    delay: 500
+  max_repeat: 5
+- id: battle_manual
+  desc: 战斗中是手动状态，开启自动
+  from: 'assttyys 001 #1'
+  when:
+    res: 战斗界面_手动状态
+  do:
+  - click: [37, 637, 86, 686]
+    delay: 1000
+  max_repeat: 5
+- id: prepare
+  desc: 准备界面，点准备
+  from: 'assttyys 001 #0'
+  when:
+    res: 准备界面_未准备
+  do:
+  - click: [1137, 542, 1228, 632]
+    delay: 1000
+  max_repeat: 10
+- id: boss_appeared
+  desc: 首领出现，点首领
+  from: 'assttyys 014 #2'
+  when:
+    colors: [[512, 344, '#ffffde'], [558, 338, '#fffff9'], [619, 340, '#fffff0'], [675, 344, '#fffff4'], [750, 348, '#ffffe0']]
+  do:
+  - wait: 1000
+  - click: [613, 248, 668, 297]
+    delay: 1000
+  - set:
+      boss: 1
+      swipes: 0
+  max_repeat: 4
+  progress: true
+- id: challenge_boss
+  desc: 地图里有首领挑战图标，点它
+  from: assttyys 014 探索_挑战BOSS
+  when:
+    all:
+    - &id002
+      colors: [[29, 672, '#615a77'], [54, 60, '#dec38c'], [124, 26, '#f7eeb5'], [1163, 22, '#d7b288'], [1223, 21, '#d4ae84']]
+    - find: 探索_挑战BOSS
+  do:
+  - click_found: true
+    offset: &id003 [0, 0, 42, 51]
+    delay: 1000
+  - set:
+      boss: 1
+      swipes: 0
+  max_repeat: 4
+  progress: true
+- id: challenge
+  desc: 地图里有小怪挑战图标（无差别），点它
+  from: assttyys 014 探索_挑战
+  when:
+    all:
+    - *id002
+    - find: 探索_挑战
+  do:
+  - click_found: true
+    offset: *id003
+    delay: 1000
+  - set:
+      swipes: 0
+  max_repeat: 4
+  progress: true
+- id: swipe_map
+  desc: 当前屏幕没有挑战图标，向左划地图
+  from: assttyys 014 regionBezierSwipe
+  when:
+    all:
+    - *id002
+    - expr: swipes < max_swipes
+  do:
+  - swipe:
+      from: [1121, 117, 1224, 209]
+      to: [46, 215, 162, 525]
+    duration_ms: [800, 1200]
+    delay: 200
+  - inc: swipes
+  max_repeat: 40
+- id: leave_map
+  desc: 划了 max_swipes 次还没怪，点左上角返回并确认退出
+  from: 'assttyys 014 #0 oper[3]/[4]'
+  when: *id002
+  do:
+  - click: [32, 20, 69, 51]
+    delay: 1000
+  - click: [702, 388, 846, 421]
+    delay: 1000
+  - set:
+      swipes: 0
+  max_repeat: 3
+- id: chest
+  desc: 章节界面有宝箱，先领宝箱
+  from: 'assttyys 014 #4 + 探索_宝箱'
+  when:
+    all:
+    - colors: &id004 [[995, 580, '#5e3e2f'], [1081, 581, '#583826'], [1041, 601, '#e1d5c0'], [1047, 659, '#e6dac5'], [1003, 676, '#3b2118'], [1076, 672, '#351f18']]
+    - find: 探索_宝箱
+  do:
+  - click_found: true
+    offset: [0, 0, 10, 10]
+    delay: 500
+  max_repeat: 4
+- id: enter_normal
+  desc: 章节界面（普通），点探索进入
+  from: 'assttyys 014 #4'
+  when:
+    colors: *id004
+  do:
+  - click: [995, 590, 1086, 668]
+    delay: 1000
+  max_repeat: 5
+- id: enter_hard
+  desc: 章节界面（困难），点探索进入
+  from: 'assttyys 014 #3'
+  when:
+    colors: [[898, 583, '#523428'], [942, 589, '#e4dac3'], [978, 625, '#e1d6c0'], [1133, 659, '#e2d7c1'], [1132, 596, '#e7dbc4']]
+  do:
+  - click: [1090, 588, 1178, 663]
+    delay: 1000
+  max_repeat: 5
+- id: misc_5
+  desc: 探索界面杂项弹窗
+  from: 'assttyys 014 #5'
+  when:
+    colors: [[58, 657, '#ffffff'], [76, 682, '#efaa9c'], [136, 717, '#3c1115'], [27, 668, '#9b9599']]
+  do:
+  - click: [45, 650, 88, 693]
+    delay: 1000
+  max_repeat: 5
+- id: misc_6
+  desc: 探索界面杂项弹窗
+  from: 'assttyys 014 #6'
+  when:
+    colors: [[56, 325, '#9d8f7c'], [95, 328, '#9f9c95'], [109, 332, '#a6a39c'], [122, 334, '#9e9b95'], [127, 338, '#a3a099']]
+  do:
+  - click: [44, 323, 137, 342]
+    delay: 1000
+  max_repeat: 5
+- id: chapter_map
+  desc: 探索章节地图，点要打的章节（坐标可改 chapter_xy）
+  from: 'assttyys 014 #1'
+  when:
+    res: 探索地图界面
+  do:
+  - click: chapter_xy
+    delay: 1000
+  max_repeat: 5

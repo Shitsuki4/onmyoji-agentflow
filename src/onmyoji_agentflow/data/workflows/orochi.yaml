@@ -1,0 +1,208 @@
+# 由 onmyoji_agentflow.convert.build_mvp 从 assttyys_autojs 的识别数据生成，请勿手改坐标；
+# 需要调整时改 build_mvp.py 或交给 agent 监管修复（会在 git 分支上提交）。
+# 识别数据来源 https://github.com/zzliux/assttyys_autojs  MIT License, Copyright (c) 2019 Chaos
+format: 1
+name: orochi
+title: 御魂（个人）
+desc: 在御魂挑战界面反复挑战，达到次数或体力不足时停止。对应 assttyys 方案「个人御魂」里的 001 准备、002 退出结算、006 御魂/御灵/秘闻挑战。
+resources: [assttyys/colors.yaml]
+similarity: 93
+params:
+  max_runs:
+    default: 30
+    min: 1
+    max: 999
+    desc: 挑战次数
+vars:
+  runs: 0
+  done: 0
+  losses: 0
+limits:
+  timeout_s: 14400
+  unknown_timeout_s: 60
+  stuck_timeout_s: 120
+  no_progress_timeout_s: 600
+  max_repeat: 20
+stop_when: done >= max_runs
+states:
+- id: stamina_empty
+  desc: 体力不足，停止
+  from: 'assttyys 002 #19'
+  when:
+    res: 退出结算_体力不足
+  do:
+  - stop: 体力不足
+- id: settle_6
+  desc: 结算界面：单人胜利太鼓，点击退出
+  from: 'assttyys 002 #6'
+  when:
+    res: 退出结算_单人_胜利太鼓
+  do:
+  - click_random: [[165, 60, 1070, 604], [165, 60, 1263, 530]]
+    delay: 400
+  - set:
+      done: done + 1
+    first: true
+  max_repeat: 10
+  progress: true
+- id: settle_0
+  desc: 结算界面：左上角贪吃鬼，点击退出
+  from: 'assttyys 002 #0'
+  when:
+    res: 退出结算_左上角贪吃鬼
+  do:
+  - click_random: [[15, 139, 83, 309], [12, 391, 93, 548], [1202, 140, 1267, 630]]
+    delay: 1000
+  max_repeat: 10
+- id: settle_1
+  desc: 结算界面：左上角贪吃鬼(MuMu)，点击退出
+  from: 'assttyys 002 #1'
+  when:
+    res: 退出结算_左上角贪吃鬼_mumu
+  do:
+  - click_random: [[15, 139, 83, 309], [12, 391, 93, 548], [1202, 140, 1267, 630]]
+    delay: 1000
+  max_repeat: 10
+- id: settle_2
+  desc: 结算界面：已打开的达摩 1，点击退出
+  from: 'assttyys 002 #2'
+  when:
+    res: 退出结算_已打开的达摩_1
+  do:
+  - click_random: [[15, 139, 83, 309], [12, 391, 93, 548], [1202, 140, 1267, 630]]
+    delay: 1000
+  max_repeat: 10
+- id: settle_3
+  desc: 结算界面：已打开的达摩 2，点击退出
+  from: 'assttyys 002 #3'
+  when:
+    res: 退出结算_已打开的达摩_2
+  do:
+  - click_random: [[15, 139, 83, 309], [12, 391, 93, 548], [1202, 140, 1267, 630]]
+    delay: 1000
+  max_repeat: 10
+- id: settle_4
+  desc: 结算界面：已打开的达摩 3，点击退出
+  from: 'assttyys 002 #4'
+  when:
+    res: 退出结算_已打开的达摩_3
+  do:
+  - click_random: [[15, 139, 83, 309], [12, 391, 93, 548], [1202, 140, 1267, 630]]
+    delay: 1000
+  max_repeat: 10
+- id: settle_11
+  desc: 结算界面：左上角统计图标，点击退出
+  from: 'assttyys 002 #11'
+  when:
+    res: 退出结算_左上角统计图标
+  do:
+  - click_random: [[1217, 106, 1272, 700], [600, 672, 1216, 712]]
+    delay: 400
+  max_repeat: 10
+- id: settle_14
+  desc: 结算界面：掉落物金框，点击退出
+  from: 'assttyys 002 #14'
+  when:
+    res: 退出结算_经验金币buff_掉落物金框
+  do:
+  - click_random: [[59, 32, 106, 662], [1192, 49, 1261, 654]]
+    delay: 1000
+  max_repeat: 10
+- id: settle_lose
+  desc: 单人失败太鼓，点击退出
+  from: 'assttyys 002 #9'
+  when:
+    res: 退出结算_单人_失败太鼓
+  do:
+  - click_random: [[69, 171, 170, 320], [1104, 72, 1200, 528]]
+    delay: 2000
+  - inc: losses
+    first: true
+  - set:
+      done: done + 1
+    first: true
+  max_repeat: 10
+- id: settle_overflow
+  desc: 御魂溢出确认框，点确认
+  from: 'assttyys 002 #13'
+  when:
+    res: 退出结算_御魂溢出确认
+  do:
+  - click: [686, 398, 799, 445]
+    delay: 300
+  max_repeat: 5
+- id: settle_cancel_box
+  desc: 取消确认框，点确认
+  from: 'assttyys 002 #21'
+  when:
+    res: 退出结算_取消确认框
+  do:
+  - click: [680, 411, 838, 452]
+    delay: 500
+  max_repeat: 5
+- id: battle_manual
+  desc: 战斗中是手动状态，开启自动
+  from: 'assttyys 001 #1'
+  when:
+    res: 战斗界面_手动状态
+  do:
+  - click: [37, 637, 86, 686]
+    delay: 1000
+  max_repeat: 5
+- id: prepare
+  desc: 准备界面，点准备
+  from: 'assttyys 001 #0'
+  when:
+    res: 准备界面_未准备
+  do:
+  - click: [1137, 542, 1228, 632]
+    delay: 1000
+  max_repeat: 10
+- id: challenge_0
+  desc: 挑战界面，点挑战
+  from: 'assttyys 006 #0'
+  when:
+    all:
+    - colors: [[1011, 595, '#e3d7c2'], [1012, 668, '#e7dac3'], [964, 591, '#543825'], [1149, 585, '#5b3d2d'], [1188, 588, '#e2d5c1'], [1153, 679, '#392418']]
+    - expr: runs < max_runs
+  do:
+  - click: [1148, 602, 1235, 663]
+    delay: 1000
+  - inc: runs
+    first: true
+  max_repeat: 3
+  on_repeat: stop
+  repeat_reason: 连续 3 次点挑战没反应（可能体力不足），停止
+  progress: true
+- id: challenge_1
+  desc: 挑战界面，点挑战
+  from: 'assttyys 006 #1'
+  when:
+    all:
+    - colors: [[1059, 583, '#5d402e'], [1095, 592, '#e1d6c0'], [1140, 586, '#553b2c'], [1056, 673, '#392318'], [1100, 676, '#e3d9c2']]
+    - expr: runs < max_runs
+  do:
+  - click: [1055, 595, 1143, 669]
+    delay: 1000
+  - inc: runs
+    first: true
+  max_repeat: 3
+  on_repeat: stop
+  repeat_reason: 连续 3 次点挑战没反应（可能体力不足），停止
+  progress: true
+- id: challenge_2
+  desc: 挑战界面，点挑战
+  from: 'assttyys 006 #2'
+  when:
+    all:
+    - colors: [[1056, 566, '#533522'], [1144, 564, '#59392a'], [1064, 606, '#e3d7c2'], [1142, 605, '#e5d9c4'], [1059, 651, '#392418']]
+    - expr: runs < max_runs
+  do:
+  - click: [1052, 568, 1153, 648]
+    delay: 1000
+  - inc: runs
+    first: true
+  max_repeat: 3
+  on_repeat: stop
+  repeat_reason: 连续 3 次点挑战没反应（可能体力不足），停止
+  progress: true

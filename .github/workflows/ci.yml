@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 3 * * 1"   # weekly: catch upstream changes that break the converters
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (${{ matrix.os }}, py${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+        python: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .[test]
+      - name: Tests
+        run: python -m pytest -q -rs
+      - name: CLI smoke test
+        shell: bash
+        run: |
+          oaf --home "$RUNNER_TEMP/oaf" init
+          oaf --home "$RUNNER_TEMP/oaf" list
+          oaf --home "$RUNNER_TEMP/oaf" validate orochi
+          oaf --home "$RUNNER_TEMP/oaf" validate realm_raid
+          oaf --home "$RUNNER_TEMP/oaf" validate exploration
+          oaf --home "$RUNNER_TEMP/oaf" sync status
+
+  upstream-sync:
+    name: real upstream sync (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .[test]
+      - name: oaf sync (fetch assttyys_autojs + OnmyojiAutoScript, convert, validate)
+        shell: bash
+        run: |
+          oaf --home "$RUNNER_TEMP/oaf" sync
+          oaf --home "$RUNNER_TEMP/oaf" sync show
+          oaf --home "$RUNNER_TEMP/oaf" validate orochi
+          oaf --home "$RUNNER_TEMP/oaf" sync
+          oaf --home "$RUNNER_TEMP/oaf" sync status
+      - name: Converter tests against the real checkouts
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/up"
+          cp -r "$RUNNER_TEMP/oaf/upstream-src/assttyys" "$RUNNER_TEMP/up/assttyys_autojs"
+          cp -r "$RUNNER_TEMP/oaf/upstream-src/oas" "$RUNNER_TEMP/up/OnmyojiAutoScript"
+          OAF_UPSTREAM="$RUNNER_TEMP/up" python -m pytest -q -rs tests/test_cli_web_convert.py -k real
