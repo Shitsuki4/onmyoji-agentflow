@@ -366,7 +366,18 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def _utf8_console() -> None:
+    """Chinese output must not crash when Windows redirects stdout to a GBK/cp1252 pipe or file."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            if (stream.encoding or "").lower().replace("-", "") != "utf8":
+                stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError, OSError):
+            pass
+
+
 def main(argv=None) -> int:
+    _utf8_console()
     args = build_parser().parse_args(argv)
     setup_logging(args.log_level)
     if getattr(args, "instance", "x") is None:

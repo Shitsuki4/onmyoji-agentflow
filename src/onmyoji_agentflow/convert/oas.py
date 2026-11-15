@@ -57,8 +57,8 @@ def convert_task(task_dir: Path, out_dir: Path, task_name: str | None = None) ->
     img_out = out_dir / "images" / task_name
     n_images = 0
     for jf in sorted(task_dir.rglob("*.json")):
-        if "temp" in str(jf):
-            continue
+        if any("temp" in part.lower() for part in jf.relative_to(task_dir).parts[:-1]):
+            continue   # OAS keeps scratch files in temp/ folders; only look inside the task itself
         try:
             data = json.loads(jf.read_text(encoding="utf-8"))
         except (ValueError, UnicodeDecodeError):
