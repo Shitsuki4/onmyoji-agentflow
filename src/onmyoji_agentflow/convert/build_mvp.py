@@ -211,7 +211,18 @@ def build_exploration(F: Funcs) -> dict:
     icon_off = op0[0]["rect"]           # [0, 0, 42, 51] added to the found icon
     swipe_from, swipe_to = op0[1]["rect"], op0[2]["rect"]
     explore_map = F.when(14, 0)
+    leave = [{"click": op0[3]["rect"], "delay": op0[3]["delay"]}, {"click": op0[4]["rect"], "delay": op0[4]["delay"]}]
+    chapter_screen = {"any": [F.when(14, 4), F.when(14, 3), {"res": "探索地图界面"}]}
     states = common_battle_states(F, {"rounds": "rounds + boss", "boss": 0}) + [
+        # Rounds used up: do not stop on the result screen (「点击屏幕继续」) but leave the chapter
+        # map and stop once the chapter / big exploration map is on screen.
+        {"id": "rounds_done_leave", "desc": "轮数已打满，还在章节地图里：点左上角返回并确认退出",
+         "from": "assttyys 014 #0 oper[3]/[4]",
+         "when": {"all": [explore_map, {"expr": "rounds >= max_rounds"}]},
+         "do": leave + [{"set": {"swipes": 0}}], "max_repeat": 4},
+        {"id": "rounds_done", "desc": "轮数已打满，已回到章节界面或探索大地图，结束",
+         "when": {"all": [chapter_screen, {"expr": "rounds >= max_rounds"}]},
+         "do": [{"stop": "探索轮数已打满，已回到章节界面"}]},
         {"id": "boss_appeared", "desc": "首领出现，点首领", "from": "assttyys 014 #2",
          "when": F.when(14, 2), "do": [{"wait": 1000}, F.click(14, 2), {"set": {"boss": 1, "swipes": 0}}], "max_repeat": 4, "progress": True},
         {"id": "challenge_boss", "desc": "地图里有首领挑战图标，点它", "from": "assttyys 014 探索_挑战BOSS",
@@ -228,8 +239,7 @@ def build_exploration(F: Funcs) -> dict:
                 {"inc": "swipes"}], "max_repeat": 40},
         {"id": "leave_map", "desc": "划了 max_swipes 次还没怪，点左上角返回并确认退出", "from": "assttyys 014 #0 oper[3]/[4]",
          "when": explore_map,
-         "do": [{"click": op0[3]["rect"], "delay": op0[3]["delay"]}, {"click": op0[4]["rect"], "delay": op0[4]["delay"]},
-                {"set": {"swipes": 0}}], "max_repeat": 3},
+         "do": leave + [{"set": {"swipes": 0}}], "max_repeat": 3},
         {"id": "chest", "desc": "章节界面有宝箱，先领宝箱", "from": "assttyys 014 #4 + 探索_宝箱",
          "when": {"all": [F.when(14, 4), {"find": "探索_宝箱"}]},
          "do": [{"click_found": True, "offset": [0, 0, 10, 10], "delay": 500}], "max_repeat": 4},
@@ -241,23 +251,42 @@ def build_exploration(F: Funcs) -> dict:
          "when": F.when(14, 5), "do": [F.click(14, 5)], "max_repeat": 5},
         {"id": "misc_6", "desc": "探索界面杂项弹窗", "from": "assttyys 014 #6",
          "when": F.when(14, 6), "do": [F.click(14, 6)], "max_repeat": 5},
-        {"id": "chapter_map", "desc": "探索章节地图，点要打的章节（坐标可改 chapter_xy）", "from": "assttyys 014 #1",
+        # Big exploration map (新版界面): the chapters are listed on the right under the 「主线」 tab,
+        # newest at the bottom. Pick the lowest chapter title found; if the list is not showing
+        # (「玩法」 tab open), click 「主线」 first; the fixed chapter_xy is only the last resort.
+        {"id": "chapter_last", "desc": "探索大地图，点「主线」列表里最下面（最新）的一章", "from": "assttyys 014 #1（按新版界面改写）",
+         "when": {"all": [{"res": "探索地图界面"}, {"find": "探索_主线章节标题", "pick": "last"}]},
+         "do": [{"click_found": True, "offset": [-12, 2, 10, 12], "delay": 1000}, {"set": {"tab_clicks": 0}}],
+         "max_repeat": 5},
+        {"id": "chapter_tab", "desc": "探索大地图，章节列表没显示：点右侧「主线」标签",
+         "when": {"all": [{"res": "探索地图界面"}, {"expr": "tab_clicks < 2"}]},
+         "do": [{"click": "main_tab", "delay": 1000}, {"inc": "tab_clicks"}], "max_repeat": 3},
+        {"id": "chapter_map", "desc": "探索大地图，认不出章节列表时按固定坐标点章节（可改 chapter_xy）",
          "when": {"res": "探索地图界面"},
-         "do": [{"click": "chapter_xy", "delay": 1000}], "max_repeat": 5},
+         "do": [{"click": "chapter_xy", "delay": 1000}, {"set": {"tab_clicks": 0}}], "max_repeat": 5},
     ]
     return {
         "format": 1, "name": "exploration", "title": "探索（个人）",
         "desc": ("在探索地图里优先打首领，其次打小怪（无差别），没怪时划动地图，划满次数后退出重进。"
                  "由 assttyys 方案「个人探索」的 014 翻译；「打经验」「打掉落」模式没有做。"),
         "resources": ["assttyys/colors.yaml"],
-        "inline_resources": {"chapter_xy": {"type": "click", "rect": [1146, 491, 1166, 511],
-                                            "desc": "章节坐标，默认 1156,501 (assttyys 014 xy 默认值)"}},
+        "inline_resources": {
+            "chapter_xy": {"type": "click", "rect": [1111, 464, 1131, 478],
+                           "desc": "认不出章节列表时点的章节坐标，默认 1121,471（新版界面「主线」列表第三行）"},
+            "main_tab": {"type": "click", "rect": [1096, 178, 1120, 194], "desc": "探索大地图右侧「主线」标签"},
+            "探索_主线章节标题": {
+                "type": "find_colors", "region": [1040, 200, 1240, 600], "similarity": 88, "pick": "last",
+                "desc": ("探索大地图「主线」列表里的章节标题（用「第二十X章」里「二十」两个字的笔画定位；"
+                         "在 MuMu 12 1280x720 实机截图上取点）"),
+                "groups": [[[1120, 464, "#e2dbc8"], [1120, 474, "#e2dbc8"], [1114, 470, "#e8e3d0"],
+                            [1096, 476, "#e6e0ca"], [1106, 476, "#dcd5c2"], [1110, 474, "#2d2622"],
+                            [1115, 465, "#2d2622"], [1125, 475, "#2d2622"]]]},
+        },
         "similarity": 93,
         "params": {"max_rounds": {"default": 20, "min": 1, "max": 500, "desc": "探索轮数（打完首领算一轮）"},
                    "max_swipes": {"default": 4, "min": 1, "max": 30, "desc": "没怪时最多划几次再退出（assttyys 默认 4）"}},
-        "vars": {"rounds": 0, "boss": 0, "losses": 0, "swipes": 0, "pending": 0, "started": 0},
+        "vars": {"rounds": 0, "boss": 0, "losses": 0, "swipes": 0, "pending": 0, "started": 0, "tab_clicks": 0},
         "limits": dict(LIMITS),
-        "stop_when": "rounds >= max_rounds",
         "states": states,
     }
 

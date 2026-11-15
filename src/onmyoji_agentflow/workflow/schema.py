@@ -174,6 +174,9 @@ def validate_condition(c, resources: dict, variables: set, where: str):
             raise WorkflowError(f"{where}: 未知资源 {v!r}")
         if key == "find" and resources[v].get("type") != "find_colors":
             raise WorkflowError(f"{where}: find 只能用 find_colors 资源")
+        pick = c.get("pick", resources[v].get("pick") if key == "find" else None)
+        if pick is not None and pick not in ("first", "last", "bottom", "top"):
+            raise WorkflowError(f"{where}: pick 只能是 first / last / bottom / top")
         if key == "ocr":
             if "var" not in c:
                 raise WorkflowError(f"{where}: ocr 条件需要 var")
