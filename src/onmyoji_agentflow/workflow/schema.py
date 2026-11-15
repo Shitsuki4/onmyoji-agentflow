@@ -10,7 +10,8 @@ See docs/workflow-format.md for the full description. Summary::
     params: {max_runs: {default: 30, min: 1, max: 999, desc: 挑战次数}}
     vars: {runs: 0}
     limits: {timeout_s: 3600, unknown_timeout_s: 60, stuck_timeout_s: 90, no_progress_timeout_s: 600, max_repeat: 20}
-    stop_when: "runs >= max_runs"
+    stop_when: "runs >= max_runs"    # optional; or stop on a screen with a `stop` action
+    counts: {runs: max_runs}           # optional, which counter a retry subtracts from which param
     requires: [已加入阴阳寮]          # optional, account prerequisites shown to the user
     blockers:                          # optional, screens meaning a prerequisite is missing
       - {id: no_guild, when: {colors: [...]}, message: 账号还没加入阴阳寮}
@@ -287,6 +288,13 @@ def validate(raw: dict, resources: dict) -> None:
         unknown = names_in(raw["stop_when"]) - variables
         if unknown:
             raise WorkflowError(f"stop_when 用到未定义的变量 {sorted(unknown)}")
+    counts = raw.get("counts")
+    if counts is not None:
+        if not isinstance(counts, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in counts.items()):
+            raise WorkflowError("counts 要写成 {计数变量: 次数参数}，比如 {done: max_runs}")
+        unknown = set(counts) - variables
+        if unknown:
+            raise WorkflowError(f"counts 用到未定义的变量 {sorted(unknown)}")
     for k, spec in (raw.get("params") or {}).items():
         if isinstance(spec, dict) and "default" not in spec:
             raise WorkflowError(f"params.{k} 缺少 default")

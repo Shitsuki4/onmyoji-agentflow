@@ -122,7 +122,8 @@ def build_orochi(F: Funcs) -> dict:
         "params": {"max_runs": {"default": 30, "min": 1, "max": 999, "desc": "挑战次数"}},
         "vars": {"runs": 0, "done": 0, "losses": 0, "pending": 0, "started": 0},
         "limits": dict(LIMITS),
-        "stop_when": "done >= max_runs",
+        # no stop_when: stop on the challenge / raid screen once the runs are used up, never on a result screen
+        "counts": {"done": "max_runs"},
         "states": common_battle_states(F) + [
             # back on the challenge screen with every run used: the last battle is over, stop
             {"id": f"challenge_done_{k}", "desc": "挑战界面，次数已打满，结束", "from": f"assttyys 006 #{k}",
@@ -186,7 +187,8 @@ def build_realm_raid(F: Funcs) -> dict:
         "params": {"max_runs": {"default": 30, "min": 1, "max": 300, "desc": "进攻次数上限"}},
         "vars": {"runs": 0, "done": 0, "losses": 0, "pending": 0, "started": 0},
         "limits": dict(LIMITS),
-        "stop_when": "done >= max_runs",
+        # no stop_when: stop on the challenge / raid screen once the runs are used up, never on a result screen
+        "counts": {"done": "max_runs"},
         "states": states,
         # The 「暂未加入任何阴阳寮，是否前往申请加入？」 prompt (no counterpart in assttyys/OAS).
         # Points taken by the agent on a real Win10 + MuMu 12 screenshot (1280x720, RGB hex) and
@@ -287,6 +289,7 @@ def build_exploration(F: Funcs) -> dict:
                    "max_swipes": {"default": 4, "min": 1, "max": 30, "desc": "没怪时最多划几次再退出（assttyys 默认 4）"}},
         "vars": {"rounds": 0, "boss": 0, "losses": 0, "swipes": 0, "pending": 0, "started": 0, "tab_clicks": 0},
         "limits": dict(LIMITS),
+        "counts": {"rounds": "max_rounds"},
         "states": states,
     }
 

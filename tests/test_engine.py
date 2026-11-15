@@ -42,8 +42,10 @@ def test_orochi_full_cycle():
     assert res.status == "success", res.summary()
     assert res.variables["runs"] == 3 and res.variables["done"] == 3
     taps = [i for i in dev.inputs if i[0] == "tap"]
-    # 3 x (challenge, prepare, auto, win drum) + 2 reward screens; stops right after the 3rd result
-    assert len(taps) == 14
+    # 3 x (challenge, prepare, auto, win drum, reward screen); after the 3rd run it clicks through the
+    # result screens too and stops on the challenge screen without clicking 挑战 again
+    assert len(taps) == 15
+    assert [s for _, s in res.history][-1].startswith("challenge_done")
     # clicks land inside the challenge button area
     x, y = taps[0][1], taps[0][2]
     assert 1148 <= x <= 1235 and 602 <= y <= 663
@@ -69,9 +71,11 @@ def test_orochi_long_battle_without_victory_drum_counts_and_stops():
     assert res.ended - res.started > 60  # the fight alone lasted longer than unknown_timeout_s
     states = [s for _, s in res.history]
     assert "in_battle" in states and "settle_6" not in states
-    # one click on 挑战, then one per result screen visit; nothing after the run is used up
+    # 挑战 (twice: the screen had not changed yet), then one per result screen frame; it does not stop on a
+    # result screen (live run 2026-11-16 stopped on 统计) but on the challenge screen, without clicking 挑战
     taps = [i for i in dev.inputs if i[0] == "tap"]
-    assert len(taps) == 3
+    assert len(taps) == 6
+    assert states[-1] == "challenge_done_0"
 
 
 def test_orochi_counts_each_battle_once_across_result_screens():

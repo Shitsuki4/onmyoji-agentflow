@@ -332,10 +332,11 @@ similarity: 93
 params: {max_runs: {default: 30, min: 1, max: 999}}
 vars: {done: 0}
 limits: {timeout_s: 14400, unknown_timeout_s: 60, stuck_timeout_s: 120, no_progress_timeout_s: 600, max_repeat: 20}
-stop_when: "done >= max_runs"
+counts: {done: max_runs}             # 重试时从 max_runs 里扣掉已打的次数
+# stop_when: "done >= max_runs"      # 可选：表达式一成立就停；内置三个工作流不用它，改成回到挑战/突破/探索界面后用 stop 停下
 states:
   - id: challenge
-    when: {res: 御魂挑战界面}          # 或 colors / find / image / ocr / expr / all / any / not
+    when: {res: 御魂挑战界面}          # 或 colors / find / image / ocr / expr / all / any / not；find 可加 pick: last 取最下面的一个
     do: [{click: [1100, 560, 1180, 640]}, {inc: done}]
     progress: true
   - id: buy

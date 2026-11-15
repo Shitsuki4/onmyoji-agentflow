@@ -26,7 +26,8 @@ limits:
   stuck_timeout_s: 120
   no_progress_timeout_s: 600
   max_repeat: 20
-stop_when: done >= max_runs
+counts:
+  done: max_runs
 states:
 - id: stamina_empty
   desc: 体力不足，停止
