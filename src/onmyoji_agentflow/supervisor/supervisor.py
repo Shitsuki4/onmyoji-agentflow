@@ -361,10 +361,19 @@ class _Observe:
 
 
 def remaining_params(wf, params: dict, variables: dict) -> dict:
-    """For ``stop_when: "runs >= max_runs"`` lower max_runs by what was already done."""
+    """Lower max_runs by what was already done before a retry.
+
+    The counter comes from ``counts: {done: max_runs}`` (workflows that stop on a screen, not on an
+    expression) or from ``stop_when: "runs >= max_runs"``."""
     out = dict(params)
+    pairs = list((wf.raw.get("counts") or {}).items())
     expr = wf.raw.get("stop_when") or ""
-    for var, param in re.findall(r"(\w+)\s*>=\s*(\w+)", expr):
+    pairs += re.findall(r"(\w+)\s*>=\s*(\w+)", expr)
+    seen = set()
+    for var, param in pairs:
+        if param in seen:
+            continue
+        seen.add(param)
         if param in out and isinstance(variables.get(var), int) and isinstance(out[param], int):
             out[param] = max(1, out[param] - variables[var])
     return out

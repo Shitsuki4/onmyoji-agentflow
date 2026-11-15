@@ -18,13 +18,16 @@ vars:
   runs: 0
   done: 0
   losses: 0
+  pending: 0
+  started: 0
 limits:
   timeout_s: 14400
   unknown_timeout_s: 60
   stuck_timeout_s: 120
   no_progress_timeout_s: 600
   max_repeat: 20
-stop_when: done >= max_runs
+counts:
+  done: max_runs
 states:
 - id: stamina_empty
   desc: 体力不足，停止
@@ -39,11 +42,13 @@ states:
   when:
     res: 退出结算_单人_胜利太鼓
   do:
+  - set:
+      done: done + pending
+      pending: 0
+      started: 0
+    first: true
   - click_random: [[165, 60, 1070, 604], [165, 60, 1263, 530]]
     delay: 400
-  - set:
-      done: done + 1
-    first: true
   max_repeat: 10
   progress: true
 - id: settle_0
@@ -52,77 +57,121 @@ states:
   when:
     res: 退出结算_左上角贪吃鬼
   do:
+  - set:
+      done: done + pending
+      pending: 0
+      started: 0
+    first: true
   - click_random: [[15, 139, 83, 309], [12, 391, 93, 548], [1202, 140, 1267, 630]]
     delay: 1000
   max_repeat: 10
+  progress: true
 - id: settle_1
   desc: 结算界面：左上角贪吃鬼(MuMu)，点击退出
   from: 'assttyys 002 #1'
   when:
     res: 退出结算_左上角贪吃鬼_mumu
   do:
+  - set:
+      done: done + pending
+      pending: 0
+      started: 0
+    first: true
   - click_random: [[15, 139, 83, 309], [12, 391, 93, 548], [1202, 140, 1267, 630]]
     delay: 1000
   max_repeat: 10
+  progress: true
 - id: settle_2
   desc: 结算界面：已打开的达摩 1，点击退出
   from: 'assttyys 002 #2'
   when:
     res: 退出结算_已打开的达摩_1
   do:
+  - set:
+      done: done + pending
+      pending: 0
+      started: 0
+    first: true
   - click_random: [[15, 139, 83, 309], [12, 391, 93, 548], [1202, 140, 1267, 630]]
     delay: 1000
   max_repeat: 10
+  progress: true
 - id: settle_3
   desc: 结算界面：已打开的达摩 2，点击退出
   from: 'assttyys 002 #3'
   when:
     res: 退出结算_已打开的达摩_2
   do:
+  - set:
+      done: done + pending
+      pending: 0
+      started: 0
+    first: true
   - click_random: [[15, 139, 83, 309], [12, 391, 93, 548], [1202, 140, 1267, 630]]
     delay: 1000
   max_repeat: 10
+  progress: true
 - id: settle_4
   desc: 结算界面：已打开的达摩 3，点击退出
   from: 'assttyys 002 #4'
   when:
     res: 退出结算_已打开的达摩_3
   do:
+  - set:
+      done: done + pending
+      pending: 0
+      started: 0
+    first: true
   - click_random: [[15, 139, 83, 309], [12, 391, 93, 548], [1202, 140, 1267, 630]]
     delay: 1000
   max_repeat: 10
+  progress: true
 - id: settle_11
   desc: 结算界面：左上角统计图标，点击退出
   from: 'assttyys 002 #11'
   when:
     res: 退出结算_左上角统计图标
   do:
+  - set:
+      done: done + pending
+      pending: 0
+      started: 0
+    first: true
   - click_random: [[1217, 106, 1272, 700], [600, 672, 1216, 712]]
     delay: 400
   max_repeat: 10
+  progress: true
 - id: settle_14
   desc: 结算界面：掉落物金框，点击退出
   from: 'assttyys 002 #14'
   when:
     res: 退出结算_经验金币buff_掉落物金框
   do:
+  - set:
+      done: done + pending
+      pending: 0
+      started: 0
+    first: true
   - click_random: [[59, 32, 106, 662], [1192, 49, 1261, 654]]
     delay: 1000
   max_repeat: 10
+  progress: true
 - id: settle_lose
   desc: 单人失败太鼓，点击退出
   from: 'assttyys 002 #9'
   when:
     res: 退出结算_单人_失败太鼓
   do:
+  - set:
+      done: done + pending
+      pending: 0
+      started: 0
+      losses: losses + pending
+    first: true
   - click_random: [[69, 171, 170, 320], [1104, 72, 1200, 528]]
     delay: 2000
-  - inc: losses
-    first: true
-  - set:
-      done: done + 1
-    first: true
   max_repeat: 10
+  progress: true
 - id: settle_overflow
   desc: 御魂溢出确认框，点确认
   from: 'assttyys 002 #13'
@@ -147,6 +196,9 @@ states:
   when:
     res: 战斗界面_手动状态
   do:
+  - set: &id001
+      started: pending
+    first: true
   - click: [37, 637, 86, 686]
     delay: 1000
   max_repeat: 5
@@ -156,9 +208,21 @@ states:
   when:
     res: 准备界面_未准备
   do:
+  - set: *id001
+    first: true
   - click: [1137, 542, 1228, 632]
     delay: 1000
   max_repeat: 10
+- id: in_battle
+  desc: 战斗中（自动），等待
+  from: assttyys 资源 战斗界面
+  when:
+    res: 战斗界面
+  do:
+  - set: *id001
+    first: true
+  - wait: 1000
+  max_repeat: 3600
 - id: attack
   desc: 已选中结界（界面变暗），点进攻
   from: 'assttyys 008 #1 + 结界_进攻'
@@ -167,17 +231,38 @@ states:
     - colors: [[199, 102, '#20170f'], [1206, 132, '#615a53'], [729, 50, '#1f1f22'], [1192, 81, '#1b1a1d'], [84, 167, '#594f42']]
     - find: 结界_进攻
       region: [313, 349, 1131, 696]
-    - expr: runs < max_runs
+    - expr: runs < max_runs or (pending == 1 and started == 0)
   do:
   - click_found: true
     offset: [0, 0, 119, 49]
     delay: 2000
   - inc: runs
     first: true
+  - set:
+      pending: 1
+      started: 0
+    first: true
   max_repeat: 3
   on_repeat: stop
   repeat_reason: 连续 3 次点进攻没反应（可能突破券用完），停止
   progress: true
+- id: raid_done
+  desc: 回到突破界面，次数已打满，结束
+  from: 'assttyys 009 #0'
+  when:
+    all:
+    - res: 突破界面
+    - expr: runs >= max_runs and (pending == 0 or started == 1)
+  do:
+  - set: &id002
+      done: done + started
+      pending: pending * (1 - started)
+      started: 0
+    first: true
+  - wait: 1500
+  max_repeat: 2
+  on_repeat: stop
+  repeat_reason: 进攻次数已打满，停止
 - id: medal_呱太
   desc: 突破界面，选 呱太 勋章的结界
   from: 'assttyys 009 #0'
@@ -185,9 +270,12 @@ states:
     all:
     - res: 突破界面
     - find: 结界_呱太勋章
+    - expr: runs < max_runs
   do:
+  - set: *id002
+    first: true
   - click_found: true
-    offset: &id001 [30, 10, 160, 80]
+    offset: &id003 [30, 10, 160, 80]
     delay: 500
   max_repeat: 6
 - id: medal_4
@@ -197,9 +285,12 @@ states:
     all:
     - res: 突破界面
     - find: 结界_4勋章
+    - expr: runs < max_runs
   do:
+  - set: *id002
+    first: true
   - click_found: true
-    offset: *id001
+    offset: *id003
     delay: 500
   max_repeat: 6
 - id: medal_5
@@ -209,9 +300,12 @@ states:
     all:
     - res: 突破界面
     - find: 结界_5勋章
+    - expr: runs < max_runs
   do:
+  - set: *id002
+    first: true
   - click_found: true
-    offset: *id001
+    offset: *id003
     delay: 500
   max_repeat: 6
 - id: medal_3
@@ -221,9 +315,12 @@ states:
     all:
     - res: 突破界面
     - find: 结界_3勋章
+    - expr: runs < max_runs
   do:
+  - set: *id002
+    first: true
   - click_found: true
-    offset: *id001
+    offset: *id003
     delay: 500
   max_repeat: 6
 - id: medal_2
@@ -233,9 +330,12 @@ states:
     all:
     - res: 突破界面
     - find: 结界_2勋章
+    - expr: runs < max_runs
   do:
+  - set: *id002
+    first: true
   - click_found: true
-    offset: *id001
+    offset: *id003
     delay: 500
   max_repeat: 6
 - id: medal_1
@@ -245,9 +345,12 @@ states:
     all:
     - res: 突破界面
     - find: 结界_1勋章
+    - expr: runs < max_runs
   do:
+  - set: *id002
+    first: true
   - click_found: true
-    offset: *id001
+    offset: *id003
     delay: 500
   max_repeat: 6
 - id: medal_0
@@ -257,9 +360,12 @@ states:
     all:
     - res: 突破界面
     - find: 结界_0勋章
+    - expr: runs < max_runs
   do:
+  - set: *id002
+    first: true
   - click_found: true
-    offset: *id001
+    offset: *id003
     delay: 500
   max_repeat: 6
 - id: all_broken
@@ -274,8 +380,8 @@ states:
   repeat_reason: 本页结界都打过了（刷新要等冷却，不自动刷新）
 blockers:
 - id: no_guild
-  desc: 点结界突破时弹出「暂未加入任何阴阳寮，是否前往申请加入？」
+  desc: 点结界突破时弹出「暂未加入任何阴阳寮，是否前往申请加入？」，或加入后还没建自己的结界时弹出「尚未创建阴阳寮结界，是否前往创建？」（两种弹框版式一样，实机截图都能认出）
   when:
     colors: [[451, 428, '#da624a'], [481, 426, '#d9614a'], [679, 422, '#e9b05e'], [688, 452, '#e9b05e'], [450, 362, '#d9c5ae'], [490, 362, '#d9c5ae'], [530, 362, '#d9c5ae'], [470, 240, '#c6b19c'], [700,
         240, '#c6b29b'], [1140, 627, '#4d472f']]
-  message: 账号还没加入阴阳寮，进不了个人结界突破。请先在游戏里加入一个阴阳寮再运行
+  message: 进不了个人结界突破：账号还没加入阴阳寮，或加入后还没创建自己的阴阳寮结界。请先在游戏里加入阴阳寮，并在寮里点「结界」创建结界后再运行

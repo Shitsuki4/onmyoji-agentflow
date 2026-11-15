@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from helpers import FakeClock, blank, frame_for
+from helpers import FakeClock, blank, frame_for, paint_points
 from onmyoji_agentflow.device.base import Controller
 from onmyoji_agentflow.device.humanize import HumanizeConfig
 from onmyoji_agentflow.device.replay import ReplayDevice
@@ -42,11 +42,68 @@ def test_orochi_full_cycle():
     assert res.status == "success", res.summary()
     assert res.variables["runs"] == 3 and res.variables["done"] == 3
     taps = [i for i in dev.inputs if i[0] == "tap"]
-    # 3 x (challenge, prepare, auto, win drum) + 2 reward screens; stops right after the 3rd result
-    assert len(taps) == 14
+    # 3 x (challenge, prepare, auto, win drum, reward screen); after the 3rd run it clicks through the
+    # result screens too and stops on the challenge screen without clicking 挑战 again
+    assert len(taps) == 15
+    assert [s for _, s in res.history][-1].startswith("challenge_done")
     # clicks land inside the challenge button area
     x, y = taps[0][1], taps[0][2]
     assert 1148 <= x <= 1235 and 602 <= y <= 663
+
+
+def _battle_frames(wf, n):
+    # the real battle screen animates: alternate two backgrounds so "screen unchanged" never fires
+    return [frame_for(wf, "in_battle", base=40 if i % 2 else 70) for i in range(n)]
+
+
+def test_orochi_long_battle_without_victory_drum_counts_and_stops():
+    """Win10 + MuMu 12 run 000029/000031: battle > 60 s, then 统计 -> 达摩 (no drum), back on the challenge
+    screen with max_runs=1. It used to fail with "60 秒内认不出当前画面" and done=0."""
+    wf = load_workflow(WF_DIR / "orochi.yaml")
+    frames = ([frame_for(wf, "challenge_0")] * 2 + _battle_frames(wf, 200)
+              + [frame_for(wf, "settle_11")] * 2 + [frame_for(wf, "settle_4")] * 2
+              + [frame_for(wf, "challenge_done_0")])
+    ctl, dev = ctl_for(frames, advance_on_input=False)
+    clock = FakeClock()
+    res = Runner(wf, ctl, params={"max_runs": 1}, clock=clock).run()
+    assert res.status == "success", res.summary()
+    assert res.variables["runs"] == 1 and res.variables["done"] == 1 and res.variables["pending"] == 0
+    assert res.ended - res.started > 60  # the fight alone lasted longer than unknown_timeout_s
+    states = [s for _, s in res.history]
+    assert "in_battle" in states and "settle_6" not in states
+    # 挑战 (twice: the screen had not changed yet), then one per result screen frame; it does not stop on a
+    # result screen (live run 2026-11-16 stopped on 统计) but on the challenge screen, without clicking 挑战
+    taps = [i for i in dev.inputs if i[0] == "tap"]
+    assert len(taps) == 6
+    assert states[-1] == "challenge_done_0"
+
+
+def test_orochi_counts_each_battle_once_across_result_screens():
+    wf = load_workflow(WF_DIR / "orochi.yaml")
+    one = ([frame_for(wf, "challenge_0")] + _battle_frames(wf, 4) + [frame_for(wf, "settle_6")]
+           + [frame_for(wf, "settle_11")] + [frame_for(wf, "settle_4")])
+    ctl, dev = ctl_for(one * 3 + [frame_for(wf, "challenge_0")], advance_on_input=False)
+    res = Runner(wf, ctl, params={"max_runs": 5}, clock=FakeClock()).run()
+    # 3 battles happened, each counted once even though it showed three result screens
+    assert res.variables["runs"] == 4 and res.variables["done"] == 3, res.summary()
+
+
+def test_orochi_challenge_screen_counts_a_battle_whose_result_was_missed():
+    wf = load_workflow(WF_DIR / "orochi.yaml")
+    frames = [frame_for(wf, "challenge_0"), *_battle_frames(wf, 4), frame_for(wf, "challenge_0"),
+              *_battle_frames(wf, 4), frame_for(wf, "challenge_done_0")]
+    ctl, dev = ctl_for(frames, advance_on_input=False)
+    res = Runner(wf, ctl, params={"max_runs": 2}, clock=FakeClock()).run()
+    assert res.status == "success" and res.variables["done"] == 2, res.summary()
+
+
+def test_realm_raid_stops_on_raid_screen_when_runs_used_up():
+    wf = load_workflow(WF_DIR / "realm_raid.yaml")
+    frames = [frame_for(wf, "medal_呱太"), frame_for(wf, "attack"), *_battle_frames(wf, 4),
+              frame_for(wf, "settle_11"), frame_for(wf, "raid_done")]
+    ctl, dev = ctl_for(frames, advance_on_input=False)
+    res = Runner(wf, ctl, params={"max_runs": 1}, clock=FakeClock()).run()
+    assert res.status == "success" and res.variables["done"] == 1, res.summary()
 
 
 def test_orochi_stops_when_challenge_does_not_react():
@@ -145,6 +202,64 @@ def test_exploration_swipes_then_leaves():
     kinds = [i[0] for i in dev.inputs]
     assert kinds[:3] == ["swipe", "swipe", "swipe"] and kinds[3] == "tap"
 
+
+
+DATA = Path(__file__).parent / "data" / "frames"
+
+
+def test_exploration_picks_last_mainline_chapter_on_real_frame():
+    """MuMu 12 1280x720 screenshot of the new big exploration map, 「主线」 tab open with chapters 26/27/28.
+    The newest (lowest) chapter is clicked, not the old fixed 1156,501."""
+    import cv2
+    wf = load_workflow(WF_DIR / "exploration.yaml")
+    img = cv2.imread(str(DATA / "explore_map_mainline.jpg"))
+    ctl, dev = ctl_for([img], advance_on_input=False)
+    res = Runner(wf, ctl, params={"max_rounds": 1}, clock=FakeClock(), max_actions=1).run()
+    assert [s for _, s in res.history][:1] == ["chapter_last"], res.summary()
+    taps = [i for i in dev.inputs if i[0] == "tap"]
+    assert taps, dev.inputs
+    x, y = taps[0][1], taps[0][2]
+    assert 1095 <= x <= 1150 and 455 <= y <= 490, taps[0]  # 第二十八章 row (chapter title around 1121,471)
+
+
+def test_exploration_find_pick_last_chooses_lowest_hit():
+    wf = load_workflow(WF_DIR / "exploration.yaml")
+    spec = wf.resources["探索_主线章节标题"]
+    g = spec["groups"][0]
+    img = blank(40)
+    for dy in (-210, -105, 0):  # three chapter titles stacked like 26 / 27 / 28
+        paint_points(img, g, 0, dy)
+    r = Runner(wf, Controller(ReplayDevice([img]), sleep=lambda s: None, observe=True))
+    assert r._match({"find": "探索_主线章节标题", "pick": "last"}, img)
+    assert abs(r._found[1] - g[0][1]) <= 2
+    assert r._match({"find": "探索_主线章节标题", "pick": "top"}, img)
+    assert abs(r._found[1] - (g[0][1] - 210)) <= 2
+
+
+def test_exploration_clicks_mainline_tab_when_chapter_list_hidden():
+    wf = load_workflow(WF_DIR / "exploration.yaml")
+    img = blank(40)
+    paint_points(img, wf.resources["探索地图界面"]["points"])
+    ctl, dev = ctl_for([img] * 3, advance_on_input=False)
+    res = Runner(wf, ctl, params={"max_rounds": 1}, clock=FakeClock(), max_actions=3).run()
+    states = [s for _, s in res.history]
+    assert states[:2] == ["chapter_tab", "chapter_tab"] and "chapter_map" in states, states
+
+
+def test_exploration_rounds_done_leaves_map_and_stops_on_chapter_screen():
+    """After the boss the run used to stop on the result screen (「点击屏幕继续」). Now it clicks through the
+    result, leaves the chapter map, and stops once the big exploration map is back."""
+    wf = load_workflow(WF_DIR / "exploration.yaml")
+    big = blank(40)
+    paint_points(big, wf.resources["探索地图界面"]["points"])
+    frames = [frame_for(wf, "boss_appeared"), *_battle_frames(wf, 4), frame_for(wf, "settle_6"),
+              frame_for(wf, "rounds_done_leave"), big]
+    ctl, dev = ctl_for(frames, advance_on_input=False)
+    res = Runner(wf, ctl, params={"max_rounds": 1}, clock=FakeClock()).run()
+    states = [s for _, s in res.history]
+    assert res.status == "success", res.summary()
+    assert states[-2:] == ["rounds_done_leave", "rounds_done"], states
+    assert res.variables["rounds"] >= 1
 
 # --- account prerequisites (requires / blockers) -----------------------------------------------
 

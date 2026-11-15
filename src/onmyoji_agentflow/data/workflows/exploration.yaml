@@ -9,8 +9,20 @@ resources: [assttyys/colors.yaml]
 inline_resources:
   chapter_xy:
     type: click
-    rect: [1146, 491, 1166, 511]
-    desc: 章节坐标，默认 1156,501 (assttyys 014 xy 默认值)
+    rect: [1111, 464, 1131, 478]
+    desc: 认不出章节列表时点的章节坐标，默认 1121,471（新版界面「主线」列表第三行）
+  main_tab:
+    type: click
+    rect: [1096, 178, 1120, 194]
+    desc: 探索大地图右侧「主线」标签
+  探索_主线章节标题:
+    type: find_colors
+    region: [1040, 200, 1240, 600]
+    similarity: 88
+    pick: last
+    desc: 探索大地图「主线」列表里的章节标题（用「第二十X章」里「二十」两个字的笔画定位；在 MuMu 12 1280x720 实机截图上取点）
+    groups:
+    - [[1120, 464, '#e2dbc8'], [1120, 474, '#e2dbc8'], [1114, 470, '#e8e3d0'], [1096, 476, '#e6e0ca'], [1106, 476, '#dcd5c2'], [1110, 474, '#2d2622'], [1115, 465, '#2d2622'], [1125, 475, '#2d2622']]
 similarity: 93
 params:
   max_rounds:
@@ -28,13 +40,17 @@ vars:
   boss: 0
   losses: 0
   swipes: 0
+  pending: 0
+  started: 0
+  tab_clicks: 0
 limits:
   timeout_s: 14400
   unknown_timeout_s: 60
   stuck_timeout_s: 120
   no_progress_timeout_s: 600
   max_repeat: 20
-stop_when: rounds >= max_rounds
+counts:
+  rounds: max_rounds
 states:
 - id: stamina_empty
   desc: 体力不足，停止
@@ -49,12 +65,12 @@ states:
   when:
     res: 退出结算_单人_胜利太鼓
   do:
-  - click_random: [[165, 60, 1070, 604], [165, 60, 1263, 530]]
-    delay: 400
-  - set: &id001
+  - set:
       rounds: rounds + boss
       boss: 0
     first: true
+  - click_random: [[165, 60, 1070, 604], [165, 60, 1263, 530]]
+    delay: 400
   max_repeat: 10
   progress: true
 - id: settle_0
@@ -63,76 +79,113 @@ states:
   when:
     res: 退出结算_左上角贪吃鬼
   do:
+  - set:
+      rounds: rounds + boss
+      boss: 0
+    first: true
   - click_random: [[15, 139, 83, 309], [12, 391, 93, 548], [1202, 140, 1267, 630]]
     delay: 1000
   max_repeat: 10
+  progress: true
 - id: settle_1
   desc: 结算界面：左上角贪吃鬼(MuMu)，点击退出
   from: 'assttyys 002 #1'
   when:
     res: 退出结算_左上角贪吃鬼_mumu
   do:
+  - set:
+      rounds: rounds + boss
+      boss: 0
+    first: true
   - click_random: [[15, 139, 83, 309], [12, 391, 93, 548], [1202, 140, 1267, 630]]
     delay: 1000
   max_repeat: 10
+  progress: true
 - id: settle_2
   desc: 结算界面：已打开的达摩 1，点击退出
   from: 'assttyys 002 #2'
   when:
     res: 退出结算_已打开的达摩_1
   do:
+  - set:
+      rounds: rounds + boss
+      boss: 0
+    first: true
   - click_random: [[15, 139, 83, 309], [12, 391, 93, 548], [1202, 140, 1267, 630]]
     delay: 1000
   max_repeat: 10
+  progress: true
 - id: settle_3
   desc: 结算界面：已打开的达摩 2，点击退出
   from: 'assttyys 002 #3'
   when:
     res: 退出结算_已打开的达摩_2
   do:
+  - set:
+      rounds: rounds + boss
+      boss: 0
+    first: true
   - click_random: [[15, 139, 83, 309], [12, 391, 93, 548], [1202, 140, 1267, 630]]
     delay: 1000
   max_repeat: 10
+  progress: true
 - id: settle_4
   desc: 结算界面：已打开的达摩 3，点击退出
   from: 'assttyys 002 #4'
   when:
     res: 退出结算_已打开的达摩_3
   do:
+  - set:
+      rounds: rounds + boss
+      boss: 0
+    first: true
   - click_random: [[15, 139, 83, 309], [12, 391, 93, 548], [1202, 140, 1267, 630]]
     delay: 1000
   max_repeat: 10
+  progress: true
 - id: settle_11
   desc: 结算界面：左上角统计图标，点击退出
   from: 'assttyys 002 #11'
   when:
     res: 退出结算_左上角统计图标
   do:
+  - set:
+      rounds: rounds + boss
+      boss: 0
+    first: true
   - click_random: [[1217, 106, 1272, 700], [600, 672, 1216, 712]]
     delay: 400
   max_repeat: 10
+  progress: true
 - id: settle_14
   desc: 结算界面：掉落物金框，点击退出
   from: 'assttyys 002 #14'
   when:
     res: 退出结算_经验金币buff_掉落物金框
   do:
+  - set:
+      rounds: rounds + boss
+      boss: 0
+    first: true
   - click_random: [[59, 32, 106, 662], [1192, 49, 1261, 654]]
     delay: 1000
   max_repeat: 10
+  progress: true
 - id: settle_lose
   desc: 单人失败太鼓，点击退出
   from: 'assttyys 002 #9'
   when:
     res: 退出结算_单人_失败太鼓
   do:
+  - set:
+      rounds: rounds + boss
+      boss: 0
+      losses: losses + 1
+    first: true
   - click_random: [[69, 171, 170, 320], [1104, 72, 1200, 528]]
     delay: 2000
-  - inc: losses
-    first: true
-  - set: *id001
-    first: true
   max_repeat: 10
+  progress: true
 - id: settle_overflow
   desc: 御魂溢出确认框，点确认
   from: 'assttyys 002 #13'
@@ -157,6 +210,9 @@ states:
   when:
     res: 战斗界面_手动状态
   do:
+  - set: &id001
+      started: pending
+    first: true
   - click: [37, 637, 86, 686]
     delay: 1000
   max_repeat: 5
@@ -166,9 +222,50 @@ states:
   when:
     res: 准备界面_未准备
   do:
+  - set: *id001
+    first: true
   - click: [1137, 542, 1228, 632]
     delay: 1000
   max_repeat: 10
+- id: in_battle
+  desc: 战斗中（自动），等待
+  from: assttyys 资源 战斗界面
+  when:
+    res: 战斗界面
+  do:
+  - set: *id001
+    first: true
+  - wait: 1000
+  max_repeat: 3600
+- id: rounds_done_leave
+  desc: 轮数已打满，还在章节地图里：点左上角返回并确认退出
+  from: 'assttyys 014 #0 oper[3]/[4]'
+  when:
+    all:
+    - &id002
+      colors: [[29, 672, '#615a77'], [54, 60, '#dec38c'], [124, 26, '#f7eeb5'], [1163, 22, '#d7b288'], [1223, 21, '#d4ae84']]
+    - expr: rounds >= max_rounds
+  do:
+  - &id004
+    click: [32, 20, 69, 51]
+    delay: 1000
+  - &id005
+    click: [702, 388, 846, 421]
+    delay: 1000
+  - set:
+      swipes: 0
+  max_repeat: 4
+- id: rounds_done
+  desc: 轮数已打满，已回到章节界面或探索大地图，结束
+  when:
+    all:
+    - any:
+      - colors: &id006 [[995, 580, '#5e3e2f'], [1081, 581, '#583826'], [1041, 601, '#e1d5c0'], [1047, 659, '#e6dac5'], [1003, 676, '#3b2118'], [1076, 672, '#351f18']]
+      - colors: &id007 [[898, 583, '#523428'], [942, 589, '#e4dac3'], [978, 625, '#e1d6c0'], [1133, 659, '#e2d7c1'], [1132, 596, '#e7dbc4']]
+      - res: 探索地图界面
+    - expr: rounds >= max_rounds
+  do:
+  - stop: 探索轮数已打满，已回到章节界面
 - id: boss_appeared
   desc: 首领出现，点首领
   from: 'assttyys 014 #2'
@@ -188,8 +285,7 @@ states:
   from: assttyys 014 探索_挑战BOSS
   when:
     all:
-    - &id002
-      colors: [[29, 672, '#615a77'], [54, 60, '#dec38c'], [124, 26, '#f7eeb5'], [1163, 22, '#d7b288'], [1223, 21, '#d4ae84']]
+    - *id002
     - find: 探索_挑战BOSS
   do:
   - click_found: true
@@ -235,10 +331,8 @@ states:
   from: 'assttyys 014 #0 oper[3]/[4]'
   when: *id002
   do:
-  - click: [32, 20, 69, 51]
-    delay: 1000
-  - click: [702, 388, 846, 421]
-    delay: 1000
+  - *id004
+  - *id005
   - set:
       swipes: 0
   max_repeat: 3
@@ -247,7 +341,7 @@ states:
   from: 'assttyys 014 #4 + 探索_宝箱'
   when:
     all:
-    - colors: &id004 [[995, 580, '#5e3e2f'], [1081, 581, '#583826'], [1041, 601, '#e1d5c0'], [1047, 659, '#e6dac5'], [1003, 676, '#3b2118'], [1076, 672, '#351f18']]
+    - colors: *id006
     - find: 探索_宝箱
   do:
   - click_found: true
@@ -258,7 +352,7 @@ states:
   desc: 章节界面（普通），点探索进入
   from: 'assttyys 014 #4'
   when:
-    colors: *id004
+    colors: *id006
   do:
   - click: [995, 590, 1086, 668]
     delay: 1000
@@ -267,7 +361,7 @@ states:
   desc: 章节界面（困难），点探索进入
   from: 'assttyys 014 #3'
   when:
-    colors: [[898, 583, '#523428'], [942, 589, '#e4dac3'], [978, 625, '#e1d6c0'], [1133, 659, '#e2d7c1'], [1132, 596, '#e7dbc4']]
+    colors: *id007
   do:
   - click: [1090, 588, 1178, 663]
     delay: 1000
@@ -290,12 +384,39 @@ states:
   - click: [44, 323, 137, 342]
     delay: 1000
   max_repeat: 5
+- id: chapter_last
+  desc: 探索大地图，点「主线」列表里最下面（最新）的一章
+  from: 'assttyys 014 #1（按新版界面改写）'
+  when:
+    all:
+    - res: 探索地图界面
+    - find: 探索_主线章节标题
+      pick: last
+  do:
+  - click_found: true
+    offset: [-12, 2, 10, 12]
+    delay: 1000
+  - set:
+      tab_clicks: 0
+  max_repeat: 5
+- id: chapter_tab
+  desc: 探索大地图，章节列表没显示：点右侧「主线」标签
+  when:
+    all:
+    - res: 探索地图界面
+    - expr: tab_clicks < 2
+  do:
+  - click: main_tab
+    delay: 1000
+  - inc: tab_clicks
+  max_repeat: 3
 - id: chapter_map
-  desc: 探索章节地图，点要打的章节（坐标可改 chapter_xy）
-  from: 'assttyys 014 #1'
+  desc: 探索大地图，认不出章节列表时按固定坐标点章节（可改 chapter_xy）
   when:
     res: 探索地图界面
   do:
   - click: chapter_xy
     delay: 1000
+  - set:
+      tab_clicks: 0
   max_repeat: 5

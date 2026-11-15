@@ -57,8 +57,21 @@ class Funcs:
         return {"click_random": [s["rect"] for s in steps], "delay": steps[0]["delay"]}
 
 
+# A battle is "pending" from the click that starts it until any result screen (or the screen it was
+# started from) shows up again. Counting on the first result screen of *any* kind matters: on real
+# MuMu 12 devices the victory drum (002 #6) is often skipped or missed and the run goes straight
+# to the 统计 / 达摩 screens, so counting only on the drum left ``done`` at 0 forever.
+# ``started`` is set once the fight is actually seen (准备 / 战斗 screens), so the start screen still
+# showing for a tick right after the click does not count as "back from the battle".
+SETTLE_COUNT = {"done": "done + pending", "pending": 0, "started": 0}
+BACK_COUNT = {"done": "done + started", "pending": "pending * (1 - started)", "started": 0}
+CLICKED = {"pending": 1, "started": 0}
+SEEN_FIGHT = {"started": "pending"}
+
+
 def common_battle_states(F: Funcs, on_settle: dict | None = None) -> list[dict]:
     """assttyys 001 准备 / 002 退出结算 (the operators that matter for solo battles)."""
+    count = on_settle or SETTLE_COUNT
     out = [
         {"id": "stamina_empty", "desc": "体力不足，停止", "from": "assttyys 002 #19",
          "when": F.when(2, 19), "do": [{"stop": "体力不足"}]},
@@ -66,25 +79,32 @@ def common_battle_states(F: Funcs, on_settle: dict | None = None) -> list[dict]:
     settle = [(6, "单人胜利太鼓"), (0, "左上角贪吃鬼"), (1, "左上角贪吃鬼(MuMu)"), (2, "已打开的达摩 1"),
               (3, "已打开的达摩 2"), (4, "已打开的达摩 3"), (11, "左上角统计图标"), (14, "掉落物金框")]
     for idx, label in settle:
-        st = {"id": f"settle_{idx}", "desc": f"结算界面：{label}，点击退出", "from": f"assttyys 002 #{idx}",
-              "when": F.when(2, idx), "do": [F.click_random(2, idx)], "max_repeat": 10}
-        if idx == 6:
-            st["progress"] = True
-            # a battle counts as done when its result screen appears (first tick only)
-            st["do"].append({"set": on_settle or {"done": "done + 1"}, "first": True})
-        out.append(st)
+        # a battle counts as done on the first result screen of any kind (first tick of the visit)
+        out.append({"id": f"settle_{idx}", "desc": f"结算界面：{label}，点击退出", "from": f"assttyys 002 #{idx}",
+                    "when": F.when(2, idx), "do": [{"set": dict(count), "first": True}, F.click_random(2, idx)],
+                    "max_repeat": 10, "progress": True})
+    lose_count = dict(count)
+    if "pending" in lose_count:
+        lose_count["losses"] = "losses + pending"
+    else:
+        lose_count["losses"] = "losses + 1"
     out += [
         {"id": "settle_lose", "desc": "单人失败太鼓，点击退出", "from": "assttyys 002 #9",
-         "when": F.when(2, 9), "do": [F.click_random(2, 9), {"inc": "losses", "first": True},
-                {"set": on_settle or {"done": "done + 1"}, "first": True}], "max_repeat": 10},
+         "when": F.when(2, 9), "do": [{"set": lose_count, "first": True}, F.click_random(2, 9)],
+         "max_repeat": 10, "progress": True},
         {"id": "settle_overflow", "desc": "御魂溢出确认框，点确认", "from": "assttyys 002 #13",
          "when": F.when(2, 13), "do": [F.click(2, 13)], "max_repeat": 5},
         {"id": "settle_cancel_box", "desc": "取消确认框，点确认", "from": "assttyys 002 #21",
          "when": F.when(2, 21), "do": [F.click(2, 21)], "max_repeat": 5},
         {"id": "battle_manual", "desc": "战斗中是手动状态，开启自动", "from": "assttyys 001 #1",
-         "when": F.when(1, 1), "do": [F.click(1, 1)], "max_repeat": 5},
+         "when": F.when(1, 1), "do": [{"set": SEEN_FIGHT, "first": True}, F.click(1, 1)], "max_repeat": 5},
         {"id": "prepare", "desc": "准备界面，点准备", "from": "assttyys 001 #0",
-         "when": F.when(1, 0), "do": [F.click(1, 0)], "max_repeat": 10},
+         "when": F.when(1, 0), "do": [{"set": SEEN_FIGHT, "first": True}, F.click(1, 0)], "max_repeat": 10},
+        # A long fight (a weak team on 八岐大蛇 叁层 easily takes over a minute) must not trip the
+        # 60 s unknown-screen limit: the in-battle screen is a known state that just waits.
+        {"id": "in_battle", "desc": "战斗中（自动），等待", "from": "assttyys 资源 战斗界面",
+         "when": {"res": "战斗界面"}, "do": [{"set": SEEN_FIGHT, "first": True}, {"wait": 1000}],
+         "max_repeat": 3600},
     ]
     return out
 
@@ -100,14 +120,24 @@ def build_orochi(F: Funcs) -> dict:
         "resources": ["assttyys/colors.yaml"],
         "similarity": 93,
         "params": {"max_runs": {"default": 30, "min": 1, "max": 999, "desc": "挑战次数"}},
-        "vars": {"runs": 0, "done": 0, "losses": 0},
+        "vars": {"runs": 0, "done": 0, "losses": 0, "pending": 0, "started": 0},
         "limits": dict(LIMITS),
-        "stop_when": "done >= max_runs",
+        # no stop_when: stop on the challenge / raid screen once the runs are used up, never on a result screen
+        "counts": {"done": "max_runs"},
         "states": common_battle_states(F) + [
+            # back on the challenge screen with every run used: the last battle is over, stop
+            {"id": f"challenge_done_{k}", "desc": "挑战界面，次数已打满，结束", "from": f"assttyys 006 #{k}",
+             "when": {"all": [F.when(6, k), {"expr": "runs >= max_runs and (pending == 0 or started == 1)"}]},
+             "do": [{"set": BACK_COUNT, "first": True}, {"wait": 1500}],
+             "max_repeat": 2, "on_repeat": "stop", "repeat_reason": "挑战次数已打满，停止"}
+            for k in range(len(F.f(6)["operators"]))
+        ] + [
             {"id": f"challenge_{k}", "desc": "挑战界面，点挑战", "from": f"assttyys 006 #{k}",
              # assttyys 006: if the challenge screen is still there after 3 clicks, stop
-             "when": {"all": [F.when(6, k), {"expr": "runs < max_runs"}]},
-             "do": [F.click(6, k), {"inc": "runs", "first": True}],
+             # (the second half keeps retrying the last click while the battle has not started)
+             "when": {"all": [F.when(6, k), {"expr": "runs < max_runs or (pending == 1 and started == 0)"}]},
+             "do": [{"set": BACK_COUNT, "first": True}, F.click(6, k),
+                    {"inc": "runs", "first": True}, {"set": CLICKED, "first": True}],
              "max_repeat": 3, "on_repeat": "stop", "repeat_reason": "连续 3 次点挑战没反应（可能体力不足），停止",
              "progress": True}
             for k in range(len(F.f(6)["operators"]))
@@ -123,9 +153,10 @@ def build_realm_raid(F: Funcs) -> dict:
     medal_off = F.rect(9, 0, 0)         # [30, 10, 160, 80]
     states = common_battle_states(F) + [
         {"id": "attack", "desc": "已选中结界（界面变暗），点进攻", "from": "assttyys 008 #1 + 结界_进攻",
-         "when": {"all": [F.when(8, 1), {"find": "结界_进攻", "region": F.rect(8, 0, 2)}, {"expr": "runs < max_runs"}]},
+         "when": {"all": [F.when(8, 1), {"find": "结界_进攻", "region": F.rect(8, 0, 2)},
+                          {"expr": "runs < max_runs or (pending == 1 and started == 0)"}]},
          "do": [{"click_found": True, "offset": attack_off, "delay": F.op(8, 0)["oper"][0]["delay"]},
-                {"inc": "runs", "first": True}],
+                {"inc": "runs", "first": True}, {"set": CLICKED, "first": True}],
          # assttyys 008 counts the clicks and stops the script when attacking keeps failing
          "max_repeat": 3, "on_repeat": "stop", "repeat_reason": "连续 3 次点进攻没反应（可能突破券用完），停止",
          "progress": True},
@@ -133,9 +164,15 @@ def build_realm_raid(F: Funcs) -> dict:
     for m in MEDAL_ORDER:
         states.append({
             "id": f"medal_{m}", "desc": f"突破界面，选 {m} 勋章的结界", "from": "assttyys 009 #0",
-            "when": {"all": [F.when(9, 0), {"find": f"结界_{m}勋章"}]},
-            "do": [{"click_found": True, "offset": medal_off, "delay": F.op(9, 0)["oper"][0]["delay"]}],
+            "when": {"all": [F.when(9, 0), {"find": f"结界_{m}勋章"}, {"expr": "runs < max_runs"}]},
+            "do": [{"set": BACK_COUNT, "first": True},
+                   {"click_found": True, "offset": medal_off, "delay": F.op(9, 0)["oper"][0]["delay"]}],
             "max_repeat": 6})
+    states.insert(len(states) - len(MEDAL_ORDER), {
+        "id": "raid_done", "desc": "回到突破界面，次数已打满，结束", "from": "assttyys 009 #0",
+        "when": {"all": [F.when(9, 0), {"expr": "runs >= max_runs and (pending == 0 or started == 1)"}]},
+        "do": [{"set": BACK_COUNT, "first": True}, {"wait": 1500}],
+        "max_repeat": 2, "on_repeat": "stop", "repeat_reason": "进攻次数已打满，停止"})
     states.append({"id": "all_broken", "desc": "突破界面上找不到可打的结界，停止", "from": "assttyys 009 #0",
                    "when": F.when(9, 0), "do": [{"wait": 1500}],
                    "max_repeat": 3, "on_repeat": "stop", "repeat_reason": "本页结界都打过了（刷新要等冷却，不自动刷新）"})
@@ -148,16 +185,18 @@ def build_realm_raid(F: Funcs) -> dict:
         "resources": ["assttyys/colors.yaml"],
         "similarity": 93,
         "params": {"max_runs": {"default": 30, "min": 1, "max": 300, "desc": "进攻次数上限"}},
-        "vars": {"runs": 0, "done": 0, "losses": 0},
+        "vars": {"runs": 0, "done": 0, "losses": 0, "pending": 0, "started": 0},
         "limits": dict(LIMITS),
-        "stop_when": "done >= max_runs",
+        # no stop_when: stop on the challenge / raid screen once the runs are used up, never on a result screen
+        "counts": {"done": "max_runs"},
         "states": states,
         # The 「暂未加入任何阴阳寮，是否前往申请加入？」 prompt (no counterpart in assttyys/OAS).
         # Points taken by the agent on a real Win10 + MuMu 12 screenshot (1280x720, RGB hex) and
         # checked there: all match the prompt, none match the 御魂 / 探索 / 庭院 screens.
         "blockers": [{
             "id": "no_guild",
-            "desc": "点结界突破时弹出「暂未加入任何阴阳寮，是否前往申请加入？」",
+            "desc": ("点结界突破时弹出「暂未加入任何阴阳寮，是否前往申请加入？」，或加入后还没建自己的结界时弹出"
+                     "「尚未创建阴阳寮结界，是否前往创建？」（两种弹框版式一样，实机截图都能认出）"),
             "when": {"colors": [
                 [451, 428, "#da624a"], [481, 426, "#d9614a"],      # red 取消
                 [679, 422, "#e9b05e"], [688, 452, "#e9b05e"],      # yellow 前往申请
@@ -165,7 +204,8 @@ def build_realm_raid(F: Funcs) -> dict:
                 [470, 240, "#c6b19c"], [700, 240, "#c6b29b"],      # title bar
                 [1140, 627, "#4d472f"],                            # dimmed background
             ]},
-            "message": "账号还没加入阴阳寮，进不了个人结界突破。请先在游戏里加入一个阴阳寮再运行",
+            "message": ("进不了个人结界突破：账号还没加入阴阳寮，或加入后还没创建自己的阴阳寮结界。"
+                        "请先在游戏里加入阴阳寮，并在寮里点「结界」创建结界后再运行"),
         }],
     }
 
@@ -175,7 +215,18 @@ def build_exploration(F: Funcs) -> dict:
     icon_off = op0[0]["rect"]           # [0, 0, 42, 51] added to the found icon
     swipe_from, swipe_to = op0[1]["rect"], op0[2]["rect"]
     explore_map = F.when(14, 0)
+    leave = [{"click": op0[3]["rect"], "delay": op0[3]["delay"]}, {"click": op0[4]["rect"], "delay": op0[4]["delay"]}]
+    chapter_screen = {"any": [F.when(14, 4), F.when(14, 3), {"res": "探索地图界面"}]}
     states = common_battle_states(F, {"rounds": "rounds + boss", "boss": 0}) + [
+        # Rounds used up: do not stop on the result screen (「点击屏幕继续」) but leave the chapter
+        # map and stop once the chapter / big exploration map is on screen.
+        {"id": "rounds_done_leave", "desc": "轮数已打满，还在章节地图里：点左上角返回并确认退出",
+         "from": "assttyys 014 #0 oper[3]/[4]",
+         "when": {"all": [explore_map, {"expr": "rounds >= max_rounds"}]},
+         "do": leave + [{"set": {"swipes": 0}}], "max_repeat": 4},
+        {"id": "rounds_done", "desc": "轮数已打满，已回到章节界面或探索大地图，结束",
+         "when": {"all": [chapter_screen, {"expr": "rounds >= max_rounds"}]},
+         "do": [{"stop": "探索轮数已打满，已回到章节界面"}]},
         {"id": "boss_appeared", "desc": "首领出现，点首领", "from": "assttyys 014 #2",
          "when": F.when(14, 2), "do": [{"wait": 1000}, F.click(14, 2), {"set": {"boss": 1, "swipes": 0}}], "max_repeat": 4, "progress": True},
         {"id": "challenge_boss", "desc": "地图里有首领挑战图标，点它", "from": "assttyys 014 探索_挑战BOSS",
@@ -192,8 +243,7 @@ def build_exploration(F: Funcs) -> dict:
                 {"inc": "swipes"}], "max_repeat": 40},
         {"id": "leave_map", "desc": "划了 max_swipes 次还没怪，点左上角返回并确认退出", "from": "assttyys 014 #0 oper[3]/[4]",
          "when": explore_map,
-         "do": [{"click": op0[3]["rect"], "delay": op0[3]["delay"]}, {"click": op0[4]["rect"], "delay": op0[4]["delay"]},
-                {"set": {"swipes": 0}}], "max_repeat": 3},
+         "do": leave + [{"set": {"swipes": 0}}], "max_repeat": 3},
         {"id": "chest", "desc": "章节界面有宝箱，先领宝箱", "from": "assttyys 014 #4 + 探索_宝箱",
          "when": {"all": [F.when(14, 4), {"find": "探索_宝箱"}]},
          "do": [{"click_found": True, "offset": [0, 0, 10, 10], "delay": 500}], "max_repeat": 4},
@@ -205,23 +255,43 @@ def build_exploration(F: Funcs) -> dict:
          "when": F.when(14, 5), "do": [F.click(14, 5)], "max_repeat": 5},
         {"id": "misc_6", "desc": "探索界面杂项弹窗", "from": "assttyys 014 #6",
          "when": F.when(14, 6), "do": [F.click(14, 6)], "max_repeat": 5},
-        {"id": "chapter_map", "desc": "探索章节地图，点要打的章节（坐标可改 chapter_xy）", "from": "assttyys 014 #1",
+        # Big exploration map (新版界面): the chapters are listed on the right under the 「主线」 tab,
+        # newest at the bottom. Pick the lowest chapter title found; if the list is not showing
+        # (「玩法」 tab open), click 「主线」 first; the fixed chapter_xy is only the last resort.
+        {"id": "chapter_last", "desc": "探索大地图，点「主线」列表里最下面（最新）的一章", "from": "assttyys 014 #1（按新版界面改写）",
+         "when": {"all": [{"res": "探索地图界面"}, {"find": "探索_主线章节标题", "pick": "last"}]},
+         "do": [{"click_found": True, "offset": [-12, 2, 10, 12], "delay": 1000}, {"set": {"tab_clicks": 0}}],
+         "max_repeat": 5},
+        {"id": "chapter_tab", "desc": "探索大地图，章节列表没显示：点右侧「主线」标签",
+         "when": {"all": [{"res": "探索地图界面"}, {"expr": "tab_clicks < 2"}]},
+         "do": [{"click": "main_tab", "delay": 1000}, {"inc": "tab_clicks"}], "max_repeat": 3},
+        {"id": "chapter_map", "desc": "探索大地图，认不出章节列表时按固定坐标点章节（可改 chapter_xy）",
          "when": {"res": "探索地图界面"},
-         "do": [{"click": "chapter_xy", "delay": 1000}], "max_repeat": 5},
+         "do": [{"click": "chapter_xy", "delay": 1000}, {"set": {"tab_clicks": 0}}], "max_repeat": 5},
     ]
     return {
         "format": 1, "name": "exploration", "title": "探索（个人）",
         "desc": ("在探索地图里优先打首领，其次打小怪（无差别），没怪时划动地图，划满次数后退出重进。"
                  "由 assttyys 方案「个人探索」的 014 翻译；「打经验」「打掉落」模式没有做。"),
         "resources": ["assttyys/colors.yaml"],
-        "inline_resources": {"chapter_xy": {"type": "click", "rect": [1146, 491, 1166, 511],
-                                            "desc": "章节坐标，默认 1156,501 (assttyys 014 xy 默认值)"}},
+        "inline_resources": {
+            "chapter_xy": {"type": "click", "rect": [1111, 464, 1131, 478],
+                           "desc": "认不出章节列表时点的章节坐标，默认 1121,471（新版界面「主线」列表第三行）"},
+            "main_tab": {"type": "click", "rect": [1096, 178, 1120, 194], "desc": "探索大地图右侧「主线」标签"},
+            "探索_主线章节标题": {
+                "type": "find_colors", "region": [1040, 200, 1240, 600], "similarity": 88, "pick": "last",
+                "desc": ("探索大地图「主线」列表里的章节标题（用「第二十X章」里「二十」两个字的笔画定位；"
+                         "在 MuMu 12 1280x720 实机截图上取点）"),
+                "groups": [[[1120, 464, "#e2dbc8"], [1120, 474, "#e2dbc8"], [1114, 470, "#e8e3d0"],
+                            [1096, 476, "#e6e0ca"], [1106, 476, "#dcd5c2"], [1110, 474, "#2d2622"],
+                            [1115, 465, "#2d2622"], [1125, 475, "#2d2622"]]]},
+        },
         "similarity": 93,
         "params": {"max_rounds": {"default": 20, "min": 1, "max": 500, "desc": "探索轮数（打完首领算一轮）"},
                    "max_swipes": {"default": 4, "min": 1, "max": 30, "desc": "没怪时最多划几次再退出（assttyys 默认 4）"}},
-        "vars": {"rounds": 0, "boss": 0, "losses": 0, "swipes": 0},
+        "vars": {"rounds": 0, "boss": 0, "losses": 0, "swipes": 0, "pending": 0, "started": 0, "tab_clicks": 0},
         "limits": dict(LIMITS),
-        "stop_when": "rounds >= max_rounds",
+        "counts": {"rounds": "max_rounds"},
         "states": states,
     }
 

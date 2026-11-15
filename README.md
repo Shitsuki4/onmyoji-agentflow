@@ -11,7 +11,7 @@
 > - 花勾玉、抽卡、购买、出售、分解这些操作每次都要你确认，没人回答就当作拒绝；但工具仍可能误识别、误点。
 > - 本项目和网易、assttyys、OAS 的作者都没有关系。按 GPL-3.0 "原样"提供，不带任何担保，后果自负。
 
-当前版本 0.1.5：在一台真实的 Win10 + MuMu 12（nx_main）上测过设备层（截图、点击、`devices`、`validate`、观察模式），**三个工作流还没在实机上完整跑完一轮**，见文末「已知限制」。
+当前版本 0.1.6：在一台真实的 Win10 + MuMu 12（nx_main）上，御魂（八岐大蛇叁层 3 把）、个人结界突破（3 次）、探索（1 轮、2 轮各一次）都实机跑通，次数打满后回到挑战 / 突破界面或探索大地图再停。只测过这一台和一个测试号，见文末「已知限制」。
 
 ## 功能
 
@@ -332,10 +332,11 @@ similarity: 93
 params: {max_runs: {default: 30, min: 1, max: 999}}
 vars: {done: 0}
 limits: {timeout_s: 14400, unknown_timeout_s: 60, stuck_timeout_s: 120, no_progress_timeout_s: 600, max_repeat: 20}
-stop_when: "done >= max_runs"
+counts: {done: max_runs}             # 重试时从 max_runs 里扣掉已打的次数
+# stop_when: "done >= max_runs"      # 可选：表达式一成立就停；内置三个工作流不用它，改成回到挑战/突破/探索界面后用 stop 停下
 states:
   - id: challenge
-    when: {res: 御魂挑战界面}          # 或 colors / find / image / ocr / expr / all / any / not
+    when: {res: 御魂挑战界面}          # 或 colors / find / image / ocr / expr / all / any / not；find 可加 pick: last 取最下面的一个
     do: [{click: [1100, 560, 1180, 640]}, {inc: done}]
     progress: true
   - id: buy
@@ -360,7 +361,8 @@ CI（GitHub Actions）在 Windows 和 Linux 上跑全部测试，还会拉取真
 - 内置的御魂工作流要从御魂（八岐大蛇）挑战界面开始跑，它不会自己从庭院走过去；探索和结界突破从各自的入口画面开始。
 - 本地重试默认不再按返回键：在庭院按返回键会弹出游戏的「退出游戏」确认框。需要的话可以在
   `supervisor.recover_back_on` 里列出要先按返回键再重试的失败类型（`unknown_screen` / `stuck` / `loop`）。
-- 实机只测过一台 Win10 + MuMu 12（nx_main，手机版布局）：专用通道截图和点击、adb、`devices`、`validate`、御魂和探索的观察模式能用；三个工作流的限次试跑和完整一轮还没跑完，Win11 和旧版 MuMuPlayer-12.0 没测过。
+- 实机只测过一台 Win10 + MuMu 12（nx_main，手机版布局）和一个测试号（2026-11-16）：御魂 3 把、结界突破 3 次、探索 1 轮和 2 轮都跑通了；体力用完、御魂溢出、结界突破输掉、刷新冷却这些情况没在实机上遇到过。Win11 和旧版 MuMuPlayer-12.0 没测过。
+- 探索按新版大地图右侧「主线」列表点最新一章；想打别的章节，目前只能把 `chapter_xy` 改成那一章的坐标并去掉 `chapter_last` 状态。
 - 内置工作流的回放测试用的是程序合成的截图。
 - OAS 的资源会转换进工作区，但内置工作流还没有用它们；OAS 的任务流程是 Python 代码，还没有翻译通道。
 - 大模型修复和翻译只用模拟的大模型测试过，没接真实的 API 跑过。

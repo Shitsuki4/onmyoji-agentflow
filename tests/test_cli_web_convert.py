@@ -178,3 +178,19 @@ def test_realm_raid_no_guild_blocker():
         img[y, x] = (bl, g, r)                                  # screenshots are BGR
     assert compare_colors(img, b["when"]["colors"], 93)
     assert not compare_colors(np.zeros((720, 1280, 3), np.uint8), b["when"]["colors"], 93)
+
+
+def test_realm_raid_no_barrier_prompt_on_real_frame():
+    """Real MuMu 12 screenshot (2026-11-16): joined a guild but no own 寮结界 yet ->「尚未创建阴阳寮结界，是否前往创建」.
+    Same dialog layout as the 未入寮 prompt, so the same blocker stops the run instead of waiting for a timeout."""
+    from pathlib import Path
+
+    import cv2
+    from onmyoji_agentflow.vision.colors import compare_colors
+    from onmyoji_agentflow.workflow.schema import bundled_dir, load_workflow
+    wf = load_workflow(bundled_dir() / "workflows" / "realm_raid.yaml")
+    b = [x for x in wf.blockers if x["id"] == "no_guild"][0]
+    img = cv2.imread(str(Path(__file__).parent / "data" / "frames" / "realm_raid_no_guild_barrier.jpg"))
+    assert compare_colors(img, b["when"]["colors"], 93)
+    other = cv2.imread(str(Path(__file__).parent / "data" / "frames" / "explore_map_mainline.jpg"))
+    assert not compare_colors(other, b["when"]["colors"], 93)

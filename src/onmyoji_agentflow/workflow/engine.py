@@ -97,9 +97,19 @@ class Runner:
                 return compare_colors(img, spec["points"], float(spec.get("similarity", sim)))
             if t == "find_colors":
                 region = cond.get("region", spec["region"])
-                pts = find_multi_color(img, region, spec["groups"], float(spec.get("similarity", sim)))
+                # pick: first (default) = first hit in scan order; last / bottom = the lowest hit on
+                # screen (e.g. the newest chapter at the bottom of a list); top = the highest hit
+                pick = cond.get("pick", spec.get("pick", "first"))
+                many = pick in ("last", "bottom", "top")
+                pts = find_multi_color(img, region, spec["groups"], float(spec.get("similarity", sim)),
+                                       max_results=50 if many else 1)
                 if pts:
-                    self._found = pts[0]
+                    if pick in ("last", "bottom"):
+                        self._found = max(pts, key=lambda p: (p[1], p[0]))
+                    elif pick == "top":
+                        self._found = min(pts, key=lambda p: (p[1], p[0]))
+                    else:
+                        self._found = pts[0]
                     return True
                 return False
             if t == "image":
