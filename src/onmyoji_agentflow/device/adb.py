@@ -41,6 +41,23 @@ def find_adb(explicit: str | None = None, mumu_root: str | None = None) -> str:
     raise DeviceError("找不到 adb：请在配置里填 adb_path，或确认 MuMu 12 安装目录下有 nx_main\\adb.exe 或 shell\\adb.exe")
 
 
+def resolve_package(pm_list_output: str, package: str) -> str:
+    """Pick the installed package for ``package``.
+
+    Channel builds add a suffix (the user's MuMu has ``com.netease.onmyoji.wyzymnqsd_cps``), so
+    ``com.netease.onmyoji`` itself is often not installed. Exact match wins, then the first
+    installed ``package.<suffix>``; otherwise the name is returned unchanged.
+    """
+    names = [l.strip()[len("package:"):] for l in (pm_list_output or "").splitlines()
+             if l.strip().startswith("package:")]
+    if package in names:
+        return package
+    for n in sorted(names):
+        if n.startswith(package + "."):
+            return n
+    return package
+
+
 class AdbDevice(Device):
     name = "adb"
 
@@ -106,6 +123,7 @@ class AdbDevice(Device):
         self._run(["shell", "input", "keyevent", "4"])
 
     def start_app(self, package: str = ONMYOJI_PACKAGE) -> None:
+        package = resolve_package(self.shell("pm", "list", "packages", package), package)
         self._run(["shell", "monkey", "-p", package, "-c", "android.intent.category.LAUNCHER", "1"])
 
     def current_app(self) -> str:
