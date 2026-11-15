@@ -3,7 +3,8 @@
 # (https://github.com/LmeSzinc/AzurLaneAutoScript).
 # Licensed under the GNU General Public License v3.0. See LICENSE and NOTICE.md.
 # Changes: imports adapted; the config-driven NemuIpc mixin was replaced by a
-# standalone class that receives the MuMu 12 folder and instance id explicitly.
+# standalone class that receives the MuMu 12 folder and instance id explicitly;
+# the DLL search also covers the newer nx_main layout (nx_main/sdk, as in AzurLaneAutoScript).
 import asyncio
 import ctypes
 import os
@@ -222,6 +223,9 @@ class NemuIpcImpl:
             os.path.abspath(os.path.join(nemu_folder, './nx_device/12.0/shell/sdk/external_renderer_ipc.dll')),
             # MuMuPlayer15
             os.path.abspath(os.path.join(nemu_folder, './nx_device/15.0/shell/sdk/external_renderer_ipc.dll')),
+            # MuMuPlayer12 6.0 / new "MuMu" layout: <root>/nx_main (AzurLaneAutoScript nemu_ipc.py)
+            os.path.abspath(os.path.join(nemu_folder, './nx_main/sdk/external_renderer_ipc.dll')),
+            os.path.abspath(os.path.join(nemu_folder, './nx_main/external_renderer_ipc.dll')),
         ]
         self.lib = None
         for ipc_dll in list_dll:

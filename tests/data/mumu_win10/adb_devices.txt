@@ -1,0 +1,4 @@
+List of devices attached
+127.0.0.1:16384	device
+emulator-5554	device
+

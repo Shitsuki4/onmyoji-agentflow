@@ -1,0 +1,16 @@
+{
+    "0": {
+        "adb_host_ip": "127.0.0.1",
+        "adb_port": 16384,
+        "hyperv_enabled": false,
+        "index": "0",
+        "is_android_started": true,
+        "is_main": true,
+        "is_process_started": true,
+        "main_wnd": "00030A1C",
+        "name": "MuMu安卓设备",
+        "player_state": "start_finished",
+        "render_wnd": "00040B2E",
+        "vt_enabled": true
+    }
+}

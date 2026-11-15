@@ -9,6 +9,7 @@ executable directly so the only requirement is an adb binary (MuMu 12 ships one)
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -28,15 +29,16 @@ def find_adb(explicit: str | None = None, mumu_root: str | None = None) -> str:
     if explicit:
         candidates.append(explicit)
     if mumu_root:
-        for sub in ("shell/adb.exe", "nx_main/adb.exe", "nx_device/12.0/shell/adb.exe"):
-            candidates.append(os.path.join(mumu_root, sub))
+        from .mumu import TOOL_DIRS
+        for sub in TOOL_DIRS:                      # nx_main first: the new "MuMu\nx_main" install
+            candidates.append(os.path.join(mumu_root, sub, "adb.exe"))
     for c in candidates:
         if c and os.path.exists(c):
             return c
     found = shutil.which("adb")
     if found:
         return found
-    raise DeviceError("找不到 adb：请在配置里填 adb_path，或确认 MuMu 12 安装目录下有 shell/adb.exe")
+    raise DeviceError("找不到 adb：请在配置里填 adb_path，或确认 MuMu 12 安装目录下有 nx_main\\adb.exe 或 shell\\adb.exe")
 
 
 class AdbDevice(Device):
@@ -59,6 +61,11 @@ class AdbDevice(Device):
         if res.returncode != 0:
             raise DeviceError(f"adb 失败({res.returncode}): {res.stderr.decode(errors='ignore').strip()}")
         return res.stdout if binary else res.stdout.decode("utf-8", errors="ignore")
+
+    def display(self) -> dict:
+        """wm size / density, for doctor and diagnostics."""
+        size = parse_wm_size(self.shell("wm", "size"))
+        return {"wm_size": size, "landscape": landscape(size), "density": parse_wm_density(self.shell("wm", "density"))}
 
     def connect(self):
         out = subprocess.run([self.adb, "connect", self.serial], capture_output=True, timeout=self.timeout)
@@ -109,11 +116,46 @@ class AdbDevice(Device):
         return ""
 
 
-def list_adb_devices(adb_path: str) -> list[str]:
-    out = subprocess.run([adb_path, "devices"], capture_output=True, timeout=15).stdout.decode(errors="ignore")
+def parse_adb_devices(text: str, keep_emulator: bool = False) -> list[str]:
+    """Serials in the ``device`` state from ``adb devices`` output.
+
+    MuMu shows each instance twice: ``127.0.0.1:16384`` and ``emulator-5554``. Only the IP:port
+    serial is kept (``keep_emulator=False``) so ``adb -s`` never has two names for one instance.
+    """
     serials = []
-    for line in out.splitlines()[1:]:
+    for line in (text or "").splitlines():
         parts = line.split()
-        if len(parts) >= 2 and parts[1] == "device":
+        if len(parts) < 2 or parts[1] != "device" or line.startswith("List of devices"):
+            continue
+        if parts[0].startswith("emulator-") and not keep_emulator:
+            continue
+        if parts[0] not in serials:
             serials.append(parts[0])
     return serials
+
+
+def list_adb_devices(adb_path: str, keep_emulator: bool = False) -> list[str]:
+    out = subprocess.run([adb_path, "devices"], capture_output=True, timeout=15).stdout.decode(errors="ignore")
+    return parse_adb_devices(out, keep_emulator)
+
+
+def parse_wm_size(text: str) -> tuple[int, int] | None:
+    """``wm size`` -> (w, h) as the device reports it; Override size wins over Physical size.
+
+    MuMu reports portrait (``Physical size: 720x1280``); with the game in landscape the screen is
+    1280x720, which is what screenshots and taps use.
+    """
+    found = {}
+    for kind, w, h in re.findall(r"(Physical|Override) size:\s*(\d+)x(\d+)", text or ""):
+        found[kind] = (int(w), int(h))
+    return found.get("Override") or found.get("Physical")
+
+
+def parse_wm_density(text: str) -> int | None:
+    found = dict(re.findall(r"(Physical|Override) density:\s*(\d+)", text or ""))
+    v = found.get("Override") or found.get("Physical")
+    return int(v) if v else None
+
+
+def landscape(size: tuple[int, int] | None) -> tuple[int, int] | None:
+    return None if not size else (max(size), min(size))

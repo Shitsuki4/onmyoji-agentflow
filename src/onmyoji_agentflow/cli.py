@@ -32,14 +32,40 @@ def cmd_init(args):
 
 
 def cmd_devices(args):
-    from .device import discover, find_mumu_roots
+    from .device import discover, find_ipc_dll, find_manager, find_mumu_roots
+    from .device.adb import AdbDevice, find_adb, list_adb_devices
     roots = find_mumu_roots(args.mumu_root)
     if not roots:
-        print("没找到 MuMu 12 安装目录，可以用 --mumu-root 指定")
+        print("没找到 MuMu 12 安装目录，可以用 --mumu-root 指定（比如 C:\\Program Files\\Netease\\MuMu）")
     for r in roots:
         print(f"MuMu 12: {r}")
-    for inst in discover(args.mumu_root):
+        print(f"  MuMuManager: {find_manager(r) or '没找到'}")
+        dll = find_ipc_dll(r)
+        print(f"  截图通道: {'nemu_ipc（' + dll + '）' if dll else '没找到 external_renderer_ipc.dll，用 adb'}")
+    instances = discover(args.mumu_root)
+    for inst in instances:
         print(f"  实例 {inst.instance_id}: {inst.name}  {inst.serial}")
+    try:
+        adb = find_adb(getattr(args, "adb", None), roots[0] if roots else None)
+    except Exception as e:  # noqa: BLE001
+        print(f"adb: {e}")
+        return 0
+    print(f"adb: {adb}")
+    try:
+        online = list_adb_devices(adb)
+    except Exception as e:  # noqa: BLE001
+        print(f"  adb devices 失败：{e}")
+        return 0
+    print(f"  在线（只列 IP:端口，emulator-XXXX 是同一实例的另一个名字，已忽略）：{'、'.join(online) or '无'}")
+    for serial in online:
+        try:
+            d = AdbDevice(serial, adb).display()
+        except Exception:  # noqa: BLE001
+            continue
+        size, land = d["wm_size"], d["landscape"]
+        if size:
+            note = "（横屏 1280x720，推荐）" if land == (1280, 720) else "（推荐把 MuMu 设成 1280x720；其他 16:9 会缩放）"
+            print(f"  {serial}: wm size {size[0]}x{size[1]} → 游戏横屏 {land[0]}x{land[1]}{note}，density {d['density']}")
     return 0
 
 
