@@ -490,6 +490,11 @@ def _utf8_console() -> None:
 
 def main(argv=None) -> int:
     _utf8_console()
+    if argv is None:
+        # the real `oaf` command: text native dlls print (MuMu's ipc dll) goes to stderr,
+        # so JSON output and the MCP stdio stream stay parseable
+        from .stdio import isolate_stdout
+        isolate_stdout()
     args = build_parser().parse_args(argv)
     setup_logging(args.log_level)
     if getattr(args, "instance", "x") is None:

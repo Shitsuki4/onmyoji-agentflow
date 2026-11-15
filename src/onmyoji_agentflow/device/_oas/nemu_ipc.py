@@ -21,6 +21,7 @@ from functools import cached_property
 from .utils import RETRY_TRIES, ensure_time, insert_swipe, random_rectangle_point, retry_sleep
 from ...errors import RequestHumanTakeover
 from ...log import logger
+from ...stdio import isolate_stdout
 
 
 class NemuIpcIncompatible(Exception):
@@ -254,6 +255,9 @@ class NemuIpcImpl:
             os.path.abspath(os.path.join(nemu_folder, './nx_main/sdk/external_renderer_ipc.dll')),
             os.path.abspath(os.path.join(nemu_folder, './nx_main/external_renderer_ipc.dll')),
         ]
+        # onmyoji-agentflow: the dll's printf output is flushed only at process exit, so keep fd 1
+        # pointed at stderr for good (see onmyoji_agentflow.stdio)
+        isolate_stdout()
         self.lib = None
         for ipc_dll in list_dll:
             if not os.path.exists(ipc_dll):
@@ -423,15 +427,19 @@ class NemuIpcImpl:
 
     def convert_xy(self, x, y):
         """
-        Convert classic ADB coordinates to Nemu's
-        `self.height` must be updated before calling this method
+        onmyoji-agentflow: identity.
+
+        OAS/ALAS map game (landscape 1280x720) coordinates to Nemu's portrait frame with
+        ``(height - y, x)``. Measured on a real Win10 + MuMu 12 (nx_main) machine, both
+        external_renderer_ipc.dll builds there (nx_main/sdk and nx_device/12.0/shell/sdk) already
+        do exactly that conversion themselves (the dll prints ``after convert, x_point/y_point``),
+        so converting here too sent every touch to a mirrored or off-screen point, e.g.
+        (1010, 175) -> x_point=-290. Pass frame coordinates straight through.
 
         Returns:
             int, int
         """
-        x, y = int(x), int(y)
-        x, y = self.height - y, x
-        return x, y
+        return int(x), int(y)
 
     @retry
     def down(self, x, y):
