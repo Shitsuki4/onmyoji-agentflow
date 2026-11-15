@@ -103,7 +103,23 @@ def test_nx_main_layout(tmp_path, monkeypatch):
     assert mumu.find_ipc_dll(r) == str(root / "nx_device" / "12.0" / "shell" / "sdk" / "external_renderer_ipc.dll")
     monkeypatch.setattr("shutil.which", lambda _: None)
     assert find_adb(None, r) == str(root / "nx_main" / "adb.exe")
+    # keep a real MuMu install on the test machine (registry / Program Files) out of the result
+    monkeypatch.setattr(mumu, "GUESS_ROOTS", [])
+    monkeypatch.setattr(mumu, "iter_registry_roots", lambda: [])
     assert mumu.find_mumu_roots(r) == [r]
+
+
+def test_find_mumu_roots_merges_and_dedups(tmp_path, monkeypatch):
+    new = tmp_path / "Netease" / "MuMu"
+    old = tmp_path / "Netease" / "MuMuPlayer-12.0"
+    _touch(new / "nx_main" / "MuMuManager.exe")
+    (old / "shell").mkdir(parents=True)
+    junk = tmp_path / "NotMuMu"
+    junk.mkdir()
+    monkeypatch.setattr(mumu, "iter_registry_roots", lambda: [str(old), str(junk)])
+    monkeypatch.setattr(mumu, "GUESS_ROOTS", [str(new), str(old), str(tmp_path / "missing")])
+    assert mumu.find_mumu_roots() == [str(old), str(new)]
+    assert mumu.find_mumu_roots(str(new / "nx_main" / "MuMuManager.exe")) == [str(new), str(old)]
 
 
 def test_nx_main_dll_preferred(tmp_path):
