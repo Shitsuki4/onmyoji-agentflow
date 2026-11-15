@@ -19,13 +19,15 @@ def isolate_stdout() -> bool:
     """Route fd 1 (what C code writes to) to stderr for the rest of the process; ``sys.stdout``
     keeps writing to the real stdout. Idempotent. Returns True when stdout is isolated.
 
-    Does nothing when ``sys.stdout`` is not the process's fd 1 (pytest capture, embedding).
+    Does nothing when ``sys.stdout`` is not the process's fd 1 (pytest capture, embedding), or
+    when it is an interactive terminal: there the stray lines are harmless, and on Windows the
+    console stream must stay the native one so Chinese text is shown correctly.
     """
     global _isolated
     if _isolated:
         return True
     try:
-        if sys.stdout is None or sys.stdout.fileno() != 1:
+        if sys.stdout is None or sys.stdout.fileno() != 1 or sys.stdout.isatty():
             return False
         sys.stdout.flush()
         real = os.dup(1)
