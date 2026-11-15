@@ -13,6 +13,7 @@ import os
 import sys
 
 _isolated = False
+_real_stdout = None  # keeps the stream alive when callers swap sys.stdout (oaf mcp does)
 
 
 def isolate_stdout() -> bool:
@@ -23,7 +24,7 @@ def isolate_stdout() -> bool:
     when it is an interactive terminal: there the stray lines are harmless, and on Windows the
     console stream must stay the native one so Chinese text is shown correctly.
     """
-    global _isolated
+    global _isolated, _real_stdout
     if _isolated:
         return True
     try:
@@ -53,6 +54,6 @@ def isolate_stdout() -> bool:
             ctypes.windll.kernel32.SetStdHandle(-11, msvcrt.get_osfhandle(2))  # STD_OUTPUT_HANDLE
         except Exception:  # noqa: BLE001
             pass
-    sys.stdout = stream
+    sys.stdout = _real_stdout = stream
     _isolated = True
     return True

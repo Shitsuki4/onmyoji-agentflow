@@ -11,7 +11,10 @@ from onmyoji_agentflow.stdio import isolate_stdout
 assert isolate_stdout() and isolate_stdout()
 os.write(1, b"nemu_connect instance_name: x\n")   # what C code writes to fd 1
 print(json.dumps({"ok": True}))
-sys.stdout.buffer.write(b'{"jsonrpc": "2.0"}\n')  # what the MCP stdio server writes
+proto = sys.stdout.buffer      # what `oaf mcp` does before handing sys.stdout to stderr
+sys.stdout = sys.stderr
+import gc; gc.collect()
+proto.write(b'{"jsonrpc": "2.0"}\n'); proto.flush()
 """
 
 
