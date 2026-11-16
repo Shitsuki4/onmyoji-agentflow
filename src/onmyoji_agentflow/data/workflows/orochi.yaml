@@ -13,18 +13,33 @@ params:
     min: 1
     max: 999
     desc: 挑战次数
+  layer:
+    default: 0
+    min: 0
+    max: 6
+    desc: 八岐大蛇第几层（1-6；0 = 不动，用游戏里当前选中的层）
 vars:
   runs: 0
   done: 0
   losses: 0
   pending: 0
   started: 0
+  layer_set: 0
 limits:
   timeout_s: 14400
   unknown_timeout_s: 60
   stuck_timeout_s: 120
   no_progress_timeout_s: 600
   max_repeat: 20
+inline_resources:
+  nav_soul:
+    type: click
+    rect: [165, 676, 195, 704]
+    desc: 探索大地图底部「御魂」入口（新版界面实机坐标）
+  nav_orochi_card:
+    type: click
+    rect: [105, 440, 145, 500]
+    desc: 御魂选择界面最左边的八岐大蛇卡片（实机坐标）
 counts:
   done: max_runs
 states:
@@ -222,6 +237,84 @@ states:
     first: true
   - wait: 1000
   max_repeat: 3600
+- id: layer_1
+  desc: 八岐大蛇挑战界面，先选第 1 层
+  when:
+    all:
+    - expr: layer == 1 and layer_set == 0 and runs == 0
+    - text: 岐大
+      region: [0, 90, 100, 150]
+  do:
+  - click: [110, 114, 170, 138]
+    delay: 1000
+  - set:
+      layer_set: 1
+  max_repeat: 2
+- id: layer_2
+  desc: 八岐大蛇挑战界面，先选第 2 层
+  when:
+    all:
+    - expr: layer == 2 and layer_set == 0 and runs == 0
+    - text: 岐大
+      region: [0, 90, 100, 150]
+  do:
+  - click: [110, 219, 170, 243]
+    delay: 1000
+  - set:
+      layer_set: 1
+  max_repeat: 2
+- id: layer_3
+  desc: 八岐大蛇挑战界面，先选第 3 层
+  when:
+    all:
+    - expr: layer == 3 and layer_set == 0 and runs == 0
+    - text: 岐大
+      region: [0, 90, 100, 150]
+  do:
+  - click: [110, 323, 170, 347]
+    delay: 1000
+  - set:
+      layer_set: 1
+  max_repeat: 2
+- id: layer_4
+  desc: 八岐大蛇挑战界面，先选第 4 层
+  when:
+    all:
+    - expr: layer == 4 and layer_set == 0 and runs == 0
+    - text: 岐大
+      region: [0, 90, 100, 150]
+  do:
+  - click: [110, 426, 170, 450]
+    delay: 1000
+  - set:
+      layer_set: 1
+  max_repeat: 2
+- id: layer_5
+  desc: 八岐大蛇挑战界面，先选第 5 层
+  when:
+    all:
+    - expr: layer == 5 and layer_set == 0 and runs == 0
+    - text: 岐大
+      region: [0, 90, 100, 150]
+  do:
+  - click: [110, 530, 170, 554]
+    delay: 1000
+  - set:
+      layer_set: 1
+  max_repeat: 2
+- id: layer_6
+  desc: 八岐大蛇挑战界面，先选第 6 层
+  when:
+    all:
+    - expr: layer == 6 and layer_set == 0 and runs == 0
+    - text: 岐大
+      region: [0, 90, 100, 150]
+  do:
+  - click: [110, 633, 170, 657]
+    delay: 1000
+  - set:
+      layer_set: 1
+  max_repeat: 2
 - id: challenge_done_0
   desc: 挑战界面，次数已打满，结束
   from: 'assttyys 006 #0'
@@ -329,3 +422,56 @@ states:
   on_repeat: stop
   repeat_reason: 连续 3 次点挑战没反应（可能体力不足），停止
   progress: true
+- id: nav_orochi
+  desc: 御魂选择界面（右下角「掉落日历」），点最左边的「八岐大蛇」
+  when:
+    all:
+    - expr: runs < max_runs
+    - text: 御魂
+      region: [140, 15, 100, 45]
+    - text: 掉落日历
+      region: [1140, 665, 135, 50]
+  do:
+  - click: nav_orochi_card
+    delay: 2500
+  max_repeat: 3
+- id: exit_dialog
+  desc: 「确定要退出游戏？」弹框，点取消
+  when:
+    all:
+    - text: 退出游戏
+      region: [330, 315, 330, 60]
+    - text: 取消
+      region: [740, 415, 130, 50]
+  do:
+  - click_found: true
+    offset: [-15, -8, 15, 8]
+    delay: 1500
+  max_repeat: 3
+- id: nav_soul
+  desc: 探索大地图，点底部「御魂」
+  when:
+    all:
+    - expr: runs < max_runs
+    - res: 探索地图界面
+  do:
+  - click: nav_soul
+    delay: 1500
+  max_repeat: 3
+- id: nav_courtyard
+  desc: 在庭院，点「探索」灯笼进探索大地图
+  when:
+    all:
+    - expr: runs < max_runs
+    - all:
+      - text: 式神录
+        region: [1080, 640, 110, 55]
+      - text: 阴阳寮
+        region: [515, 640, 120, 55]
+    - text: 探索
+      region: [250, 120, 900, 230]
+  do:
+  - click_found: true
+    offset: [-12, -8, 12, 8]
+    delay: 2500
+  max_repeat: 3

@@ -1,0 +1,174 @@
+# 由 onmyoji_agentflow.convert.build_mvp 从 assttyys_autojs 的识别数据生成，请勿手改坐标；
+# 需要调整时改 build_mvp.py 或交给 agent 监管修复（会在 git 分支上提交）。
+# 识别数据来源 https://github.com/zzliux/assttyys_autojs  MIT License, Copyright (c) 2019 Chaos
+format: 1
+name: daily_rewards
+title: 补给领取（邮件 + 好友友情点）
+desc: 从庭院（或探索大地图）出发：打开邮箱一键领取所有附件，再到好友界面一键收取友情点，回到庭院停止。画面用 OCR 认字（需要可选依赖 rapidocr），没有 OCR 时认不出画面会停下。
+resources: [assttyys/colors.yaml]
+similarity: 93
+params: {}
+vars:
+  mail_done: 0
+  friend_done: 0
+  mail_clicks: 0
+  friend_clicks: 0
+  claimed: 0
+limits:
+  timeout_s: 14400
+  unknown_timeout_s: 30
+  stuck_timeout_s: 120
+  no_progress_timeout_s: 600
+  max_repeat: 20
+inline_resources:
+  mail_icon:
+    type: click
+    rect: [1144, 35, 1164, 55]
+    desc: 庭院右上角邮箱
+  friend_icon:
+    type: click
+    rect: [897, 640, 917, 660]
+    desc: 庭院底部「好友」
+states:
+- id: exit_dialog
+  desc: 「确定要退出游戏？」弹框，点取消
+  when:
+    all:
+    - text: 退出游戏
+      region: [330, 315, 330, 60]
+    - text: 取消
+      region: [740, 415, 130, 50]
+  do:
+  - click_found: true
+    offset: [-15, -8, 15, 8]
+    delay: 1500
+  max_repeat: 3
+- id: reward_popup
+  desc: 「获得奖励」弹窗，点空白处关掉
+  when:
+    text: [获得奖励, 获得物品]
+    region: [440, 150, 400, 150]
+  do:
+  - click: [540, 630, 740, 690]
+    delay: 1200
+  - inc: claimed
+  max_repeat: 5
+- id: mail_confirm
+  desc: 邮箱里领取时弹出的确认框，点确定
+  when:
+    all:
+    - &id001
+      text: 邮箱
+      region: [580, 50, 120, 55]
+    - text: 确定
+      region: [680, 540, 180, 70]
+  do:
+  - click_found: true
+    offset: [-15, -8, 15, 8]
+    delay: 1500
+  max_repeat: 3
+- id: mail_claim
+  desc: 邮箱，点左下「一键领取」/「全部领取」
+  when:
+    all:
+    - expr: mail_clicks < 3
+    - *id001
+    - text: [一键领取, 全部领取]
+      region: [20, 590, 440, 65]
+  do:
+  - click_found: true
+    offset: [-15, -8, 15, 8]
+    delay: 1500
+  - inc: mail_clicks
+  max_repeat: 3
+- id: mail_done
+  desc: 邮箱里没有可领的了，返回庭院
+  when:
+    all:
+    - expr: mail_done == 0
+    - *id001
+  do:
+  - set:
+      mail_done: 1
+  - back: true
+    delay: 2000
+- id: mail_leaving
+  desc: 已按过返回，邮箱还没关上，等一下（不再按返回，免得弹「退出游戏」）
+  when: *id001
+  do:
+  - wait: 1500
+  max_repeat: 4
+- id: friend_collect
+  desc: 好友界面，点「一键收取」友情点
+  when:
+    all:
+    - expr: friend_clicks < 1
+    - &id002
+      text: 好友
+      region: [580, 45, 120, 50]
+    - text: [一键收取, 收取]
+      region: [30, 530, 200, 65]
+  do:
+  - click_found: true
+    offset: [-15, -8, 15, 8]
+    delay: 1500
+  - inc: friend_clicks
+  max_repeat: 2
+- id: friend_done
+  desc: 友情点收过了，返回庭院
+  when:
+    all:
+    - expr: friend_done == 0
+    - *id002
+  do:
+  - set:
+      friend_done: 1
+  - back: true
+    delay: 2000
+- id: friend_leaving
+  desc: 已按过返回，好友界面还没关上，等一下
+  when: *id002
+  do:
+  - wait: 1500
+  max_repeat: 4
+- id: all_done
+  desc: 庭院，邮件和友情点都领过了，结束
+  when:
+    all:
+    - expr: mail_done == 1 and friend_done == 1
+    - &id003
+      all:
+      - text: 式神录
+        region: [1080, 640, 110, 55]
+      - text: 阴阳寮
+        region: [515, 640, 120, 55]
+  do:
+  - stop: 补给领完了（邮件附件 + 好友友情点）
+- id: open_mail
+  desc: 庭院，点右上角邮箱
+  when:
+    all:
+    - expr: mail_done == 0
+    - *id003
+  do:
+  - click: mail_icon
+    delay: 2000
+  max_repeat: 3
+- id: open_friends
+  desc: 庭院，点底部「好友」
+  when:
+    all:
+    - expr: friend_done == 0
+    - *id003
+  do:
+  - click: friend_icon
+    delay: 2000
+  max_repeat: 3
+- id: leave_explore_map
+  desc: 在探索大地图，返回庭院
+  when:
+    res: 探索地图界面
+  do:
+  - back: true
+    delay: 2000
+  max_repeat: 3

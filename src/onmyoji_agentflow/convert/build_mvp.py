@@ -113,18 +113,64 @@ LIMITS = {"timeout_s": 4 * 3600, "unknown_timeout_s": 60, "stuck_timeout_s": 120
           "no_progress_timeout_s": 600, "max_repeat": 20}
 
 
+# ---------------------------------------------------------------- navigation (OCR text conditions)
+# Taken on a real Win10 + MuMu 12 (1280x720, 新版界面) account; see docs/玩法说明.md.
+COURTYARD = {"all": [{"text": "式神录", "region": [1080, 640, 110, 55]},
+                     {"text": "阴阳寮", "region": [515, 640, 120, 55]}]}
+COURTYARD_EXPLORE = {"text": "探索", "region": [250, 120, 900, 230]}   # the 探索 lantern (skips the chat ticker)
+EXPLORE_MAP = {"res": "探索地图界面"}
+# 「确定要退出游戏？」 (a back press too many in the courtyard): always answer 取消
+EXIT_DIALOG_STATE = {
+    "id": "exit_dialog", "desc": "「确定要退出游戏？」弹框，点取消",
+    "when": {"all": [{"text": "退出游戏", "region": [330, 315, 330, 60]}, {"text": "取消", "region": [740, 415, 130, 50]}]},
+    "do": [{"click_found": True, "offset": [-15, -8, 15, 8], "delay": 1500}], "max_repeat": 3}
+
+
+def nav_states(guard: str, target: str, target_rect: list, target_desc: str) -> list:
+    """Courtyard -> 探索大地图 -> ``target`` (a bottom-bar entry of the big exploration map).
+
+    Lowest priority: only used when no in-game state of the workflow matched, and only while
+    ``guard`` (e.g. ``runs < max_runs``) holds, so a finished run never walks back in."""
+    return [
+        dict(EXIT_DIALOG_STATE),
+        {"id": f"nav_{target}", "desc": f"探索大地图，点底部「{target_desc}」",
+         "when": {"all": [{"expr": guard}, EXPLORE_MAP]},
+         "do": [{"click": f"nav_{target}", "delay": 1500}], "max_repeat": 3},
+        {"id": "nav_courtyard", "desc": "在庭院，点「探索」灯笼进探索大地图",
+         "when": {"all": [{"expr": guard}, COURTYARD, COURTYARD_EXPLORE]},
+         "do": [{"click_found": True, "offset": [-12, -8, 12, 8], "delay": 2500}], "max_repeat": 3},
+    ], {f"nav_{target}": {"type": "click", "rect": target_rect,
+                          "desc": f"探索大地图底部「{target_desc}」入口（新版界面实机坐标）"}}
+
+
+# 八岐大蛇 challenge screen: layer list on the left (壹..陆), text centres measured by OCR on the real device
+OROCHI_LAYER_Y = [126, 231, 335, 438, 542, 645]
+
+
 def build_orochi(F: Funcs) -> dict:
+    nav, nav_inline = nav_states("runs < max_runs", "soul", [165, 676, 195, 704], "御魂")
+    nav_inline["nav_orochi_card"] = {"type": "click", "rect": [105, 440, 145, 500],
+                                     "desc": "御魂选择界面最左边的八岐大蛇卡片（实机坐标）"}
+    layer_states = [
+        {"id": f"layer_{n}", "desc": f"八岐大蛇挑战界面，先选第 {n} 层",
+         "when": {"all": [{"expr": f"layer == {n} and layer_set == 0 and runs == 0"},
+                          {"text": "岐大", "region": [0, 90, 100, 150]}]},
+         "do": [{"click": [110, y - 12, 170, y + 12], "delay": 1000}, {"set": {"layer_set": 1}}], "max_repeat": 2}
+        for n, y in enumerate(OROCHI_LAYER_Y, start=1)]
     return {
         "format": 1, "name": "orochi", "title": "御魂（个人）",
         "desc": "在御魂挑战界面反复挑战，达到次数或体力不足时停止。对应 assttyys 方案「个人御魂」里的 001 准备、002 退出结算、006 御魂/御灵/秘闻挑战。",
         "resources": ["assttyys/colors.yaml"],
         "similarity": 93,
-        "params": {"max_runs": {"default": 30, "min": 1, "max": 999, "desc": "挑战次数"}},
-        "vars": {"runs": 0, "done": 0, "losses": 0, "pending": 0, "started": 0},
+        "params": {"max_runs": {"default": 30, "min": 1, "max": 999, "desc": "挑战次数"},
+                   "layer": {"default": 0, "min": 0, "max": 6,
+                             "desc": "八岐大蛇第几层（1-6；0 = 不动，用游戏里当前选中的层）"}},
+        "vars": {"runs": 0, "done": 0, "losses": 0, "pending": 0, "started": 0, "layer_set": 0},
         "limits": dict(LIMITS),
+        "inline_resources": nav_inline,
         # no stop_when: stop on the challenge / raid screen once the runs are used up, never on a result screen
         "counts": {"done": "max_runs"},
-        "states": common_battle_states(F) + [
+        "states": common_battle_states(F) + layer_states + [
             # back on the challenge screen with every run used: the last battle is over, stop
             {"id": f"challenge_done_{k}", "desc": "挑战界面，次数已打满，结束", "from": f"assttyys 006 #{k}",
              "when": {"all": [F.when(6, k), {"expr": "runs >= max_runs and (pending == 0 or started == 1)"}]},
@@ -141,7 +187,12 @@ def build_orochi(F: Funcs) -> dict:
              "max_repeat": 3, "on_repeat": "stop", "repeat_reason": "连续 3 次点挑战没反应（可能体力不足），停止",
              "progress": True}
             for k in range(len(F.f(6)["operators"]))
-        ],
+        ] + [
+            {"id": "nav_orochi", "desc": "御魂选择界面（右下角「掉落日历」），点最左边的「八岐大蛇」",
+             "when": {"all": [{"expr": "runs < max_runs"}, {"text": "御魂", "region": [140, 15, 100, 45]},
+                              {"text": "掉落日历", "region": [1140, 665, 135, 50]}]},
+             "do": [{"click": "nav_orochi_card", "delay": 2500}], "max_repeat": 3},
+        ] + nav,
     }
 
 
@@ -173,20 +224,66 @@ def build_realm_raid(F: Funcs) -> dict:
         "when": {"all": [F.when(9, 0), {"expr": "runs >= max_runs and (pending == 0 or started == 1)"}]},
         "do": [{"set": BACK_COUNT, "first": True}, {"wait": 1500}],
         "max_repeat": 2, "on_repeat": "stop", "repeat_reason": "进攻次数已打满，停止"})
+    # every 结界 on the page broken (no medal left): refresh when allowed, or say the refresh is cooling down
+    states += [
+        {"id": "refresh_confirm", "desc": "「刷新后攻破记录进度将重置，确定吗？」点确定",
+         "when": {"all": [{"text": "刷新后", "region": [400, 270, 480, 80]}, {"text": "确定", "region": [690, 410, 130, 55]}]},
+         "do": [{"click_found": True, "offset": [-15, -8, 15, 8], "delay": 2000}], "max_repeat": 2},
+        {"id": "refresh_cooling", "desc": "本页都打过了，刷新按钮在冷却（显示倒计时），停止",
+         "when": {"all": [F.when(9, 0), {"expr": "runs < max_runs"},
+                          {"text": "", "pattern": r"刷新\d{1,2}[:：]\d{2}", "region": [990, 575, 130, 45]}]},
+         "do": [{"wait": 1500}], "max_repeat": 2, "on_repeat": "stop",
+         "repeat_reason": "本页结界都打过了，刷新还在冷却（5 分钟），停止"},
+        {"id": "refresh", "desc": "本页都打过了，点「刷新」换一页（auto_refresh=1 时）",
+         "when": {"all": [F.when(9, 0), {"expr": "runs < max_runs and auto_refresh == 1 and refreshes < max_refresh"},
+                          {"text": "刷新", "region": [990, 575, 130, 45]}]},
+         "do": [{"click_found": True, "offset": [-15, -8, 15, 8], "delay": 1500}, {"inc": "refreshes"}],
+         "max_repeat": 2},
+    ]
     states.append({"id": "all_broken", "desc": "突破界面上找不到可打的结界，停止", "from": "assttyys 009 #0",
                    "when": F.when(9, 0), "do": [{"wait": 1500}],
-                   "max_repeat": 3, "on_repeat": "stop", "repeat_reason": "本页结界都打过了（刷新要等冷却，不自动刷新）"})
+                   "max_repeat": 3, "on_repeat": "stop", "repeat_reason": "本页结界都打过了（没有开自动刷新，或刷新次数已用完）"})
+    # a lost 结界 keeps its medal, so the medal states would attack the same one again and again:
+    # after ``lose_limit`` losses in a row refresh the page (if allowed and not cooling down) or stop
+    for st in states:
+        if st["id"].startswith("settle_") and st["id"] not in ("settle_overflow", "settle_cancel_box"):
+            val = "streak + 1" if st["id"] == "settle_lose" else "0"
+            st["do"].insert(0, {"set": {"streak": val}, "first": True})
+    lose = "streak >= lose_limit and runs < max_runs"
+    lose_states = [
+        {"id": "lose_cooling", "desc": f"连续打输，刷新还在冷却，停止",
+         "when": {"all": [F.when(9, 0), {"expr": lose},
+                          {"text": "", "pattern": r"刷新\d{1,2}[:：]\d{2}", "region": [990, 575, 130, 45]}]},
+         "do": [{"wait": 1000}], "max_repeat": 2, "on_repeat": "stop",
+         "repeat_reason": "连续打输，打不过本页剩下的结界，刷新还在冷却（5 分钟），停止"},
+        {"id": "lose_refresh", "desc": "连续打输，点「刷新」换一页",
+         "when": {"all": [F.when(9, 0), {"expr": lose + " and auto_refresh == 1 and refreshes < max_refresh"},
+                          {"text": "刷新", "region": [990, 575, 130, 45]}]},
+         "do": [{"click_found": True, "offset": [-15, -8, 15, 8], "delay": 1500}, {"inc": "refreshes"},
+                {"set": {"streak": 0}}], "max_repeat": 2},
+        {"id": "lose_stop", "desc": "连续打输，又不能刷新，停止",
+         "when": {"all": [F.when(9, 0), {"expr": lose}]},
+         "do": [{"stop": "连续打输，打不过本页剩下的结界（没开自动刷新，或刷新次数已用完），停止"}]},
+    ]
+    first_medal = next(i for i, st in enumerate(states) if st["id"].startswith("medal_"))
+    states[first_medal:first_medal] = lose_states
+    nav, nav_inline = nav_states("runs < max_runs", "raid", [266, 676, 296, 704], "结界突破")
+    states += nav
     return {
         "format": 1, "name": "realm_raid", "title": "个人结界突破",
         "desc": ("在个人结界突破界面按「呱太->4->5->3->2->1->0」勋章顺序选结界并进攻，"
-                 "进攻连续无反应（突破券用完）或达到次数后停止。由 assttyys 008/009 翻译；"
-                 "「打九退四」、自动刷新、锁定阵容没有做。"),
+                 "进攻连续无反应（突破券用完）或达到次数后停止；本页打完会自动刷新（冷却中就停止）。"
+                 "由 assttyys 008/009 翻译；「打九退四」、锁定阵容没有做。"),
         "requires": ["账号已加入阴阳寮（没入寮时进不了结界突破，会提示先加入阴阳寮）"],
         "resources": ["assttyys/colors.yaml"],
         "similarity": 93,
-        "params": {"max_runs": {"default": 30, "min": 1, "max": 300, "desc": "进攻次数上限"}},
-        "vars": {"runs": 0, "done": 0, "losses": 0, "pending": 0, "started": 0},
+        "params": {"max_runs": {"default": 30, "min": 1, "max": 300, "desc": "进攻次数上限"},
+                   "auto_refresh": {"default": 1, "min": 0, "max": 1, "desc": "本页打完自动刷新（1 开 / 0 关）"},
+                   "max_refresh": {"default": 3, "min": 0, "max": 50, "desc": "一次运行最多刷新几次"},
+                   "lose_limit": {"default": 2, "min": 1, "max": 30, "desc": "连续打输几次就换一页（或停止）"}},
+        "vars": {"runs": 0, "done": 0, "losses": 0, "pending": 0, "started": 0, "refreshes": 0, "streak": 0},
         "limits": dict(LIMITS),
+        "inline_resources": nav_inline,
         # no stop_when: stop on the challenge / raid screen once the runs are used up, never on a result screen
         "counts": {"done": "max_runs"},
         "states": states,
@@ -268,6 +365,10 @@ def build_exploration(F: Funcs) -> dict:
         {"id": "chapter_map", "desc": "探索大地图，认不出章节列表时按固定坐标点章节（可改 chapter_xy）",
          "when": {"res": "探索地图界面"},
          "do": [{"click": "chapter_xy", "delay": 1000}, {"set": {"tab_clicks": 0}}], "max_repeat": 5},
+        dict(EXIT_DIALOG_STATE),
+        {"id": "nav_courtyard", "desc": "在庭院，点「探索」灯笼进探索大地图",
+         "when": {"all": [{"expr": "rounds < max_rounds"}, COURTYARD, COURTYARD_EXPLORE]},
+         "do": [{"click_found": True, "offset": [-12, -8, 12, 8], "delay": 2500}], "max_repeat": 3},
     ]
     return {
         "format": 1, "name": "exploration", "title": "探索（个人）",
@@ -296,7 +397,102 @@ def build_exploration(F: Funcs) -> dict:
     }
 
 
-BUILDERS = {"orochi": build_orochi, "realm_raid": build_realm_raid, "exploration": build_exploration}
+MAIL_TITLE = {"text": "邮箱", "region": [580, 50, 120, 55]}
+FRIEND_TITLE = {"text": "好友", "region": [580, 45, 120, 50]}
+REWARD_POPUP = {"text": ["获得奖励", "获得物品"], "region": [440, 150, 400, 150]}
+
+
+def build_daily_rewards(F: Funcs) -> dict:
+    """Free daily supplies: claim all mail attachments and collect friendship points. OCR-driven
+    (no counterpart colour script in assttyys for the new mail / friend screens)."""
+    states = [
+        dict(EXIT_DIALOG_STATE),
+        {"id": "reward_popup", "desc": "「获得奖励」弹窗，点空白处关掉",
+         "when": REWARD_POPUP, "do": [{"click": [540, 630, 740, 690], "delay": 1200}, {"inc": "claimed"}],
+         "max_repeat": 5},
+        {"id": "mail_confirm", "desc": "邮箱里领取时弹出的确认框，点确定",
+         "when": {"all": [MAIL_TITLE, {"text": "确定", "region": [680, 540, 180, 70]}]},
+         "do": [{"click_found": True, "offset": [-15, -8, 15, 8], "delay": 1500}], "max_repeat": 3},
+        {"id": "mail_claim", "desc": "邮箱，点左下「一键领取」/「全部领取」",
+         "when": {"all": [{"expr": "mail_clicks < 3"}, MAIL_TITLE,
+                          {"text": ["一键领取", "全部领取"], "region": [20, 590, 440, 65]}]},
+         "do": [{"click_found": True, "offset": [-15, -8, 15, 8], "delay": 1500}, {"inc": "mail_clicks"}],
+         "max_repeat": 3},
+        {"id": "mail_done", "desc": "邮箱里没有可领的了，返回庭院",
+         "when": {"all": [{"expr": "mail_done == 0"}, MAIL_TITLE]},
+         "do": [{"set": {"mail_done": 1}}, {"back": True, "delay": 2000}]},
+        {"id": "mail_leaving", "desc": "已按过返回，邮箱还没关上，等一下（不再按返回，免得弹「退出游戏」）",
+         "when": MAIL_TITLE, "do": [{"wait": 1500}], "max_repeat": 4},
+        {"id": "friend_collect", "desc": "好友界面，点「一键收取」友情点",
+         "when": {"all": [{"expr": "friend_clicks < 1"}, FRIEND_TITLE,
+                          {"text": ["一键收取", "收取"], "region": [30, 530, 200, 65]}]},
+         "do": [{"click_found": True, "offset": [-15, -8, 15, 8], "delay": 1500}, {"inc": "friend_clicks"}],
+         "max_repeat": 2},
+        {"id": "friend_done", "desc": "友情点收过了，返回庭院",
+         "when": {"all": [{"expr": "friend_done == 0"}, FRIEND_TITLE]},
+         "do": [{"set": {"friend_done": 1}}, {"back": True, "delay": 2000}]},
+        {"id": "friend_leaving", "desc": "已按过返回，好友界面还没关上，等一下",
+         "when": FRIEND_TITLE, "do": [{"wait": 1500}], "max_repeat": 4},
+        {"id": "all_done", "desc": "庭院，邮件和友情点都领过了，结束",
+         "when": {"all": [{"expr": "mail_done == 1 and friend_done == 1"}, COURTYARD]},
+         "do": [{"stop": "补给领完了（邮件附件 + 好友友情点）"}]},
+        {"id": "open_mail", "desc": "庭院，点右上角邮箱",
+         "when": {"all": [{"expr": "mail_done == 0"}, COURTYARD]},
+         "do": [{"click": "mail_icon", "delay": 2000}], "max_repeat": 3},
+        {"id": "open_friends", "desc": "庭院，点底部「好友」",
+         "when": {"all": [{"expr": "friend_done == 0"}, COURTYARD]},
+         "do": [{"click": "friend_icon", "delay": 2000}], "max_repeat": 3},
+        {"id": "leave_explore_map", "desc": "在探索大地图，返回庭院",
+         "when": EXPLORE_MAP, "do": [{"back": True, "delay": 2000}], "max_repeat": 3},
+    ]
+    return {
+        "format": 1, "name": "daily_rewards", "title": "补给领取（邮件 + 好友友情点）",
+        "desc": ("从庭院（或探索大地图）出发：打开邮箱一键领取所有附件，再到好友界面一键收取友情点，回到庭院停止。"
+                 "画面用 OCR 认字（需要可选依赖 rapidocr），没有 OCR 时认不出画面会停下。"),
+        "resources": ["assttyys/colors.yaml"],
+        "similarity": 93,
+        "params": {},
+        "vars": {"mail_done": 0, "friend_done": 0, "mail_clicks": 0, "friend_clicks": 0, "claimed": 0},
+        "limits": {**LIMITS, "unknown_timeout_s": 30},
+        "inline_resources": {
+            "mail_icon": {"type": "click", "rect": [1144, 35, 1164, 55], "desc": "庭院右上角邮箱"},
+            "friend_icon": {"type": "click", "rect": [897, 640, 917, 660], "desc": "庭院底部「好友」"},
+        },
+        "states": states,
+    }
+
+
+def build_home(F: Funcs) -> dict:
+    """Back to the courtyard from wherever the game is (used between workflows by ``oaf marathon``)."""
+    settle = [s for s in common_battle_states(F) if s["id"].startswith("settle") or s["id"] in ("battle_manual", "in_battle")]
+    leave = [F.click(14, 0, 3), F.click(14, 0, 4)]
+    states = [
+        dict(EXIT_DIALOG_STATE),
+        {"id": "courtyard", "desc": "已在庭院，结束", "when": COURTYARD, "do": [{"stop": "已回到庭院"}]},
+        REWARD_HOME,
+    ] + settle + [
+        {"id": "explore_chapter", "desc": "在探索章节地图里，点左上返回并确认退出",
+         "when": F.when(14, 0), "do": leave, "max_repeat": 3},
+        {"id": "back", "desc": "认不出是哪，按返回键（最多 8 次）",
+         "when": {"expr": "backs < 8"}, "do": [{"back": True, "delay": 2000}, {"inc": "backs"}], "max_repeat": 8},
+    ]
+    return {
+        "format": 1, "name": "home", "title": "回到庭院",
+        "desc": "从任意界面按返回键（最多 8 次，结算画面先点掉，探索地图先确认退出）回到庭院；连续日常 oaf marathon 在两项之间用它。",
+        "resources": ["assttyys/colors.yaml"],
+        "similarity": 93,
+        "params": {},
+        "vars": {"backs": 0, "runs": 0, "done": 0, "losses": 0, "pending": 0, "started": 0},
+        "limits": {**LIMITS, "unknown_timeout_s": 20},
+        "states": states,
+    }
+
+
+REWARD_HOME = {"id": "reward_popup", "desc": "「获得奖励」弹窗，点空白处关掉", "when": REWARD_POPUP,
+               "do": [{"click": [540, 630, 740, 690], "delay": 1200}], "max_repeat": 5}
+
+BUILDERS = {"orochi": build_orochi, "realm_raid": build_realm_raid, "exploration": build_exploration,
+            "daily_rewards": build_daily_rewards, "home": build_home}
 
 
 def build_all(conv_dir: str | Path, out_dir: str | Path) -> list[Path]:

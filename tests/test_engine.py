@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from helpers import FakeClock, blank, frame_for, paint_points
+from helpers import FakeClock, blank, fake_text_reader, frame_for, paint_points, register_texts
 from onmyoji_agentflow.device.base import Controller
 from onmyoji_agentflow.device.humanize import HumanizeConfig
 from onmyoji_agentflow.device.replay import ReplayDevice
@@ -18,7 +18,7 @@ def ctl_for(frames, observe=False, advance_on_input=True):
     return Controller(dev, HumanizeConfig(), observe=observe, sleep=lambda s: None), dev
 
 
-@pytest.mark.parametrize("name", ["orochi", "realm_raid", "exploration"])
+@pytest.mark.parametrize("name", ["orochi", "realm_raid", "exploration", "daily_rewards", "home"])
 def test_bundled_workflows_load(name):
     wf = load_workflow(WF_DIR / f"{name}.yaml")
     assert wf.states and wf.resources
@@ -27,7 +27,8 @@ def test_bundled_workflows_load(name):
         if "expr" in str(st["when"]):
             continue
         img = frame_for(wf, st["id"])
-        r = Runner(wf, Controller(ReplayDevice([img]), sleep=lambda s: None, observe=True))
+        r = Runner(wf, Controller(ReplayDevice([img]), sleep=lambda s: None, observe=True),
+                   text_reader=fake_text_reader)
         r.vars = {**(wf.raw.get("vars") or {}), "elapsed_s": 0, "actions": 0, **wf.param_defaults()}
         assert r._match(st["when"], img), st["id"]
 

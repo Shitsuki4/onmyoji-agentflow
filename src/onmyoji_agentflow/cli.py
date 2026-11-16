@@ -383,6 +383,33 @@ def cmd_web(args):
     return 0
 
 
+def cmd_marathon(args):
+    import time as _time
+
+    from .marathon import Marathon, load_plan, parse_deadline, plan_yaml
+    if args.print_plan:
+        print(plan_yaml(load_plan(args.plan)))
+        return 0
+    app = _app(args)
+    inst = args.instance or app.instance_names()[0]
+    plan = load_plan(args.plan)
+    missing = [it["workflow"] for it in plan["items"] if it["workflow"] not in app.workflows()]
+    if plan.get("home_between", True) and "home" not in app.workflows():
+        missing.append("home")
+    if missing:
+        print(f"工作区里没有这些工作流：{', '.join(missing)}（先跑 oaf sync）", file=sys.stderr)
+        return 2
+    out = Path(args.out) if args.out else app.cfg.home / "marathon" / _time.strftime("%Y%m%d-%H%M%S")
+    m = Marathon(app, inst, plan, out, deadline=parse_deadline(args.hours, args.until),
+                 repair=args.repair, max_rounds=args.rounds)
+    print(f"连续日常开始：实例 {inst}，记录在 {out}")
+    print(f"停止：Ctrl+C，或在该目录里新建一个名为 STOP 的文件")
+    reason = m.run()
+    print(f"已停止：{reason}。汇总见 {out / 'summary.md'}")
+    print((out / "summary.md").read_text(encoding="utf-8"))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="oaf", description="阴阳师 YAML 工作流引擎 + Agent 自动监管")
     p.add_argument("--version", action="version", version=__version__)
@@ -407,6 +434,16 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--trial", type=int, default=0, help="限次试跑：最多执行这么多次操作")
     s.add_argument("--no-repair", action="store_true", help="失败时不自动修复")
     s.set_defaults(func=cmd_run)
+    s = sub.add_parser("marathon", help="连续日常：按计划循环跑多个工作流（补给、结界突破、御魂、探索），记日志、统计、留样本")
+    s.add_argument("-i", "--instance", default=None)
+    s.add_argument("--plan", help="计划文件（YAML）；不给就用默认计划，看默认计划：--print-plan")
+    s.add_argument("--hours", type=float, help="跑多少小时后停")
+    s.add_argument("--until", help="跑到几点停，如 23:30")
+    s.add_argument("--rounds", type=int, help="最多跑几轮")
+    s.add_argument("--out", help="记录目录（默认 <数据目录>/marathon/<开始时间>）")
+    s.add_argument("--repair", action="store_true", help="失败时让大模型诊断修复（默认只记录样本，事后再学）")
+    s.add_argument("--print-plan", action="store_true", help="打印计划后退出")
+    s.set_defaults(func=cmd_marathon)
     s = sub.add_parser("diagnose", help="看当前画面（或一张截图）匹配哪些状态")
     s.add_argument("workflow")
     s.add_argument("-i", "--instance", default=None)

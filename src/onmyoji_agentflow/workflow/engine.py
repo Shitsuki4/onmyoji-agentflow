@@ -69,7 +69,7 @@ class Runner:
 
     def __init__(self, workflow: Workflow, controller, params: dict | None = None, confirm=None,
                  max_actions: int | None = None, max_seconds: float | None = None, clock=time.monotonic,
-                 on_event=None, should_stop=None, ocr_reader=None):
+                 on_event=None, should_stop=None, ocr_reader=None, text_reader=None, initial_vars=None):
         self.wf = workflow
         self.ctl = controller
         self.params = {**workflow.param_defaults(), **(params or {})}
@@ -80,6 +80,11 @@ class Runner:
         self.on_event = on_event or (lambda kind, data: None)
         self.should_stop = should_stop or (lambda: False)
         self.ocr_reader = ocr_reader
+        # text_reader(img, region) -> [(text, cx, cy)]; injectable for tests (default: rapidocr)
+        self.text_reader = text_reader
+        self.initial_vars = dict(initial_vars or {})   # e.g. counters carried over from an earlier run
+        self._text_cache: dict = {}
+        self._ocr_warned = False
         self.vars: dict = {}
         self._found: tuple[int, int] | None = None
         self._repeat_count = 0
@@ -127,6 +132,8 @@ class Runner:
             return any(self._match(c, img) for c in cond["any"])
         if "not" in cond:
             return not self._match(cond["not"], img)
+        if "text" in cond:
+            return self._match_text(cond, img)
         if "ocr" in cond:
             spec = self.wf.resources[cond["ocr"]]
             reader = self.ocr_reader
@@ -138,6 +145,37 @@ class Runner:
                 return bool(evaluate(cond["test"], self._env()))
             return value is not None
         raise WorkflowError(f"未知条件 {cond}")
+
+    def _match_text(self, cond: dict, img: np.ndarray) -> bool:
+        """``{text: 一键领取 | [..], region: [x, y, w, h], pattern: regex, var: name}``: OCR the region and
+        look for one of the words (or the regex). On a hit the centre of the text is remembered for
+        ``click_found`` (offset is added as usual, default [0, 0, 20, 20] -> use [-10, -10, 10, 10]).
+        Without the optional OCR package the condition is simply false (warned once)."""
+        from ..vision.ocr import OcrUnavailable, find_text, read_boxes
+        region = tuple(int(v) for v in cond.get("region", (0, 0, img.shape[1], img.shape[0])))
+        key = (id(img), region)
+        boxes = self._text_cache.get(key)
+        if boxes is None:
+            try:
+                boxes = (self.text_reader or read_boxes)(img, region)
+            except OcrUnavailable as e:
+                if not self._ocr_warned:
+                    self._ocr_warned = True
+                    logger.warning("[%s] %s；文字条件一律当作没认出", self.wf.name, e)
+                    self.on_event("log", {"state": "", "message": f"{e}；文字条件一律当作没认出"})
+                boxes = []
+            if len(self._text_cache) > 64:
+                self._text_cache.clear()
+            self._text_cache[key] = boxes
+        words = cond.get("text")
+        hit = find_text(boxes, words if words not in (None, "") else None, cond.get("pattern"))
+        if hit is None:
+            return False
+        text, cx, cy = hit
+        self._found = (cx, cy)
+        if cond.get("var"):
+            self.vars[cond["var"]] = text
+        return True
 
     def _env(self) -> dict:
         return {**self.params, **self.vars}
@@ -231,7 +269,7 @@ class Runner:
     def run(self) -> RunResult:
         wf = self.wf
         limits = wf.limits
-        self.vars = {**(wf.raw.get("vars") or {}), "elapsed_s": 0, "actions": 0}
+        self.vars = {**(wf.raw.get("vars") or {}), **self.initial_vars, "elapsed_s": 0, "actions": 0}
         res = RunResult(wf.name, "failed", started=self.clock())
         start = res.started
         last_known = start
@@ -239,6 +277,7 @@ class Runner:
         last_change = start
         prev_thumb = None
         repeat_state, repeat_count = None, 0
+        unknown_reported = False
         observe = bool(getattr(self.ctl, "observe", False))
         loop_delay = float(wf.raw.get("loop_delay_ms", 300)) / 1000
         self.on_event("start", {"workflow": wf.name, "observe": observe, "params": self.params})
@@ -284,6 +323,10 @@ class Runner:
                         if self._match(b["when"], img):
                             res.history.append((round(now - start, 2), "blocker:" + b["id"]))
                             raise RunFailure("prerequisite", "前置条件没满足：" + b["message"], b["id"])
+                    if not unknown_reported and now - last_known >= float(limits.get("unknown_sample_s", 10)):
+                        unknown_reported = True
+                        self.on_event("unknown", {"frame": img, "after_state": repeat_state,
+                                                  "seconds": round(now - last_known, 1)})
                     if not observe and now - last_known > limits["unknown_timeout_s"]:
                         msg = f"{limits['unknown_timeout_s']} 秒内认不出当前画面"
                         if wf.requires:
@@ -292,6 +335,7 @@ class Runner:
                     self.ctl.sleep(loop_delay)
                     continue
                 last_known = now
+                unknown_reported = False
                 res.recognized_ticks += 1
                 res.history.append((round(now - start, 2), matched["id"]))
                 self.on_event("state", {"state": matched["id"], "vars": dict(self.vars)})

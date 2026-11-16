@@ -420,3 +420,33 @@ states:
   - set:
       tab_clicks: 0
   max_repeat: 5
+- id: exit_dialog
+  desc: 「确定要退出游戏？」弹框，点取消
+  when:
+    all:
+    - text: 退出游戏
+      region: [330, 315, 330, 60]
+    - text: 取消
+      region: [740, 415, 130, 50]
+  do:
+  - click_found: true
+    offset: [-15, -8, 15, 8]
+    delay: 1500
+  max_repeat: 3
+- id: nav_courtyard
+  desc: 在庭院，点「探索」灯笼进探索大地图
+  when:
+    all:
+    - expr: rounds < max_rounds
+    - all:
+      - text: 式神录
+        region: [1080, 640, 110, 55]
+      - text: 阴阳寮
+        region: [515, 640, 120, 55]
+    - text: 探索
+      region: [250, 120, 900, 230]
+  do:
+  - click_found: true
+    offset: [-12, -8, 12, 8]
+    delay: 2500
+  max_repeat: 3
