@@ -248,11 +248,31 @@ class FakeSupervisor:
         pass
 
 
+# 2026-11-17 之前的刷本计划，测试按它写的
+GRIND_PLAN = {
+    "pause_s": 60,            # pause between rounds
+    "home_between": True,     # bring the game back to the courtyard before every item
+    "max_home_failures": 3,   # this many failed ``home`` runs in a row -> stop, a human is needed
+    "items": [
+        {"workflow": "daily_rewards", "cooldown_min": 240},
+        # only the 3 weakest per page, then refresh; stop and keep the tickets below 50 % wins
+        {"workflow": "realm_raid", "params": {"max_runs": 30, "auto_refresh": 1, "max_refresh": 10,
+                                              "weak_first": 1, "wins_per_page": 3, "min_win_pct": 50},
+         "cooldown_min": 30, "cooldown_on": {"突破券": 120, "胜率低": 180, "冷却": 6}},
+        # 魂十: 叁层 only drops low-star souls; 拾层 cleared 7/7 with the 2026-11-17 team
+        {"workflow": "orochi", "params": {"max_runs": 20, "layer": 10},
+         "cooldown_min": 0, "cooldown_on": {"体力": 120}},
+        {"workflow": "exploration", "params": {"max_rounds": 5},
+         "cooldown_min": 0, "cooldown_on": {"体力": 120}},
+    ],
+}
+
+
 def _marathon(tmp_path, script, plan=None, **kw):
     clock = StepClock(step=1)
     sup = FakeSupervisor(script)
     app = SimpleNamespace(supervisor=sup)
-    m = Marathon(app, "mumu", plan or load_plan(None), tmp_path / "m", clock=clock, sleep=clock.sleep, **kw)
+    m = Marathon(app, "mumu", plan or json.loads(json.dumps(GRIND_PLAN)), tmp_path / "m", clock=clock, sleep=clock.sleep, **kw)
     return m, sup
 
 

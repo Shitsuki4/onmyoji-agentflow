@@ -24,20 +24,25 @@ from pathlib import Path
 import yaml
 
 DEFAULT_PLAN = {
+    # 2026-11-17 起：只做日活 / 周活 / 活动，不再循环刷拾层（经验库第 7 节）
     "pause_s": 60,            # pause between rounds
     "home_between": True,     # bring the game back to the courtyard before every item
     "max_home_failures": 3,   # this many failed ``home`` runs in a row -> stop, a human is needed
     "items": [
+        # 邮件 + 好友友情点
         {"workflow": "daily_rewards", "cooldown_min": 240},
-        # only the 3 weakest per page, then refresh; stop and keep the tickets below 50 % wins
-        {"workflow": "realm_raid", "params": {"max_runs": 30, "auto_refresh": 1, "max_refresh": 10,
+        # 活动「祸至无日」超鬼王：没鬼王就召唤，带租借阵容打；疲劳 >=80 停下等恢复（约 1 点/分钟）
+        {"workflow": "event_boss", "params": {"max_fights": 6},
+         "cooldown_min": 5, "cooldown_on": {"疲劳": 30}},
+        # 日活「结界突破胜利」：只挑最弱的，胜率低就停手留券
+        {"workflow": "realm_raid", "params": {"max_runs": 12, "auto_refresh": 1, "max_refresh": 4,
                                               "weak_first": 1, "wins_per_page": 3, "min_win_pct": 50},
-         "cooldown_min": 30, "cooldown_on": {"突破券": 120, "胜率低": 180, "冷却": 6}},
-        # 魂十: 叁层 only drops low-star souls; 拾层 cleared 7/7 with the 2026-11-17 team
-        {"workflow": "orochi", "params": {"max_runs": 20, "layer": 10},
-         "cooldown_min": 0, "cooldown_on": {"体力": 120}},
-        {"workflow": "exploration", "params": {"max_rounds": 5},
-         "cooldown_min": 0, "cooldown_on": {"体力": 120}},
+         "cooldown_min": 1440, "cooldown_on": {"突破券": 180, "胜率低": 240, "冷却": 6}},
+        # 日活「挑战探索/御魂/觉醒 15 次」+ 活动门票：拾层每天 15 把就够
+        {"workflow": "orochi", "params": {"max_runs": 15, "layer": 10},
+         "cooldown_min": 1440, "cooldown_on": {"体力": 180}},
+        # 花合战：把完成的今日 / 本周任务奖励领掉
+        {"workflow": "daily_quests", "cooldown_min": 120},
     ],
 }
 
