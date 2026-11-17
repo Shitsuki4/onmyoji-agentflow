@@ -59,16 +59,16 @@ states:
   desc: 花合战页已点过两次全部领取，停
   when:
     all:
-    - text: 全部领取
-      region: [870, 605, 140, 55]
+    - text: [全部领取, 全部]
+      region: [870, 600, 140, 60]
     - expr: claims >= 2
   do:
   - stop: 花合战奖励领完了
 - id: claim_all
-  desc: 花合战页，点「全部领取」
+  desc: 花合战页，点「全部领取」（OCR 常把它拆成「全部」「领取」两行）
   when:
-    text: 全部领取
-    region: [870, 605, 140, 55]
+    text: [全部领取, 全部]
+    region: [870, 600, 140, 60]
   do:
   - inc: claims
   - click: [920, 620, 960, 645]
