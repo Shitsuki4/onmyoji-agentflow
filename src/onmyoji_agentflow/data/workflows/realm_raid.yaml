@@ -29,6 +29,26 @@ params:
     min: 1
     max: 30
     desc: 连续打输几次就换一页（或停止）
+  weak_first:
+    default: 0
+    min: 0
+    max: 1
+    desc: 1 = 先打勋章最少的结界（通常最弱）；0 = assttyys 默认顺序
+  wins_per_page:
+    default: 0
+    min: 0
+    max: 9
+    desc: 每页打下几个就刷新（3 = 拿到攻破 3 个的 5 勾玉就换页；0 关）
+  min_win_pct:
+    default: 0
+    min: 0
+    max: 100
+    desc: 本轮胜率低于这个百分比就停手留券（0 关）
+  min_rate_n:
+    default: 4
+    min: 1
+    max: 50
+    desc: 打满几场之后才按胜率判断
 vars:
   runs: 0
   done: 0
@@ -37,6 +57,7 @@ vars:
   started: 0
   refreshes: 0
   streak: 0
+  page_base: 0
 limits:
   timeout_s: 14400
   unknown_timeout_s: 60
@@ -202,6 +223,25 @@ states:
     delay: 1000
   max_repeat: 10
   progress: true
+- id: settle_continue
+  desc: 结算界面：通关时间 / 活动结算面板（点击屏幕继续），点击继续
+  from: 实机 MuMu 12 拾层截图
+  when:
+    text: 点击屏幕继续
+    region: [480, 640, 320, 80]
+  do:
+  - set:
+      streak: '0'
+    first: true
+  - set:
+      done: done + pending
+      pending: 0
+      started: 0
+    first: true
+  - click: [540, 600, 740, 690]
+    delay: 1500
+  max_repeat: 10
+  progress: true
 - id: settle_lose
   desc: 单人失败太鼓，点击退出
   from: 'assttyys 002 #9'
@@ -312,6 +352,53 @@ states:
   max_repeat: 2
   on_repeat: stop
   repeat_reason: 进攻次数已打满，停止
+- id: win_rate_stop
+  desc: 本轮胜率太低，停手留突破券
+  when:
+    all:
+    - res: 突破界面
+    - expr: min_win_pct > 0 and done >= min_rate_n and (done - losses) * 100 < min_win_pct * done
+  do:
+  - stop: 本轮结界突破胜率低于下限，停手留券（胜率低）
+- id: page_quota_cooling
+  desc: 本页已拿满 3 胜奖励，刷新还在冷却，停止
+  when:
+    all:
+    - res: 突破界面
+    - expr: wins_per_page > 0 and done - losses - page_base >= wins_per_page and runs < max_runs
+    - text: ''
+      pattern: 刷新\d{1,2}[:：]\d{2}
+      region: [990, 575, 130, 45]
+  do:
+  - wait: 1000
+  max_repeat: 2
+  on_repeat: stop
+  repeat_reason: 本页已打下够数的结界，刷新还在冷却（5 分钟），停止
+- id: page_quota_refresh
+  desc: 本页已打下够数的结界（拿到攻破 3 个的奖励），点「刷新」换一页
+  when:
+    all:
+    - res: 突破界面
+    - expr: wins_per_page > 0 and done - losses - page_base >= wins_per_page and runs < max_runs and auto_refresh == 1 and refreshes < max_refresh
+    - text: 刷新
+      region: [990, 575, 130, 45]
+  do:
+  - click_found: true
+    offset: [-15, -8, 15, 8]
+    delay: 1500
+  - inc: refreshes
+  - set:
+      streak: 0
+      page_base: done - losses
+  max_repeat: 2
+- id: page_quota_stop
+  desc: 本页已打下够数的结界，又不能刷新，停止
+  when:
+    all:
+    - res: 突破界面
+    - expr: wins_per_page > 0 and done - losses - page_base >= wins_per_page and runs < max_runs
+  do:
+  - stop: 本页已打下够数的结界，刷新次数已用完（或没开自动刷新），停止
 - id: lose_cooling
   desc: 连续打输，刷新还在冷却，停止
   when:
@@ -341,6 +428,7 @@ states:
   - inc: refreshes
   - set:
       streak: 0
+      page_base: done - losses
   max_repeat: 2
 - id: lose_stop
   desc: 连续打输，又不能刷新，停止
@@ -357,7 +445,7 @@ states:
     all:
     - res: 突破界面
     - find: 结界_呱太勋章
-    - expr: runs < max_runs
+    - expr: runs < max_runs and weak_first == 0
   do:
   - set: *id002
     first: true
@@ -372,7 +460,7 @@ states:
     all:
     - res: 突破界面
     - find: 结界_4勋章
-    - expr: runs < max_runs
+    - expr: runs < max_runs and weak_first == 0
   do:
   - set: *id002
     first: true
@@ -387,7 +475,7 @@ states:
     all:
     - res: 突破界面
     - find: 结界_5勋章
-    - expr: runs < max_runs
+    - expr: runs < max_runs and weak_first == 0
   do:
   - set: *id002
     first: true
@@ -402,7 +490,7 @@ states:
     all:
     - res: 突破界面
     - find: 结界_3勋章
-    - expr: runs < max_runs
+    - expr: runs < max_runs and weak_first == 0
   do:
   - set: *id002
     first: true
@@ -417,7 +505,7 @@ states:
     all:
     - res: 突破界面
     - find: 结界_2勋章
-    - expr: runs < max_runs
+    - expr: runs < max_runs and weak_first == 0
   do:
   - set: *id002
     first: true
@@ -432,7 +520,7 @@ states:
     all:
     - res: 突破界面
     - find: 结界_1勋章
-    - expr: runs < max_runs
+    - expr: runs < max_runs and weak_first == 0
   do:
   - set: *id002
     first: true
@@ -447,7 +535,112 @@ states:
     all:
     - res: 突破界面
     - find: 结界_0勋章
-    - expr: runs < max_runs
+    - expr: runs < max_runs and weak_first == 0
+  do:
+  - set: *id002
+    first: true
+  - click_found: true
+    offset: *id003
+    delay: 500
+  max_repeat: 6
+- id: medal_呱太_weak
+  desc: 突破界面，选 呱太 勋章的结界
+  from: 'assttyys 009 #0'
+  when:
+    all:
+    - res: 突破界面
+    - find: 结界_呱太勋章
+    - expr: runs < max_runs and weak_first == 1
+  do:
+  - set: *id002
+    first: true
+  - click_found: true
+    offset: *id003
+    delay: 500
+  max_repeat: 6
+- id: medal_0_weak
+  desc: 突破界面，选 0 勋章的结界
+  from: 'assttyys 009 #0'
+  when:
+    all:
+    - res: 突破界面
+    - find: 结界_0勋章
+    - expr: runs < max_runs and weak_first == 1
+  do:
+  - set: *id002
+    first: true
+  - click_found: true
+    offset: *id003
+    delay: 500
+  max_repeat: 6
+- id: medal_1_weak
+  desc: 突破界面，选 1 勋章的结界
+  from: 'assttyys 009 #0'
+  when:
+    all:
+    - res: 突破界面
+    - find: 结界_1勋章
+    - expr: runs < max_runs and weak_first == 1
+  do:
+  - set: *id002
+    first: true
+  - click_found: true
+    offset: *id003
+    delay: 500
+  max_repeat: 6
+- id: medal_2_weak
+  desc: 突破界面，选 2 勋章的结界
+  from: 'assttyys 009 #0'
+  when:
+    all:
+    - res: 突破界面
+    - find: 结界_2勋章
+    - expr: runs < max_runs and weak_first == 1
+  do:
+  - set: *id002
+    first: true
+  - click_found: true
+    offset: *id003
+    delay: 500
+  max_repeat: 6
+- id: medal_3_weak
+  desc: 突破界面，选 3 勋章的结界
+  from: 'assttyys 009 #0'
+  when:
+    all:
+    - res: 突破界面
+    - find: 结界_3勋章
+    - expr: runs < max_runs and weak_first == 1
+  do:
+  - set: *id002
+    first: true
+  - click_found: true
+    offset: *id003
+    delay: 500
+  max_repeat: 6
+- id: medal_4_weak
+  desc: 突破界面，选 4 勋章的结界
+  from: 'assttyys 009 #0'
+  when:
+    all:
+    - res: 突破界面
+    - find: 结界_4勋章
+    - expr: runs < max_runs and weak_first == 1
+  do:
+  - set: *id002
+    first: true
+  - click_found: true
+    offset: *id003
+    delay: 500
+  max_repeat: 6
+- id: medal_5_weak
+  desc: 突破界面，选 5 勋章的结界
+  from: 'assttyys 009 #0'
+  when:
+    all:
+    - res: 突破界面
+    - find: 结界_5勋章
+    - expr: runs < max_runs and weak_first == 1
   do:
   - set: *id002
     first: true
@@ -495,6 +688,8 @@ states:
     offset: [-15, -8, 15, 8]
     delay: 1500
   - inc: refreshes
+  - set:
+      page_base: done - losses
   max_repeat: 2
 - id: all_broken
   desc: 突破界面上找不到可打的结界，停止

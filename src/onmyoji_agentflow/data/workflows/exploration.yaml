@@ -171,6 +171,21 @@ states:
     delay: 1000
   max_repeat: 10
   progress: true
+- id: settle_continue
+  desc: 结算界面：通关时间 / 活动结算面板（点击屏幕继续），点击继续
+  from: 实机 MuMu 12 拾层截图
+  when:
+    text: 点击屏幕继续
+    region: [480, 640, 320, 80]
+  do:
+  - set:
+      rounds: rounds + boss
+      boss: 0
+    first: true
+  - click: [540, 600, 740, 690]
+    delay: 1500
+  max_repeat: 10
+  progress: true
 - id: settle_lose
   desc: 单人失败太鼓，点击退出
   from: 'assttyys 002 #9'

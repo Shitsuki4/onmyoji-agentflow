@@ -83,6 +83,13 @@ def common_battle_states(F: Funcs, on_settle: dict | None = None) -> list[dict]:
         out.append({"id": f"settle_{idx}", "desc": f"结算界面：{label}，点击退出", "from": f"assttyys 002 #{idx}",
                     "when": F.when(2, idx), "do": [{"set": dict(count), "first": True}, F.click_random(2, idx)],
                     "max_repeat": 10, "progress": True})
+    # 御魂 柒层 and up (seen on 拾层, 2026-11-17) and the 超鬼王 event put up a result panel of their own:
+    # 「通关时间 00:35」 + 「今日已获得裂变之眼」 + 「点击屏幕继续」, none of the assttyys result colours match it.
+    out.append({"id": "settle_continue", "desc": "结算界面：通关时间 / 活动结算面板（点击屏幕继续），点击继续",
+                "from": "实机 MuMu 12 拾层截图",
+                "when": {"text": "点击屏幕继续", "region": [480, 640, 320, 80]},
+                "do": [{"set": dict(count), "first": True}, {"click": [540, 600, 740, 690], "delay": 1500}],
+                "max_repeat": 10, "progress": True})
     lose_count = dict(count)
     if "pending" in lose_count:
         lose_count["losses"] = "losses + pending"
@@ -156,15 +163,23 @@ def build_orochi(F: Funcs) -> dict:
          "when": {"all": [{"expr": f"layer == {n} and layer_set == 0 and runs == 0"},
                           {"text": "岐大", "region": [0, 90, 100, 150]}]},
          "do": [{"click": [110, y - 12, 170, y + 12], "delay": 1000}, {"set": {"layer_set": 1}}], "max_repeat": 2}
-        for n, y in enumerate(OROCHI_LAYER_Y, start=1)]
+        for n, y in enumerate(OROCHI_LAYER_Y, start=1)] + [
+        # 柒..拾 层 sit lower in the scrolled list: find the layer name by OCR and click it
+        {"id": f"layer_{n}", "desc": f"八岐大蛇挑战界面，先选第 {n} 层（按文字找）",
+         "when": {"all": [{"expr": f"layer == {n} and layer_set == 0 and runs == 0"},
+                          {"text": "岐大", "region": [0, 90, 100, 150]},
+                          {"text": f"{cn}层", "region": [95, 90, 140, 620]}]},
+         "do": [{"click_found": True, "offset": [-20, -10, 20, 10], "delay": 1000}, {"set": {"layer_set": 1}}],
+         "max_repeat": 2}
+        for n, cn in ((7, "柒"), (8, "捌"), (9, "玖"), (10, "拾"))]
     return {
         "format": 1, "name": "orochi", "title": "御魂（个人）",
         "desc": "在御魂挑战界面反复挑战，达到次数或体力不足时停止。对应 assttyys 方案「个人御魂」里的 001 准备、002 退出结算、006 御魂/御灵/秘闻挑战。",
         "resources": ["assttyys/colors.yaml"],
         "similarity": 93,
         "params": {"max_runs": {"default": 30, "min": 1, "max": 999, "desc": "挑战次数"},
-                   "layer": {"default": 0, "min": 0, "max": 6,
-                             "desc": "八岐大蛇第几层（1-6；0 = 不动，用游戏里当前选中的层）"}},
+                   "layer": {"default": 0, "min": 0, "max": 10,
+                             "desc": "八岐大蛇第几层（1-10；7-10 层按文字在列表里找；0 = 不动，用游戏里当前选中的层）"}},
         "vars": {"runs": 0, "done": 0, "losses": 0, "pending": 0, "started": 0, "layer_set": 0},
         "limits": dict(LIMITS),
         "inline_resources": nav_inline,
@@ -197,6 +212,7 @@ def build_orochi(F: Funcs) -> dict:
 
 
 MEDAL_ORDER = ["呱太", "4", "5", "3", "2", "1", "0"]  # assttyys 009 default priority
+MEDAL_ORDER_WEAK = ["呱太", "0", "1", "2", "3", "4", "5"]  # fewest medals first
 
 
 def build_realm_raid(F: Funcs) -> dict:
@@ -212,14 +228,19 @@ def build_realm_raid(F: Funcs) -> dict:
          "max_repeat": 3, "on_repeat": "stop", "repeat_reason": "连续 3 次点进攻没反应（可能突破券用完），停止",
          "progress": True},
     ]
-    for m in MEDAL_ORDER:
-        states.append({
-            "id": f"medal_{m}", "desc": f"突破界面，选 {m} 勋章的结界", "from": "assttyys 009 #0",
-            "when": {"all": [F.when(9, 0), {"find": f"结界_{m}勋章"}, {"expr": "runs < max_runs"}]},
-            "do": [{"set": BACK_COUNT, "first": True},
-                   {"click_found": True, "offset": medal_off, "delay": F.op(9, 0)["oper"][0]["delay"]}],
-            "max_repeat": 6})
-    states.insert(len(states) - len(MEDAL_ORDER), {
+    # weak_first=1: fewest medals first (fewer medals usually = weaker defence), the order the
+    # 「挑最弱的 3 个打完就刷新」 strategy needs; weak_first=0 keeps the assttyys order.
+    for order, flag in ((MEDAL_ORDER, 0), (MEDAL_ORDER_WEAK, 1)):
+        for m in order:
+            states.append({
+                "id": f"medal_{m}" + ("_weak" if flag else ""), "desc": f"突破界面，选 {m} 勋章的结界",
+                "from": "assttyys 009 #0",
+                "when": {"all": [F.when(9, 0), {"find": f"结界_{m}勋章"},
+                                 {"expr": f"runs < max_runs and weak_first == {flag}"}]},
+                "do": [{"set": BACK_COUNT, "first": True},
+                       {"click_found": True, "offset": medal_off, "delay": F.op(9, 0)["oper"][0]["delay"]}],
+                "max_repeat": 6})
+    states.insert(len(states) - 2 * len(MEDAL_ORDER), {
         "id": "raid_done", "desc": "回到突破界面，次数已打满，结束", "from": "assttyys 009 #0",
         "when": {"all": [F.when(9, 0), {"expr": "runs >= max_runs and (pending == 0 or started == 1)"}]},
         "do": [{"set": BACK_COUNT, "first": True}, {"wait": 1500}],
@@ -237,7 +258,8 @@ def build_realm_raid(F: Funcs) -> dict:
         {"id": "refresh", "desc": "本页都打过了，点「刷新」换一页（auto_refresh=1 时）",
          "when": {"all": [F.when(9, 0), {"expr": "runs < max_runs and auto_refresh == 1 and refreshes < max_refresh"},
                           {"text": "刷新", "region": [990, 575, 130, 45]}]},
-         "do": [{"click_found": True, "offset": [-15, -8, 15, 8], "delay": 1500}, {"inc": "refreshes"}],
+         "do": [{"click_found": True, "offset": [-15, -8, 15, 8], "delay": 1500}, {"inc": "refreshes"},
+                {"set": {"page_base": "done - losses"}}],
          "max_repeat": 2},
     ]
     states.append({"id": "all_broken", "desc": "突破界面上找不到可打的结界，停止", "from": "assttyys 009 #0",
@@ -260,13 +282,36 @@ def build_realm_raid(F: Funcs) -> dict:
          "when": {"all": [F.when(9, 0), {"expr": lose + " and auto_refresh == 1 and refreshes < max_refresh"},
                           {"text": "刷新", "region": [990, 575, 130, 45]}]},
          "do": [{"click_found": True, "offset": [-15, -8, 15, 8], "delay": 1500}, {"inc": "refreshes"},
-                {"set": {"streak": 0}}], "max_repeat": 2},
+                {"set": {"streak": 0, "page_base": "done - losses"}}], "max_repeat": 2},
         {"id": "lose_stop", "desc": "连续打输，又不能刷新，停止",
          "when": {"all": [F.when(9, 0), {"expr": lose}]},
          "do": [{"stop": "连续打输，打不过本页剩下的结界（没开自动刷新，或刷新次数已用完），停止"}]},
     ]
+    # 「挑最弱的 3 个，打完就刷新」: 3 breaks on a page already pay the 5 勾玉, so refresh instead of
+    # fighting the harder rest (wins_per_page=0 turns it off). Low win rate this run -> stop and keep
+    # the tickets (min_win_pct=0 turns it off; only judged after min_rate_n battles).
+    quota = "wins_per_page > 0 and done - losses - page_base >= wins_per_page and runs < max_runs"
+    rate = "min_win_pct > 0 and done >= min_rate_n and (done - losses) * 100 < min_win_pct * done"
+    guard_states = [
+        {"id": "win_rate_stop", "desc": "本轮胜率太低，停手留突破券",
+         "when": {"all": [F.when(9, 0), {"expr": rate}]},
+         "do": [{"stop": "本轮结界突破胜率低于下限，停手留券（胜率低）"}]},
+        {"id": "page_quota_cooling", "desc": "本页已拿满 3 胜奖励，刷新还在冷却，停止",
+         "when": {"all": [F.when(9, 0), {"expr": quota},
+                          {"text": "", "pattern": r"刷新\d{1,2}[:：]\d{2}", "region": [990, 575, 130, 45]}]},
+         "do": [{"wait": 1000}], "max_repeat": 2, "on_repeat": "stop",
+         "repeat_reason": "本页已打下够数的结界，刷新还在冷却（5 分钟），停止"},
+        {"id": "page_quota_refresh", "desc": "本页已打下够数的结界（拿到攻破 3 个的奖励），点「刷新」换一页",
+         "when": {"all": [F.when(9, 0), {"expr": quota + " and auto_refresh == 1 and refreshes < max_refresh"},
+                          {"text": "刷新", "region": [990, 575, 130, 45]}]},
+         "do": [{"click_found": True, "offset": [-15, -8, 15, 8], "delay": 1500}, {"inc": "refreshes"},
+                {"set": {"streak": 0, "page_base": "done - losses"}}], "max_repeat": 2},
+        {"id": "page_quota_stop", "desc": "本页已打下够数的结界，又不能刷新，停止",
+         "when": {"all": [F.when(9, 0), {"expr": quota}]},
+         "do": [{"stop": "本页已打下够数的结界，刷新次数已用完（或没开自动刷新），停止"}]},
+    ]
     first_medal = next(i for i, st in enumerate(states) if st["id"].startswith("medal_"))
-    states[first_medal:first_medal] = lose_states
+    states[first_medal:first_medal] = guard_states + lose_states
     nav, nav_inline = nav_states("runs < max_runs", "raid", [266, 676, 296, 704], "结界突破")
     states += nav
     return {
@@ -280,8 +325,17 @@ def build_realm_raid(F: Funcs) -> dict:
         "params": {"max_runs": {"default": 30, "min": 1, "max": 300, "desc": "进攻次数上限"},
                    "auto_refresh": {"default": 1, "min": 0, "max": 1, "desc": "本页打完自动刷新（1 开 / 0 关）"},
                    "max_refresh": {"default": 3, "min": 0, "max": 50, "desc": "一次运行最多刷新几次"},
-                   "lose_limit": {"default": 2, "min": 1, "max": 30, "desc": "连续打输几次就换一页（或停止）"}},
-        "vars": {"runs": 0, "done": 0, "losses": 0, "pending": 0, "started": 0, "refreshes": 0, "streak": 0},
+                   "lose_limit": {"default": 2, "min": 1, "max": 30, "desc": "连续打输几次就换一页（或停止）"},
+                   "weak_first": {"default": 0, "min": 0, "max": 1,
+                                  "desc": "1 = 先打勋章最少的结界（通常最弱）；0 = assttyys 默认顺序"},
+                   "wins_per_page": {"default": 0, "min": 0, "max": 9,
+                                     "desc": "每页打下几个就刷新（3 = 拿到攻破 3 个的 5 勾玉就换页；0 关）"},
+                   "min_win_pct": {"default": 0, "min": 0, "max": 100,
+                                   "desc": "本轮胜率低于这个百分比就停手留券（0 关）"},
+                   "min_rate_n": {"default": 4, "min": 1, "max": 50,
+                                  "desc": "打满几场之后才按胜率判断"}},
+        "vars": {"runs": 0, "done": 0, "losses": 0, "pending": 0, "started": 0, "refreshes": 0, "streak": 0,
+                 "page_base": 0},
         "limits": dict(LIMITS),
         "inline_resources": nav_inline,
         # no stop_when: stop on the challenge / raid screen once the runs are used up, never on a result screen

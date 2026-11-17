@@ -307,3 +307,71 @@ def test_marathon_plan_and_deadline(tmp_path):
     assert parse_deadline(2, None, now=1000.0) == 1000.0 + 7200
     d = parse_deadline(None, "00:00", now=1000.0)
     assert 1000.0 < d <= 1000.0 + 86400
+
+
+# ------------------------------------------------------------------ realm raid: 3 weakest per page, win-rate floor
+def _raid_states(params, init):
+    wf = load_workflow(WF_DIR / "realm_raid.yaml")
+    page = frame_for(wf, "page_quota_refresh", base=70)
+    ctl, dev = ctl_for([page], advance_on_input=False)
+    r = Runner(wf, ctl, params=params, clock=FakeClock(step=5), text_reader=fake_text_reader, initial_vars=init)
+    seen = []
+    r.on_event = lambda k, d: seen.append(d.get("state")) if k == "state" else None
+    res = r.run()
+    return res, seen, dev
+
+
+def test_realm_raid_refreshes_after_three_wins_on_a_page():
+    res, seen, dev = _raid_states({"max_runs": 9, "wins_per_page": 3, "max_refresh": 1}, {"done": 3, "losses": 0})
+    assert seen[0] == "page_quota_refresh", seen
+    assert res.variables["refreshes"] == 1 and res.variables["page_base"] == 3
+    assert 990 <= taps(dev)[0][1] <= 1120
+    # off by default (old params): the quota state never fires
+    res, seen, dev = _raid_states({"max_runs": 9, "max_refresh": 1}, {"done": 3, "losses": 0})
+    assert "page_quota_refresh" not in seen, seen
+
+
+def test_realm_raid_quota_counts_wins_since_the_last_refresh():
+    # 5 battles, 1 lost, 3 of the wins were on the previous page -> 1 win here: no quota refresh
+    res, seen, dev = _raid_states({"max_runs": 9, "wins_per_page": 3, "max_refresh": 5},
+                                  {"done": 5, "losses": 1, "page_base": 3})
+    assert "page_quota_refresh" not in seen, seen
+    # quota met but no refresh left -> stop with the reason
+    res, seen, dev = _raid_states({"max_runs": 9, "wins_per_page": 3, "max_refresh": 0}, {"done": 3, "losses": 0})
+    assert res.status == "success" and "够数" in res.reason, res.reason
+
+
+def test_realm_raid_stops_below_win_rate_floor():
+    res, seen, dev = _raid_states({"max_runs": 30, "min_win_pct": 50}, {"done": 4, "losses": 3})
+    assert res.status == "success" and "胜率低" in res.reason and not taps(dev)
+    # 2 of 4 won is exactly 50 %: no stop for the rate
+    res, seen, dev = _raid_states({"max_runs": 30, "min_win_pct": 50}, {"done": 4, "losses": 2})
+    assert "win_rate_stop" not in seen
+    # fewer than min_rate_n battles: not judged yet
+    res, seen, dev = _raid_states({"max_runs": 30, "min_win_pct": 50}, {"done": 3, "losses": 3})
+    assert "win_rate_stop" not in seen
+
+
+def test_marathon_default_plan_uses_tuned_raid_and_soul_ten():
+    plan = load_plan(None)
+    items = {it["workflow"]: it for it in plan["items"]}
+    rr = items["realm_raid"]
+    assert rr["params"]["weak_first"] == 1 and rr["params"]["wins_per_page"] == 3 and rr["params"]["min_win_pct"] == 50
+    assert "胜率低" in rr["cooldown_on"]
+    assert items["orochi"]["params"]["layer"] == 10
+
+
+def test_high_layer_result_panel_counts_once_and_taps_continue():
+    # 御魂拾层 result panel (通关时间 + 裂变之眼 + 点击屏幕继续): no assttyys colour matches it
+    for name in ("orochi", "home"):
+        wf = load_workflow(WF_DIR / f"{name}.yaml")
+        page = frame_for(wf, "settle_continue", base=73)
+        ctl, dev = ctl_for([page], advance_on_input=False)
+        r = Runner(wf, ctl, params={"max_runs": 5} if name == "orochi" else {}, clock=FakeClock(step=5),
+                   text_reader=fake_text_reader, initial_vars={"pending": 1, "started": 1})
+        seen = []
+        r.on_event = lambda k, d: seen.append(d.get("state")) if k == "state" else None
+        res = r.run()
+        assert seen and seen[0] == "settle_continue", (name, seen)
+        assert res.variables["done"] == 1, (name, res.variables)
+        assert 540 <= taps(dev)[0][1] <= 740 and 600 <= taps(dev)[0][2] <= 690

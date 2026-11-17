@@ -29,9 +29,12 @@ DEFAULT_PLAN = {
     "max_home_failures": 3,   # this many failed ``home`` runs in a row -> stop, a human is needed
     "items": [
         {"workflow": "daily_rewards", "cooldown_min": 240},
-        {"workflow": "realm_raid", "params": {"max_runs": 30, "auto_refresh": 1, "max_refresh": 3},
-         "cooldown_min": 30, "cooldown_on": {"突破券": 120, "冷却": 6}},
-        {"workflow": "orochi", "params": {"max_runs": 20, "layer": 3},
+        # only the 3 weakest per page, then refresh; stop and keep the tickets below 50 % wins
+        {"workflow": "realm_raid", "params": {"max_runs": 30, "auto_refresh": 1, "max_refresh": 10,
+                                              "weak_first": 1, "wins_per_page": 3, "min_win_pct": 50},
+         "cooldown_min": 30, "cooldown_on": {"突破券": 120, "胜率低": 180, "冷却": 6}},
+        # 魂十: 叁层 only drops low-star souls; 拾层 cleared 7/7 with the 2026-11-17 team
+        {"workflow": "orochi", "params": {"max_runs": 20, "layer": 10},
          "cooldown_min": 0, "cooldown_on": {"体力": 120}},
         {"workflow": "exploration", "params": {"max_rounds": 5},
          "cooldown_min": 0, "cooldown_on": {"体力": 120}},

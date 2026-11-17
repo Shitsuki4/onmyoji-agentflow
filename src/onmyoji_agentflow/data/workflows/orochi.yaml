@@ -16,8 +16,8 @@ params:
   layer:
     default: 0
     min: 0
-    max: 6
-    desc: 八岐大蛇第几层（1-6；0 = 不动，用游戏里当前选中的层）
+    max: 10
+    desc: 八岐大蛇第几层（1-10；7-10 层按文字在列表里找；0 = 不动，用游戏里当前选中的层）
 vars:
   runs: 0
   done: 0
@@ -170,6 +170,22 @@ states:
     delay: 1000
   max_repeat: 10
   progress: true
+- id: settle_continue
+  desc: 结算界面：通关时间 / 活动结算面板（点击屏幕继续），点击继续
+  from: 实机 MuMu 12 拾层截图
+  when:
+    text: 点击屏幕继续
+    region: [480, 640, 320, 80]
+  do:
+  - set:
+      done: done + pending
+      pending: 0
+      started: 0
+    first: true
+  - click: [540, 600, 740, 690]
+    delay: 1500
+  max_repeat: 10
+  progress: true
 - id: settle_lose
   desc: 单人失败太鼓，点击退出
   from: 'assttyys 002 #9'
@@ -311,6 +327,70 @@ states:
       region: [0, 90, 100, 150]
   do:
   - click: [110, 633, 170, 657]
+    delay: 1000
+  - set:
+      layer_set: 1
+  max_repeat: 2
+- id: layer_7
+  desc: 八岐大蛇挑战界面，先选第 7 层（按文字找）
+  when:
+    all:
+    - expr: layer == 7 and layer_set == 0 and runs == 0
+    - text: 岐大
+      region: [0, 90, 100, 150]
+    - text: 柒层
+      region: [95, 90, 140, 620]
+  do:
+  - click_found: true
+    offset: [-20, -10, 20, 10]
+    delay: 1000
+  - set:
+      layer_set: 1
+  max_repeat: 2
+- id: layer_8
+  desc: 八岐大蛇挑战界面，先选第 8 层（按文字找）
+  when:
+    all:
+    - expr: layer == 8 and layer_set == 0 and runs == 0
+    - text: 岐大
+      region: [0, 90, 100, 150]
+    - text: 捌层
+      region: [95, 90, 140, 620]
+  do:
+  - click_found: true
+    offset: [-20, -10, 20, 10]
+    delay: 1000
+  - set:
+      layer_set: 1
+  max_repeat: 2
+- id: layer_9
+  desc: 八岐大蛇挑战界面，先选第 9 层（按文字找）
+  when:
+    all:
+    - expr: layer == 9 and layer_set == 0 and runs == 0
+    - text: 岐大
+      region: [0, 90, 100, 150]
+    - text: 玖层
+      region: [95, 90, 140, 620]
+  do:
+  - click_found: true
+    offset: [-20, -10, 20, 10]
+    delay: 1000
+  - set:
+      layer_set: 1
+  max_repeat: 2
+- id: layer_10
+  desc: 八岐大蛇挑战界面，先选第 10 层（按文字找）
+  when:
+    all:
+    - expr: layer == 10 and layer_set == 0 and runs == 0
+    - text: 岐大
+      region: [0, 90, 100, 150]
+    - text: 拾层
+      region: [95, 90, 140, 620]
+  do:
+  - click_found: true
+    offset: [-20, -10, 20, 10]
     delay: 1000
   - set:
       layer_set: 1
