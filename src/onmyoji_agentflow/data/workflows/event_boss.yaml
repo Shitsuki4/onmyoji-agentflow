@@ -1,0 +1,161 @@
+# 2026-11 超鬼王活动「祸至无日」（11/11–11/24）。坐标是 2026-11-17 在 MuMu 1280x720 上实测的。
+format: 1
+name: event_boss
+title: 活动：祸主降临（超鬼王）
+desc: >-
+  从庭院进活动「祸至无日」→ 祸主降临：没有自己的鬼王就召唤，有就带租借阵容（2.5 倍伤害，每次 1 张租借券）挑战，
+  结算点掉后回到祸主降临页再看。疲劳到 80 以上就停（原因带「疲劳」，marathon 据此冷却），打满 max_fights 次也停。
+  本号 5 星鬼王 5500 万血，租借阵容一把约 2500 万，3 把一只；击杀会返还 25 疲劳。
+resources: [assttyys/colors.yaml]
+similarity: 93
+params:
+  max_fights: 6
+vars:
+  fights: 0
+  done: 0
+  rounds: 0
+  summons: 0
+  claimed: 0
+limits:
+  timeout_s: 3600
+  unknown_timeout_s: 40
+  stuck_timeout_s: 300
+  no_progress_timeout_s: 900
+  max_repeat: 40
+states:
+- id: exit_dialog
+  desc: 「确定要退出游戏？」弹框（活动页里按返回会弹），点取消
+  when:
+    all:
+    - text: 退出游戏
+      region: [330, 315, 330, 60]
+    - text: 取消
+      region: [740, 415, 130, 50]
+  do:
+  - click_found: true
+    offset: [-15, -8, 15, 8]
+    delay: 1500
+  max_repeat: 3
+- id: reward_popup
+  desc: 「获得奖励」弹窗，点空白处关掉
+  when:
+    text: [获得奖励, 获得物品]
+    region: [440, 150, 400, 150]
+  do:
+  - click: [540, 630, 740, 690]
+    delay: 1200
+  - inc: claimed
+  max_repeat: 8
+- id: result_win
+  desc: 结算：胜利（鬼王被击败）
+  when:
+    all:
+    - text: 本次伤害
+      region: [540, 300, 200, 50]
+    - text: 胜利
+      region: [760, 90, 180, 70]
+  do:
+  - inc: done
+  - click: [600, 630, 680, 670]
+    delay: 2500
+  progress: true
+  max_repeat: 3
+- id: result_damage
+  desc: 结算：本次伤害（没打死，显示「失败」也正常）
+  when:
+    text: 本次伤害
+    region: [540, 300, 200, 50]
+  do:
+  - click: [600, 630, 680, 670]
+    delay: 2500
+  progress: true
+  max_repeat: 3
+- id: in_battle
+  desc: 战斗中（左上「当前成绩」），等
+  when:
+    any:
+    - text: 当前成绩
+      region: [50, 85, 120, 40]
+    - text: 自动
+      region: [30, 640, 70, 45]
+  do:
+  - wait: 5000
+  progress: true
+  max_repeat: 60
+- id: prepare
+  desc: 战前准备页，点「准备」
+  when:
+    text: 准备
+    region: [1130, 560, 95, 60]
+  do:
+  - inc: fights
+  - click: [1160, 575, 1195, 605]
+    delay: 8000
+  max_repeat: 3
+- id: boss_enough
+  desc: 祸主降临页：打满 max_fights 次，停
+  when:
+    all:
+    - text: 祸主降临
+      region: [150, 18, 140, 42]
+    - expr: fights >= max_fights
+  do:
+  - stop: 超鬼王打满本次次数
+- id: boss_tired
+  desc: 祸主降临页：疲劳 80 以上，停下等恢复（约 1 点/分钟，击杀返 25）
+  when:
+    all:
+    - text: 祸主降临
+      region: [150, 18, 140, 42]
+    - text: ''
+      pattern: '^(8[0-9]|9[0-9]|100)/100'
+      region: [1110, 22, 110, 36]
+  do:
+  - stop: 超鬼王疲劳高，等恢复
+- id: boss_fight
+  desc: 祸主降临页：有自己的鬼王，点「挑战」
+  when:
+    all:
+    - text: 祸主降临
+      region: [150, 18, 140, 42]
+    - text: 挑战
+      region: [1135, 598, 95, 50]
+  do:
+  - click: [1165, 610, 1200, 638]
+    delay: 4500
+  max_repeat: 4
+- id: boss_summon
+  desc: 祸主降临页：没有鬼王，点「召唤鬼王」
+  when:
+    all:
+    - text: 祸主降临
+      region: [150, 18, 140, 42]
+    - text: [召唤, 鬼王]
+      region: [1130, 585, 100, 70]
+  do:
+  - inc: summons
+  - click: [1165, 605, 1200, 635]
+    delay: 3000
+  max_repeat: 3
+- id: event_home
+  desc: 活动「祸至无日」主页，点「祸主降临」
+  when:
+    text: [笼梦礼帖, 解厄商店]
+    region: [980, 620, 260, 80]
+  do:
+  - click: [940, 200, 980, 230]
+    delay: 5000
+  max_repeat: 3
+- id: courtyard
+  desc: 庭院（底部卷轴展开），点右侧活动入口
+  when:
+    all:
+    - text: 式神录
+      region: [1080, 640, 110, 55]
+    - text: 阴阳寮
+      region: [515, 640, 120, 55]
+  do:
+  - inc: rounds
+  - click: [1195, 175, 1215, 195]
+    delay: 3500
+  max_repeat: 3
