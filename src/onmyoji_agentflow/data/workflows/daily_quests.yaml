@@ -74,6 +74,13 @@ states:
   - click: [920, 620, 960, 645]
     delay: 3000
   max_repeat: 4
+- id: nothing_left
+  desc: 花合战页但没有「全部领取」按钮：没有可领的了，停
+  when:
+    text: 花合战
+    region: [95, 22, 110, 40]
+  do:
+  - stop: 花合战没有可领的奖励
 - id: courtyard_open
   desc: 庭院（底部卷轴展开），点「花合战」
   when:
