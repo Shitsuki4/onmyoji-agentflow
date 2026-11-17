@@ -146,6 +146,15 @@ states:
   - click: [940, 200, 980, 230]
     delay: 5000
   max_repeat: 3
+- id: overview
+  desc: 活动总览（版本活动页，默认选中「祸至无日」），点右下进入活动
+  when:
+    text: 活动总览
+    region: [150, 18, 140, 42]
+  do:
+  - click: [1130, 645, 1160, 670]
+    delay: 5000
+  max_repeat: 3
 - id: courtyard
   desc: 庭院（底部卷轴展开），点右侧活动入口
   when:

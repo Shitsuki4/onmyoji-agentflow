@@ -256,6 +256,18 @@ states:
   - click: [702, 388, 846, 421]
     delay: 1000
   max_repeat: 3
+- id: event_pages
+  desc: 活动总览 / 活动「祸至无日」主页 / 祸主降临页：返回键不管用（还会弹退出游戏），点左上角返回
+  when:
+    any:
+    - text: [祸主降临, 活动总览]
+      region: [150, 18, 140, 42]
+    - text: [笼梦礼帖, 解厄商店]
+      region: [980, 620, 260, 80]
+  do:
+  - click: [35, 30, 55, 50]
+    delay: 3000
+  max_repeat: 4
 - id: back
   desc: 认不出是哪，按返回键（最多 8 次）
   when:
