@@ -4,7 +4,7 @@
 format: 1
 name: realm_raid
 title: 个人结界突破
-desc: 在个人结界突破界面按「呱太->4->5->3->2->1->0」勋章顺序选结界并进攻，进攻连续无反应（突破券用完）或达到次数后停止。由 assttyys 008/009 翻译；「打九退四」、自动刷新、锁定阵容没有做。
+desc: 在个人结界突破界面按「呱太->4->5->3->2->1->0」勋章顺序选结界并进攻，进攻连续无反应（突破券用完）或达到次数后停止；本页打完会自动刷新（冷却中就停止）。由 assttyys 008/009 翻译；「打九退四」、锁定阵容没有做。
 requires: [账号已加入阴阳寮（没入寮时进不了结界突破，会提示先加入阴阳寮）]
 resources: [assttyys/colors.yaml]
 similarity: 93
@@ -14,18 +14,61 @@ params:
     min: 1
     max: 300
     desc: 进攻次数上限
+  auto_refresh:
+    default: 1
+    min: 0
+    max: 1
+    desc: 本页打完自动刷新（1 开 / 0 关）
+  max_refresh:
+    default: 3
+    min: 0
+    max: 50
+    desc: 一次运行最多刷新几次
+  lose_limit:
+    default: 2
+    min: 1
+    max: 30
+    desc: 连续打输几次就换一页（或停止）
+  weak_first:
+    default: 0
+    min: 0
+    max: 1
+    desc: 1 = 先打勋章最少的结界（通常最弱）；0 = assttyys 默认顺序
+  wins_per_page:
+    default: 0
+    min: 0
+    max: 9
+    desc: 每页打下几个就刷新（3 = 拿到攻破 3 个的 5 勾玉就换页；0 关）
+  min_win_pct:
+    default: 0
+    min: 0
+    max: 100
+    desc: 本轮胜率低于这个百分比就停手留券（0 关）
+  min_rate_n:
+    default: 4
+    min: 1
+    max: 50
+    desc: 打满几场之后才按胜率判断
 vars:
   runs: 0
   done: 0
   losses: 0
   pending: 0
   started: 0
+  refreshes: 0
+  streak: 0
+  page_base: 0
 limits:
   timeout_s: 14400
   unknown_timeout_s: 60
   stuck_timeout_s: 120
   no_progress_timeout_s: 600
   max_repeat: 20
+inline_resources:
+  nav_raid:
+    type: click
+    rect: [266, 676, 296, 704]
+    desc: 探索大地图底部「结界突破」入口（新版界面实机坐标）
 counts:
   done: max_runs
 states:
@@ -43,6 +86,9 @@ states:
     res: 退出结算_单人_胜利太鼓
   do:
   - set:
+      streak: '0'
+    first: true
+  - set:
       done: done + pending
       pending: 0
       started: 0
@@ -57,6 +103,9 @@ states:
   when:
     res: 退出结算_左上角贪吃鬼
   do:
+  - set:
+      streak: '0'
+    first: true
   - set:
       done: done + pending
       pending: 0
@@ -73,6 +122,9 @@ states:
     res: 退出结算_左上角贪吃鬼_mumu
   do:
   - set:
+      streak: '0'
+    first: true
+  - set:
       done: done + pending
       pending: 0
       started: 0
@@ -87,6 +139,9 @@ states:
   when:
     res: 退出结算_已打开的达摩_1
   do:
+  - set:
+      streak: '0'
+    first: true
   - set:
       done: done + pending
       pending: 0
@@ -103,6 +158,9 @@ states:
     res: 退出结算_已打开的达摩_2
   do:
   - set:
+      streak: '0'
+    first: true
+  - set:
       done: done + pending
       pending: 0
       started: 0
@@ -117,6 +175,9 @@ states:
   when:
     res: 退出结算_已打开的达摩_3
   do:
+  - set:
+      streak: '0'
+    first: true
   - set:
       done: done + pending
       pending: 0
@@ -133,6 +194,9 @@ states:
     res: 退出结算_左上角统计图标
   do:
   - set:
+      streak: '0'
+    first: true
+  - set:
       done: done + pending
       pending: 0
       started: 0
@@ -148,6 +212,9 @@ states:
     res: 退出结算_经验金币buff_掉落物金框
   do:
   - set:
+      streak: '0'
+    first: true
+  - set:
       done: done + pending
       pending: 0
       started: 0
@@ -156,12 +223,34 @@ states:
     delay: 1000
   max_repeat: 10
   progress: true
+- id: settle_continue
+  desc: 结算界面：通关时间 / 活动结算面板（点击屏幕继续），点击继续
+  from: 实机 MuMu 12 拾层截图
+  when:
+    text: 点击屏幕继续
+    region: [480, 640, 320, 80]
+  do:
+  - set:
+      streak: '0'
+    first: true
+  - set:
+      done: done + pending
+      pending: 0
+      started: 0
+    first: true
+  - click: [540, 600, 740, 690]
+    delay: 1500
+  max_repeat: 10
+  progress: true
 - id: settle_lose
   desc: 单人失败太鼓，点击退出
   from: 'assttyys 002 #9'
   when:
     res: 退出结算_单人_失败太鼓
   do:
+  - set:
+      streak: streak + 1
+    first: true
   - set:
       done: done + pending
       pending: 0
@@ -263,6 +352,92 @@ states:
   max_repeat: 2
   on_repeat: stop
   repeat_reason: 进攻次数已打满，停止
+- id: win_rate_stop
+  desc: 本轮胜率太低，停手留突破券
+  when:
+    all:
+    - res: 突破界面
+    - expr: min_win_pct > 0 and done >= min_rate_n and (done - losses) * 100 < min_win_pct * done
+  do:
+  - stop: 本轮结界突破胜率低于下限，停手留券（胜率低）
+- id: page_quota_cooling
+  desc: 本页已拿满 3 胜奖励，刷新还在冷却，停止
+  when:
+    all:
+    - res: 突破界面
+    - expr: wins_per_page > 0 and done - losses - page_base >= wins_per_page and runs < max_runs
+    - text: ''
+      pattern: 刷新\d{1,2}[:：]\d{2}
+      region: [990, 575, 130, 45]
+  do:
+  - wait: 1000
+  max_repeat: 2
+  on_repeat: stop
+  repeat_reason: 本页已打下够数的结界，刷新还在冷却（5 分钟），停止
+- id: page_quota_refresh
+  desc: 本页已打下够数的结界（拿到攻破 3 个的奖励），点「刷新」换一页
+  when:
+    all:
+    - res: 突破界面
+    - expr: wins_per_page > 0 and done - losses - page_base >= wins_per_page and runs < max_runs and auto_refresh == 1 and refreshes < max_refresh
+    - text: 刷新
+      region: [990, 575, 130, 45]
+  do:
+  - click_found: true
+    offset: [-15, -8, 15, 8]
+    delay: 1500
+  - inc: refreshes
+  - set:
+      streak: 0
+      page_base: done - losses
+  max_repeat: 2
+- id: page_quota_stop
+  desc: 本页已打下够数的结界，又不能刷新，停止
+  when:
+    all:
+    - res: 突破界面
+    - expr: wins_per_page > 0 and done - losses - page_base >= wins_per_page and runs < max_runs
+  do:
+  - stop: 本页已打下够数的结界，刷新次数已用完（或没开自动刷新），停止
+- id: lose_cooling
+  desc: 连续打输，刷新还在冷却，停止
+  when:
+    all:
+    - res: 突破界面
+    - expr: streak >= lose_limit and runs < max_runs
+    - text: ''
+      pattern: 刷新\d{1,2}[:：]\d{2}
+      region: [990, 575, 130, 45]
+  do:
+  - wait: 1000
+  max_repeat: 2
+  on_repeat: stop
+  repeat_reason: 连续打输，打不过本页剩下的结界，刷新还在冷却（5 分钟），停止
+- id: lose_refresh
+  desc: 连续打输，点「刷新」换一页
+  when:
+    all:
+    - res: 突破界面
+    - expr: streak >= lose_limit and runs < max_runs and auto_refresh == 1 and refreshes < max_refresh
+    - text: 刷新
+      region: [990, 575, 130, 45]
+  do:
+  - click_found: true
+    offset: [-15, -8, 15, 8]
+    delay: 1500
+  - inc: refreshes
+  - set:
+      streak: 0
+      page_base: done - losses
+  max_repeat: 2
+- id: lose_stop
+  desc: 连续打输，又不能刷新，停止
+  when:
+    all:
+    - res: 突破界面
+    - expr: streak >= lose_limit and runs < max_runs
+  do:
+  - stop: 连续打输，打不过本页剩下的结界（没开自动刷新，或刷新次数已用完），停止
 - id: medal_呱太
   desc: 突破界面，选 呱太 勋章的结界
   from: 'assttyys 009 #0'
@@ -270,7 +445,7 @@ states:
     all:
     - res: 突破界面
     - find: 结界_呱太勋章
-    - expr: runs < max_runs
+    - expr: runs < max_runs and weak_first == 0
   do:
   - set: *id002
     first: true
@@ -285,7 +460,7 @@ states:
     all:
     - res: 突破界面
     - find: 结界_4勋章
-    - expr: runs < max_runs
+    - expr: runs < max_runs and weak_first == 0
   do:
   - set: *id002
     first: true
@@ -300,7 +475,7 @@ states:
     all:
     - res: 突破界面
     - find: 结界_5勋章
-    - expr: runs < max_runs
+    - expr: runs < max_runs and weak_first == 0
   do:
   - set: *id002
     first: true
@@ -315,7 +490,7 @@ states:
     all:
     - res: 突破界面
     - find: 结界_3勋章
-    - expr: runs < max_runs
+    - expr: runs < max_runs and weak_first == 0
   do:
   - set: *id002
     first: true
@@ -330,7 +505,7 @@ states:
     all:
     - res: 突破界面
     - find: 结界_2勋章
-    - expr: runs < max_runs
+    - expr: runs < max_runs and weak_first == 0
   do:
   - set: *id002
     first: true
@@ -345,7 +520,7 @@ states:
     all:
     - res: 突破界面
     - find: 结界_1勋章
-    - expr: runs < max_runs
+    - expr: runs < max_runs and weak_first == 0
   do:
   - set: *id002
     first: true
@@ -360,7 +535,7 @@ states:
     all:
     - res: 突破界面
     - find: 结界_0勋章
-    - expr: runs < max_runs
+    - expr: runs < max_runs and weak_first == 0
   do:
   - set: *id002
     first: true
@@ -368,6 +543,154 @@ states:
     offset: *id003
     delay: 500
   max_repeat: 6
+- id: medal_呱太_weak
+  desc: 突破界面，选 呱太 勋章的结界
+  from: 'assttyys 009 #0'
+  when:
+    all:
+    - res: 突破界面
+    - find: 结界_呱太勋章
+    - expr: runs < max_runs and weak_first == 1
+  do:
+  - set: *id002
+    first: true
+  - click_found: true
+    offset: *id003
+    delay: 500
+  max_repeat: 6
+- id: medal_0_weak
+  desc: 突破界面，选 0 勋章的结界
+  from: 'assttyys 009 #0'
+  when:
+    all:
+    - res: 突破界面
+    - find: 结界_0勋章
+    - expr: runs < max_runs and weak_first == 1
+  do:
+  - set: *id002
+    first: true
+  - click_found: true
+    offset: *id003
+    delay: 500
+  max_repeat: 6
+- id: medal_1_weak
+  desc: 突破界面，选 1 勋章的结界
+  from: 'assttyys 009 #0'
+  when:
+    all:
+    - res: 突破界面
+    - find: 结界_1勋章
+    - expr: runs < max_runs and weak_first == 1
+  do:
+  - set: *id002
+    first: true
+  - click_found: true
+    offset: *id003
+    delay: 500
+  max_repeat: 6
+- id: medal_2_weak
+  desc: 突破界面，选 2 勋章的结界
+  from: 'assttyys 009 #0'
+  when:
+    all:
+    - res: 突破界面
+    - find: 结界_2勋章
+    - expr: runs < max_runs and weak_first == 1
+  do:
+  - set: *id002
+    first: true
+  - click_found: true
+    offset: *id003
+    delay: 500
+  max_repeat: 6
+- id: medal_3_weak
+  desc: 突破界面，选 3 勋章的结界
+  from: 'assttyys 009 #0'
+  when:
+    all:
+    - res: 突破界面
+    - find: 结界_3勋章
+    - expr: runs < max_runs and weak_first == 1
+  do:
+  - set: *id002
+    first: true
+  - click_found: true
+    offset: *id003
+    delay: 500
+  max_repeat: 6
+- id: medal_4_weak
+  desc: 突破界面，选 4 勋章的结界
+  from: 'assttyys 009 #0'
+  when:
+    all:
+    - res: 突破界面
+    - find: 结界_4勋章
+    - expr: runs < max_runs and weak_first == 1
+  do:
+  - set: *id002
+    first: true
+  - click_found: true
+    offset: *id003
+    delay: 500
+  max_repeat: 6
+- id: medal_5_weak
+  desc: 突破界面，选 5 勋章的结界
+  from: 'assttyys 009 #0'
+  when:
+    all:
+    - res: 突破界面
+    - find: 结界_5勋章
+    - expr: runs < max_runs and weak_first == 1
+  do:
+  - set: *id002
+    first: true
+  - click_found: true
+    offset: *id003
+    delay: 500
+  max_repeat: 6
+- id: refresh_confirm
+  desc: 「刷新后攻破记录进度将重置，确定吗？」点确定
+  when:
+    all:
+    - text: 刷新后
+      region: [400, 270, 480, 80]
+    - text: 确定
+      region: [690, 410, 130, 55]
+  do:
+  - click_found: true
+    offset: [-15, -8, 15, 8]
+    delay: 2000
+  max_repeat: 2
+- id: refresh_cooling
+  desc: 本页都打过了，刷新按钮在冷却（显示倒计时），停止
+  when:
+    all:
+    - res: 突破界面
+    - expr: runs < max_runs
+    - text: ''
+      pattern: 刷新\d{1,2}[:：]\d{2}
+      region: [990, 575, 130, 45]
+  do:
+  - wait: 1500
+  max_repeat: 2
+  on_repeat: stop
+  repeat_reason: 本页结界都打过了，刷新还在冷却（5 分钟），停止
+- id: refresh
+  desc: 本页都打过了，点「刷新」换一页（auto_refresh=1 时）
+  when:
+    all:
+    - res: 突破界面
+    - expr: runs < max_runs and auto_refresh == 1 and refreshes < max_refresh
+    - text: 刷新
+      region: [990, 575, 130, 45]
+  do:
+  - click_found: true
+    offset: [-15, -8, 15, 8]
+    delay: 1500
+  - inc: refreshes
+  - set:
+      page_base: done - losses
+  max_repeat: 2
 - id: all_broken
   desc: 突破界面上找不到可打的结界，停止
   from: 'assttyys 009 #0'
@@ -377,7 +700,47 @@ states:
   - wait: 1500
   max_repeat: 3
   on_repeat: stop
-  repeat_reason: 本页结界都打过了（刷新要等冷却，不自动刷新）
+  repeat_reason: 本页结界都打过了（没有开自动刷新，或刷新次数已用完）
+- id: exit_dialog
+  desc: 「确定要退出游戏？」弹框，点取消
+  when:
+    all:
+    - text: 退出游戏
+      region: [330, 315, 330, 60]
+    - text: 取消
+      region: [740, 415, 130, 50]
+  do:
+  - click_found: true
+    offset: [-15, -8, 15, 8]
+    delay: 1500
+  max_repeat: 3
+- id: nav_raid
+  desc: 探索大地图，点底部「结界突破」
+  when:
+    all:
+    - expr: runs < max_runs
+    - res: 探索地图界面
+  do:
+  - click: nav_raid
+    delay: 1500
+  max_repeat: 3
+- id: nav_courtyard
+  desc: 在庭院，点「探索」灯笼进探索大地图
+  when:
+    all:
+    - expr: runs < max_runs
+    - all:
+      - text: 式神录
+        region: [1080, 640, 110, 55]
+      - text: 阴阳寮
+        region: [515, 640, 120, 55]
+    - text: 探索
+      region: [250, 120, 900, 230]
+  do:
+  - click_found: true
+    offset: [-12, -8, 12, 8]
+    delay: 2500
+  max_repeat: 3
 blockers:
 - id: no_guild
   desc: 点结界突破时弹出「暂未加入任何阴阳寮，是否前往申请加入？」，或加入后还没建自己的结界时弹出「尚未创建阴阳寮结界，是否前往创建？」（两种弹框版式一样，实机截图都能认出）

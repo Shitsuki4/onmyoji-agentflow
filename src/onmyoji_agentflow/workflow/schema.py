@@ -25,6 +25,8 @@ Only conditions, counters and variables exist; there is no way to embed code.
 """
 from __future__ import annotations
 
+import re
+
 import copy
 import hashlib
 import os
@@ -36,7 +38,7 @@ from ..yamlio import dump_yaml, load_yaml
 from .expr import compile_expr, names_in
 
 SENSITIVE = ("花勾玉", "抽卡", "购买", "出售", "分解")
-CONDITION_KEYS = {"colors", "res", "find", "image", "expr", "all", "any", "not", "ocr"}
+CONDITION_KEYS = {"colors", "res", "find", "image", "expr", "all", "any", "not", "ocr", "text"}
 ACTION_KEYS = {"click", "click_random", "click_found", "swipe", "back", "wait", "set", "inc", "stop", "fail", "confirm",
                "start_app", "log"}
 DEFAULT_LIMITS = {"timeout_s": 3600, "unknown_timeout_s": 60, "stuck_timeout_s": 90,
@@ -184,6 +186,20 @@ def validate_condition(c, resources: dict, variables: set, where: str):
             variables.add(c["var"])
             if "test" in c:
                 compile_expr(c["test"])
+    elif key == "text":
+        if not (isinstance(v, str) or (isinstance(v, list) and all(isinstance(w, str) for w in v))):
+            raise WorkflowError(f"{where}: text 是一个词或词列表")
+        if not v and not c.get("pattern"):
+            raise WorkflowError(f"{where}: text 为空时需要 pattern")
+        if c.get("pattern"):
+            try:
+                re.compile(c["pattern"])
+            except re.error as e:
+                raise WorkflowError(f"{where}: pattern 不是合法的正则：{e}") from e
+        if "region" in c and not (isinstance(c["region"], list) and len(c["region"]) == 4):
+            raise WorkflowError(f"{where}: region 是 [x, y, w, h]")
+        if c.get("var"):
+            variables.add(c["var"])
     elif key == "expr":
         compile_expr(v)
         unknown = names_in(v) - variables

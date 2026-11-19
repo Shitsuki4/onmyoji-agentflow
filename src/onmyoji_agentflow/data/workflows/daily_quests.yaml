@@ -1,0 +1,104 @@
+# 花合战（每日/每周任务）领奖。坐标是 2026-11-17 在 MuMu 1280x720 上实测的。
+format: 1
+name: daily_quests
+title: 花合战领奖（日活 / 周活）
+desc: >-
+  从庭院（底部卷轴展开）点「花合战」，点「全部领取」把已完成的今日/本周任务奖励和等级奖励都领掉；
+  弹出「花札三选一礼盒」时选中间的「货币」。点过两次全部领取就停，由 marathon 的 home 带回庭院。
+resources: [assttyys/colors.yaml]
+similarity: 93
+params: {}
+vars:
+  opened: 0
+  claims: 0
+  claimed: 0
+limits:
+  timeout_s: 600
+  unknown_timeout_s: 30
+  stuck_timeout_s: 120
+  no_progress_timeout_s: 300
+  max_repeat: 20
+states:
+- id: exit_dialog
+  desc: 「确定要退出游戏？」弹框，点取消
+  when:
+    all:
+    - text: 退出游戏
+      region: [330, 315, 330, 60]
+    - text: 取消
+      region: [740, 415, 130, 50]
+  do:
+  - click_found: true
+    offset: [-15, -8, 15, 8]
+    delay: 1500
+  max_repeat: 3
+- id: choose_box
+  desc: 「普通花札三选一礼盒」，选中间（货币）
+  when:
+    all:
+    - text: 选择
+      region: [580, 440, 120, 50]
+    - text: 选择
+      region: [960, 440, 120, 50]
+  do:
+  - click: [620, 455, 660, 478]
+    delay: 2500
+  - inc: claimed
+  max_repeat: 6
+- id: reward_popup
+  desc: 「获得奖励」弹窗，点空白处关掉
+  when:
+    text: [获得奖励, 获得物品, 点击空白]
+    region: [400, 120, 480, 600]
+  do:
+  - click: [540, 650, 740, 700]
+    delay: 1500
+  - inc: claimed
+  max_repeat: 8
+- id: claimed_enough
+  desc: 花合战页已点过两次全部领取，停
+  when:
+    all:
+    - text: [全部领取, 全部]
+      region: [870, 600, 140, 60]
+    - expr: claims >= 2
+  do:
+  - stop: 花合战奖励领完了
+- id: claim_all
+  desc: 花合战页，点「全部领取」（OCR 常把它拆成「全部」「领取」两行）
+  when:
+    text: [全部领取, 全部]
+    region: [870, 600, 140, 60]
+  do:
+  - inc: claims
+  - click: [920, 620, 960, 645]
+    delay: 3000
+  max_repeat: 4
+- id: nothing_left
+  desc: 花合战页但没有「全部领取」按钮：没有可领的了，停
+  when:
+    text: 花合战
+    region: [95, 22, 110, 40]
+  do:
+  - stop: 花合战没有可领的奖励
+- id: courtyard_open
+  desc: 庭院（底部卷轴展开），点「花合战」
+  when:
+    all:
+    - text: 式神录
+      region: [1080, 640, 110, 55]
+    - text: 阴阳寮
+      region: [515, 640, 120, 55]
+    - expr: opened < 2
+  do:
+  - inc: opened
+  - click: [790, 635, 810, 655]
+    delay: 3500
+  max_repeat: 3
+- id: courtyard_done
+  desc: 两次都没进去，停
+  when:
+    text: 式神录
+    region: [1080, 640, 110, 55]
+  do:
+  - stop: 没能打开花合战

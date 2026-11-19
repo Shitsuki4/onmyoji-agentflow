@@ -88,6 +88,7 @@ class Supervisor:
         self.sleep = sleep
         self.git_lock = threading.RLock()
         self.stop_flags: dict[str, threading.Event] = {}
+        self.event_sink = None   # optional (instance, kind, data) callback, e.g. oaf marathon's sample saver
 
     # ------------------------------------------------------------------ basics
     def load(self, name: str, root: Path | None = None):
@@ -121,6 +122,11 @@ class Supervisor:
         return res
 
     def _on_event(self, instance, kind, data):
+        if self.event_sink is not None:
+            try:
+                self.event_sink(instance, kind, data)
+            except Exception:  # noqa: BLE001 - a broken sink must not stop the run
+                pass
         if kind in ("start", "end"):
             msg = f"[{instance}] {kind}: " + json.dumps(data, ensure_ascii=False, default=str)[:400]
             self.store.event("info", "run", msg)

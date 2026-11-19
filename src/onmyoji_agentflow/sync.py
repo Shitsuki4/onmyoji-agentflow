@@ -388,7 +388,8 @@ def _resource_names_used(raw: dict) -> set[str]:
                 for k in ("click", "swipe"):
                     if isinstance(a.get(k), str):
                         names.add(a[k])
-    return names
+    # resources defined inside the workflow itself do not come from a shared resource file
+    return names - set(raw.get("inline_resources") or {})
 
 
 def effective_digest(root: Path, name: str) -> str:

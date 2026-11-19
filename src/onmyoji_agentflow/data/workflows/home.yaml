@@ -1,0 +1,279 @@
+# 由 onmyoji_agentflow.convert.build_mvp 从 assttyys_autojs 的识别数据生成，请勿手改坐标；
+# 需要调整时改 build_mvp.py 或交给 agent 监管修复（会在 git 分支上提交）。
+# 识别数据来源 https://github.com/zzliux/assttyys_autojs  MIT License, Copyright (c) 2019 Chaos
+format: 1
+name: home
+title: 回到庭院
+desc: 从任意界面按返回键（最多 8 次，结算画面先点掉，探索地图先确认退出）回到庭院；连续日常 oaf marathon 在两项之间用它。
+resources: [assttyys/colors.yaml]
+similarity: 93
+params: {}
+vars:
+  backs: 0
+  runs: 0
+  done: 0
+  losses: 0
+  pending: 0
+  started: 0
+limits:
+  timeout_s: 14400
+  unknown_timeout_s: 20
+  stuck_timeout_s: 120
+  no_progress_timeout_s: 600
+  max_repeat: 20
+states:
+- id: exit_dialog
+  desc: 「确定要退出游戏？」弹框，点取消
+  when:
+    all:
+    - text: 退出游戏
+      region: [330, 315, 330, 60]
+    - text: 取消
+      region: [740, 415, 130, 50]
+  do:
+  - click_found: true
+    offset: [-15, -8, 15, 8]
+    delay: 1500
+  max_repeat: 3
+- id: courtyard
+  desc: 已在庭院，结束
+  when:
+    all:
+    - text: 式神录
+      region: [1080, 640, 110, 55]
+    - text: 阴阳寮
+      region: [515, 640, 120, 55]
+  do:
+  - stop: 已回到庭院
+- id: reward_popup
+  desc: 「获得奖励」弹窗，点空白处关掉
+  when:
+    text: [获得奖励, 获得物品]
+    region: [440, 150, 400, 150]
+  do:
+  - click: [540, 630, 740, 690]
+    delay: 1200
+  max_repeat: 5
+- id: settle_6
+  desc: 结算界面：单人胜利太鼓，点击退出
+  from: 'assttyys 002 #6'
+  when:
+    res: 退出结算_单人_胜利太鼓
+  do:
+  - set:
+      done: done + pending
+      pending: 0
+      started: 0
+    first: true
+  - click_random: [[165, 60, 1070, 604], [165, 60, 1263, 530]]
+    delay: 400
+  max_repeat: 10
+  progress: true
+- id: settle_0
+  desc: 结算界面：左上角贪吃鬼，点击退出
+  from: 'assttyys 002 #0'
+  when:
+    res: 退出结算_左上角贪吃鬼
+  do:
+  - set:
+      done: done + pending
+      pending: 0
+      started: 0
+    first: true
+  - click_random: [[15, 139, 83, 309], [12, 391, 93, 548], [1202, 140, 1267, 630]]
+    delay: 1000
+  max_repeat: 10
+  progress: true
+- id: settle_1
+  desc: 结算界面：左上角贪吃鬼(MuMu)，点击退出
+  from: 'assttyys 002 #1'
+  when:
+    res: 退出结算_左上角贪吃鬼_mumu
+  do:
+  - set:
+      done: done + pending
+      pending: 0
+      started: 0
+    first: true
+  - click_random: [[15, 139, 83, 309], [12, 391, 93, 548], [1202, 140, 1267, 630]]
+    delay: 1000
+  max_repeat: 10
+  progress: true
+- id: settle_2
+  desc: 结算界面：已打开的达摩 1，点击退出
+  from: 'assttyys 002 #2'
+  when:
+    res: 退出结算_已打开的达摩_1
+  do:
+  - set:
+      done: done + pending
+      pending: 0
+      started: 0
+    first: true
+  - click_random: [[15, 139, 83, 309], [12, 391, 93, 548], [1202, 140, 1267, 630]]
+    delay: 1000
+  max_repeat: 10
+  progress: true
+- id: settle_3
+  desc: 结算界面：已打开的达摩 2，点击退出
+  from: 'assttyys 002 #3'
+  when:
+    res: 退出结算_已打开的达摩_2
+  do:
+  - set:
+      done: done + pending
+      pending: 0
+      started: 0
+    first: true
+  - click_random: [[15, 139, 83, 309], [12, 391, 93, 548], [1202, 140, 1267, 630]]
+    delay: 1000
+  max_repeat: 10
+  progress: true
+- id: settle_4
+  desc: 结算界面：已打开的达摩 3，点击退出
+  from: 'assttyys 002 #4'
+  when:
+    res: 退出结算_已打开的达摩_3
+  do:
+  - set:
+      done: done + pending
+      pending: 0
+      started: 0
+    first: true
+  - click_random: [[15, 139, 83, 309], [12, 391, 93, 548], [1202, 140, 1267, 630]]
+    delay: 1000
+  max_repeat: 10
+  progress: true
+- id: settle_11
+  desc: 结算界面：左上角统计图标，点击退出
+  from: 'assttyys 002 #11'
+  when:
+    res: 退出结算_左上角统计图标
+  do:
+  - set:
+      done: done + pending
+      pending: 0
+      started: 0
+    first: true
+  - click_random: [[1217, 106, 1272, 700], [600, 672, 1216, 712]]
+    delay: 400
+  max_repeat: 10
+  progress: true
+- id: settle_14
+  desc: 结算界面：掉落物金框，点击退出
+  from: 'assttyys 002 #14'
+  when:
+    res: 退出结算_经验金币buff_掉落物金框
+  do:
+  - set:
+      done: done + pending
+      pending: 0
+      started: 0
+    first: true
+  - click_random: [[59, 32, 106, 662], [1192, 49, 1261, 654]]
+    delay: 1000
+  max_repeat: 10
+  progress: true
+- id: settle_continue
+  desc: 结算界面：通关时间 / 活动结算面板（点击屏幕继续），点击继续
+  from: 实机 MuMu 12 拾层截图
+  when:
+    text: 点击屏幕继续
+    region: [480, 640, 320, 80]
+  do:
+  - set:
+      done: done + pending
+      pending: 0
+      started: 0
+    first: true
+  - click: [540, 600, 740, 690]
+    delay: 1500
+  max_repeat: 10
+  progress: true
+- id: settle_lose
+  desc: 单人失败太鼓，点击退出
+  from: 'assttyys 002 #9'
+  when:
+    res: 退出结算_单人_失败太鼓
+  do:
+  - set:
+      done: done + pending
+      pending: 0
+      started: 0
+      losses: losses + pending
+    first: true
+  - click_random: [[69, 171, 170, 320], [1104, 72, 1200, 528]]
+    delay: 2000
+  max_repeat: 10
+  progress: true
+- id: settle_overflow
+  desc: 御魂溢出确认框，点确认
+  from: 'assttyys 002 #13'
+  when:
+    res: 退出结算_御魂溢出确认
+  do:
+  - click: [686, 398, 799, 445]
+    delay: 300
+  max_repeat: 5
+- id: settle_cancel_box
+  desc: 取消确认框，点确认
+  from: 'assttyys 002 #21'
+  when:
+    res: 退出结算_取消确认框
+  do:
+  - click: [680, 411, 838, 452]
+    delay: 500
+  max_repeat: 5
+- id: battle_manual
+  desc: 战斗中是手动状态，开启自动
+  from: 'assttyys 001 #1'
+  when:
+    res: 战斗界面_手动状态
+  do:
+  - set: &id001
+      started: pending
+    first: true
+  - click: [37, 637, 86, 686]
+    delay: 1000
+  max_repeat: 5
+- id: in_battle
+  desc: 战斗中（自动），等待
+  from: assttyys 资源 战斗界面
+  when:
+    res: 战斗界面
+  do:
+  - set: *id001
+    first: true
+  - wait: 1000
+  max_repeat: 3600
+- id: explore_chapter
+  desc: 在探索章节地图里，点左上返回并确认退出
+  when:
+    colors: [[29, 672, '#615a77'], [54, 60, '#dec38c'], [124, 26, '#f7eeb5'], [1163, 22, '#d7b288'], [1223, 21, '#d4ae84']]
+  do:
+  - click: [32, 20, 69, 51]
+    delay: 1000
+  - click: [702, 388, 846, 421]
+    delay: 1000
+  max_repeat: 3
+- id: event_pages
+  desc: 活动总览 / 活动「祸至无日」主页 / 祸主降临页：返回键不管用（还会弹退出游戏），点左上角返回
+  when:
+    any:
+    - text: [祸主降临, 活动总览]
+      region: [150, 18, 140, 42]
+    - text: [笼梦礼帖, 解厄商店]
+      region: [980, 620, 260, 80]
+  do:
+  - click: [35, 30, 55, 50]
+    delay: 3000
+  max_repeat: 4
+- id: back
+  desc: 认不出是哪，按返回键（最多 8 次）
+  when:
+    expr: backs < 8
+  do:
+  - back: true
+    delay: 2000
+  - inc: backs
+  max_repeat: 8
