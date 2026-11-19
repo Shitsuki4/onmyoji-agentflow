@@ -108,6 +108,25 @@ def _used_resource(app):
     return sorted(syncmod._resource_names_used(raw))[0]
 
 
+def test_sync_preserves_uncommitted_workspace_files(env):
+    app, _, src = env
+    tracked = app.ws.workflow_path("orochi")
+    untracked = app.ws.workflow_path("local_draft")
+    tracked.write_text("title: Local edit\n", encoding="utf-8")
+    untracked.write_text("title: Local draft\n", encoding="utf-8")
+    before = app.ws.git("status", "--porcelain")
+    head = app.ws.head()
+
+    result = app.sync.sync(local=src)
+
+    assert result.status == "failed"
+    assert "工作区有未提交的改动" in result.message
+    assert app.ws.head() == head
+    assert app.ws.git("status", "--porcelain") == before
+    assert tracked.read_text(encoding="utf-8") == "title: Local edit\n"
+    assert untracked.read_text(encoding="utf-8") == "title: Local draft\n"
+
+
 def test_first_sync_merges_data_and_records_upstream(env):
     app, up, src = env
     r = app.sync.sync(local=src)

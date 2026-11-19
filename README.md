@@ -201,6 +201,7 @@ oaf key delete deepseek
 ## 同步上游（assttyys / OAS）
 
 `oaf sync` 自动拉取两个上游项目的最新代码，转换成本项目的 YAML 和识别资源。
+工作区有未提交的改动时，同步会停止，不会把本地改动带进候选分支。请先在工作区提交或用 `git stash -u` 暂存，再重试。
 
 ```powershell
 oaf sync                 # 拉取 + 转换 + 验证 + 合并或等你批准（上游没变就直接跳过）
