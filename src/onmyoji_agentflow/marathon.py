@@ -31,9 +31,6 @@ DEFAULT_PLAN = {
     "items": [
         # 邮件 + 好友友情点
         {"workflow": "daily_rewards", "cooldown_min": 240},
-        # 活动「祸至无日」超鬼王：没鬼王就召唤，带租借阵容打；疲劳 >=80 停下等恢复（约 1 点/分钟）
-        {"workflow": "event_boss", "params": {"max_fights": 6},
-         "cooldown_min": 5, "cooldown_on": {"疲劳": 30}},
         # 日活「结界突破胜利」：只挑最弱的，胜率低就停手留券
         {"workflow": "realm_raid", "params": {"max_runs": 12, "auto_refresh": 1, "max_refresh": 4,
                                               "weak_first": 1, "wins_per_page": 3, "min_win_pct": 50},

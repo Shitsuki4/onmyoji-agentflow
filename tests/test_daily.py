@@ -382,6 +382,7 @@ def test_realm_raid_stops_below_win_rate_floor():
 def test_marathon_default_plan_uses_tuned_raid_and_soul_ten():
     plan = load_plan(None)
     items = {it["workflow"]: it for it in plan["items"]}
+    assert "event_boss" not in items
     rr = items["realm_raid"]
     assert rr["params"]["weak_first"] == 1 and rr["params"]["wins_per_page"] == 3 and rr["params"]["min_win_pct"] == 50
     assert "胜率低" in rr["cooldown_on"]
