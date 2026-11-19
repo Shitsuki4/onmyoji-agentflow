@@ -518,6 +518,7 @@ class SyncManager:
             return self._finish(sid, "failed", f"同步失败：{e}", report)
 
     def _sync_inner(self, sid, report, force, only, local, instance, translate, fetch) -> SyncResult:
+        self.ws.require_clean()
         sources = self._sources(only)
         if not sources and not local:
             return self._finish(sid, "failed", "没有启用的上游源（config.yaml 里 upstream.sources）", report)

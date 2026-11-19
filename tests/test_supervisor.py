@@ -337,3 +337,20 @@ def test_workspace_from_before_the_known_list_gets_only_missing_workflows(tmp_pa
     (src / "workflows" / "daily_rewards.yaml").write_text("name: daily_rewards\n", encoding="utf-8")
     assert ws.add_new_bundled(src) == ["daily_rewards.yaml"]
     assert ws.git("status", "--porcelain") == ""
+
+
+def test_bundled_upgrade_does_not_commit_unrelated_staged_edits(tmp_path):
+    from onmyoji_agentflow.supervisor.versioning import Workspace
+    source = tmp_path / "bundled"
+    (source / "workflows").mkdir(parents=True)
+    (source / "workflows" / "orochi.yaml").write_text("name: orochi\n", encoding="utf-8")
+    workspace = Workspace(tmp_path / "ws")
+    workspace.init(source)
+    rel = "workflows/orochi.yaml"
+    (workspace.path / rel).write_text("name: orochi\ntitle: Local edit\n", encoding="utf-8")
+    workspace.git("add", "--", rel)
+    (source / "workflows" / "home.yaml").write_text("name: home\n", encoding="utf-8")
+
+    assert workspace.add_new_bundled(source) == ["home.yaml"]
+    assert workspace.read(rel) == "name: orochi"
+    assert workspace.git("diff", "--cached", "--name-only") == rel

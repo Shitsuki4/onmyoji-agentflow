@@ -103,10 +103,11 @@ class Workspace:
         if not added and known >= set(bundled):
             return []
         known_path.write_text("\n".join(sorted(known | set(bundled))) + "\n", encoding="utf-8")
-        self.git("add", "--", self.KNOWN_FILE, *[f"workflows/{n}" for n in added])
-        if self.git("diff", "--cached", "--name-only"):
+        paths = [self.KNOWN_FILE, *[f"workflows/{name}" for name in added]]
+        self.git("add", "--", *paths)
+        if self.git("diff", "--cached", "--name-only", "--", *paths):
             msg = "补上新版内置工作流: " + ", ".join(n[:-5] for n in added) if added else "记录已提供的内置工作流"
-            self.git("commit", "-q", "-m", msg)
+            self.git("commit", "-q", "--only", "-m", msg, "--", *paths)
         return added
 
     def current_branch(self) -> str:
@@ -122,11 +123,16 @@ class Workspace:
         return self.git("show", f"{ref}:{rel}")
 
     # ------------------------------------------------------------------ changes
+    def require_clean(self) -> None:
+        if self.git("status", "--porcelain", "--untracked-files=all"):
+            raise AgentflowError("工作区有未提交的改动，请先提交或暂存后再尝试；未改动工作区文件")
+
     def propose(self, workflow: str, kind: str, files: dict[str, str | bytes | None], message: str,
                 base: str = "main", prefix: str = "agent") -> tuple[str, str]:
         """Commit ``files`` (relative path -> content, ``None`` deletes) on a new branch from ``base``.
 
         Returns (branch, commit)."""
+        self.require_clean()
         branch = f"{prefix}/{workflow}-{kind}-{time.strftime('%Y%m%d-%H%M%S')}-{int(time.time() * 1000) % 1000:03d}"
         self.git("checkout", "-q", "main")
         self.git("checkout", "-q", "-b", branch, base)
