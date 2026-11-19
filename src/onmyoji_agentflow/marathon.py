@@ -265,9 +265,12 @@ def parse_deadline(hours: float | None, until: str | None, now: float | None = N
         return now + float(hours) * 3600
     if until:
         hh, mm = (int(x) for x in until.replace("：", ":").split(":"))
+        # wall-clock difference instead of datetime.timestamp(): on Windows that raises OSError for
+        # moments near or before the epoch
         base = _dt.datetime.fromtimestamp(now)
         t = base.replace(hour=hh, minute=mm, second=0, microsecond=0)
-        if t.timestamp() <= now:
-            t += _dt.timedelta(days=1)
-        return t.timestamp()
+        delta = (t - base).total_seconds()
+        if delta <= 0:
+            delta += 86400
+        return now + delta
     return None
