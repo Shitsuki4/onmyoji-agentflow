@@ -295,3 +295,45 @@ def test_local_retry_presses_back_only_when_configured(tmp_path):
     assert out.result.failure_kind == "unknown_screen"
     assert len(_ops(devices, "back")) == 1
     assert any("返回键" in n for n in out.notes)
+
+
+def test_upgraded_workspace_gets_new_bundled_workflows_but_keeps_edits_and_deletions(tmp_path):
+    from onmyoji_agentflow.supervisor.versioning import Workspace
+    src = tmp_path / "bundled"
+    (src / "workflows").mkdir(parents=True)
+    (src / "resources").mkdir()
+    (src / "workflows" / "orochi.yaml").write_text("name: orochi\n", encoding="utf-8")
+    (src / "workflows" / "exploration.yaml").write_text("name: exploration\n", encoding="utf-8")
+    ws = Workspace(tmp_path / "ws")
+    ws.init(src)
+    # the user edits one workflow and deletes the other
+    (ws.path / "workflows" / "orochi.yaml").write_text("name: orochi\n# mine\n", encoding="utf-8")
+    (ws.path / "workflows" / "exploration.yaml").unlink()
+    ws.git("add", "-A"); ws.git("commit", "-q", "-m", "user edits")
+    # a newer release ships two more workflows
+    (src / "workflows" / "home.yaml").write_text("name: home\n", encoding="utf-8")
+    (src / "workflows" / "event_boss.yaml").write_text("name: event_boss\n", encoding="utf-8")
+    assert ws.add_new_bundled(src) == ["event_boss.yaml", "home.yaml"]
+    assert (ws.path / "workflows" / "home.yaml").exists()
+    assert "# mine" in (ws.path / "workflows" / "orochi.yaml").read_text(encoding="utf-8")
+    assert not (ws.path / "workflows" / "exploration.yaml").exists()
+    assert ws.git("status", "--porcelain") == ""
+    # running again changes nothing, and a deleted new workflow is not brought back
+    (ws.path / "workflows" / "home.yaml").unlink()
+    ws.git("add", "-A"); ws.git("commit", "-q", "-m", "drop home")
+    assert ws.add_new_bundled(src) == []
+    assert not (ws.path / "workflows" / "home.yaml").exists()
+
+
+def test_workspace_from_before_the_known_list_gets_only_missing_workflows(tmp_path):
+    from onmyoji_agentflow.supervisor.versioning import Workspace
+    src = tmp_path / "bundled"
+    (src / "workflows").mkdir(parents=True)
+    (src / "workflows" / "orochi.yaml").write_text("name: orochi\n", encoding="utf-8")
+    ws = Workspace(tmp_path / "ws")
+    ws.init(src)
+    (ws.path / Workspace.KNOWN_FILE).unlink()   # a v0.1.6 workspace has no list
+    ws.git("add", "-A"); ws.git("commit", "-q", "-m", "old layout")
+    (src / "workflows" / "daily_rewards.yaml").write_text("name: daily_rewards\n", encoding="utf-8")
+    assert ws.add_new_bundled(src) == ["daily_rewards.yaml"]
+    assert ws.git("status", "--porcelain") == ""

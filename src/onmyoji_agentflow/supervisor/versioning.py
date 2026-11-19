@@ -54,6 +54,9 @@ class Workspace:
         if not self.initialized:
             self.git("init", "-q")
             self.git("checkout", "-q", "-B", "main")
+        if (src / "workflows").is_dir():
+            names = sorted(p.name for p in (src / "workflows").glob("*.yaml"))
+            (self.path / self.KNOWN_FILE).write_text("\n".join(names) + "\n", encoding="utf-8")
         self.git("add", "-A")
         if self.git("status", "--porcelain"):
             self.git("commit", "-q", "-m", "初始化工作流与识别资源")
@@ -61,7 +64,50 @@ class Workspace:
     def ensure(self) -> "Workspace":
         if not self.initialized:
             self.init()
+        else:
+            self.add_new_bundled()
         return self
+
+    KNOWN_FILE = ".oaf-bundled-known"
+
+    def add_new_bundled(self, source: Path | None = None) -> list[str]:
+        """Copy workflows a newer version ships that this workspace has never seen.
+
+        An upgraded install keeps its old workspace, so workflows added in a later release (home,
+        daily_rewards, event_boss, ...) would otherwise be missing and ``oaf marathon`` would fail
+        on them. Existing files are never touched, and a workflow the user deleted is not brought
+        back: every bundled name ever offered is remembered in ``.oaf-bundled-known``.
+        """
+        src = Path(source) if source else bundled_dir()
+        wf_src = src / "workflows"
+        if not wf_src.is_dir():
+            return []
+        try:
+            if self.current_branch() != "main":
+                return []
+        except AgentflowError:
+            return []
+        known_path = self.path / self.KNOWN_FILE
+        known = set()
+        if known_path.exists():
+            known = {ln.strip() for ln in known_path.read_text(encoding="utf-8").splitlines() if ln.strip()}
+        bundled = sorted(p.name for p in wf_src.glob("*.yaml"))
+        added = []
+        for name in bundled:
+            dst = self.path / "workflows" / name
+            if name in known or dst.exists():
+                continue
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(wf_src / name, dst)
+            added.append(name)
+        if not added and known >= set(bundled):
+            return []
+        known_path.write_text("\n".join(sorted(known | set(bundled))) + "\n", encoding="utf-8")
+        self.git("add", "--", self.KNOWN_FILE, *[f"workflows/{n}" for n in added])
+        if self.git("diff", "--cached", "--name-only"):
+            msg = "补上新版内置工作流: " + ", ".join(n[:-5] for n in added) if added else "记录已提供的内置工作流"
+            self.git("commit", "-q", "-m", msg)
+        return added
 
     def current_branch(self) -> str:
         return self.git("rev-parse", "--abbrev-ref", "HEAD")

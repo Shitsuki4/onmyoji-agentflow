@@ -40,6 +40,11 @@ jobs:
           oaf --home "$RUNNER_TEMP/oaf" validate orochi
           oaf --home "$RUNNER_TEMP/oaf" validate realm_raid
           oaf --home "$RUNNER_TEMP/oaf" validate exploration
+          oaf --home "$RUNNER_TEMP/oaf" validate home
+          oaf --home "$RUNNER_TEMP/oaf" validate daily_rewards
+          oaf --home "$RUNNER_TEMP/oaf" validate daily_quests
+          oaf --home "$RUNNER_TEMP/oaf" validate event_boss
+          oaf --home "$RUNNER_TEMP/oaf" marathon --print-plan
           oaf --home "$RUNNER_TEMP/oaf" sync status
           oaf --home "$RUNNER_TEMP/oaf" config get llm.budget
       - name: MCP smoke test (stdio)

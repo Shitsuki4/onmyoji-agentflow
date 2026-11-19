@@ -84,6 +84,7 @@ class Runner:
         self.text_reader = text_reader
         self.initial_vars = dict(initial_vars or {})   # e.g. counters carried over from an earlier run
         self._text_cache: dict = {}
+        self._text_frame = None
         self._ocr_warned = False
         self.vars: dict = {}
         self._found: tuple[int, int] | None = None
@@ -153,7 +154,12 @@ class Runner:
         Without the optional OCR package the condition is simply false (warned once)."""
         from ..vision.ocr import OcrUnavailable, find_text, read_boxes
         region = tuple(int(v) for v in cond.get("region", (0, 0, img.shape[1], img.shape[0])))
-        key = (id(img), region)
+        # The cache only lives for one frame. It used to be keyed by id(img), but a freed screenshot's
+        # id is reused by the next one, so a new screen could get the old screen's words.
+        if self._text_frame is not img:
+            self._text_cache.clear()
+            self._text_frame = img
+        key = region
         boxes = self._text_cache.get(key)
         if boxes is None:
             try:
@@ -164,8 +170,6 @@ class Runner:
                     logger.warning("[%s] %s；文字条件一律当作没认出", self.wf.name, e)
                     self.on_event("log", {"state": "", "message": f"{e}；文字条件一律当作没认出"})
                 boxes = []
-            if len(self._text_cache) > 64:
-                self._text_cache.clear()
             self._text_cache[key] = boxes
         words = cond.get("text")
         hit = find_text(boxes, words if words not in (None, "") else None, cond.get("pattern"))

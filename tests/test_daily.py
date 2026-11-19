@@ -105,6 +105,13 @@ def test_daily_rewards_claims_mail_and_friend_points_then_stops_in_courtyard():
     assert len(backs) == 2      # one per screen, never a third one in the courtyard
 
 
+def test_text_cache_never_hands_a_new_screen_the_old_screens_words():
+    # the OCR cache used to be keyed by id(frame); freed screenshots reuse ids, so a later screen
+    # could read as the previous one. Run the same scenario many times so reused ids show up.
+    for _ in range(30):
+        test_daily_rewards_claims_mail_and_friend_points_then_stops_in_courtyard()
+
+
 def test_daily_rewards_does_not_press_back_twice_while_mail_closes():
     wf = load_workflow(WF_DIR / "daily_rewards.yaml")
     mail_empty = frame_for(wf, "mail_done", base=16)
