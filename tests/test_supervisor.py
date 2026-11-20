@@ -400,3 +400,18 @@ def test_bundled_upgrade_does_not_commit_unrelated_staged_edits(tmp_path):
     assert workspace.add_new_bundled(source) == ["home.yaml"]
     assert workspace.read(rel) == "name: orochi"
     assert workspace.git("diff", "--cached", "--name-only") == rel
+
+
+def test_workspace_propose_stages_many_files_without_command_line_overflow(tmp_path):
+    from onmyoji_agentflow.supervisor.versioning import Workspace
+
+    workspace = Workspace(tmp_path / "ws")
+    workspace.init()
+    files = {f"resources/bulk/{i:04d}.txt": str(i) for i in range(1600)}
+
+    branch, commit = workspace.propose("bulk", "test", files, "[test] stage many files")
+
+    assert branch.startswith("agent/bulk-test-")
+    assert workspace.head(branch) == commit
+    staged = workspace.list_files("resources/bulk", branch)
+    assert len(staged) == len(files)

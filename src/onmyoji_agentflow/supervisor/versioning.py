@@ -32,11 +32,11 @@ class Workspace:
         self.path = Path(path)
 
     # ------------------------------------------------------------------ git
-    def git(self, *args, check: bool = True) -> str:
+    def git(self, *args, check: bool = True, input_text: str | None = None) -> str:
         if shutil.which("git") is None:
             raise AgentflowError("需要安装 git（https://git-scm.com/）才能使用自动修复和回滚")
         res = subprocess.run(["git", *GIT_ENV_ID, *args], cwd=self.path, capture_output=True, text=True,
-                             encoding="utf-8", errors="replace")
+                             encoding="utf-8", errors="replace", input=input_text)
         if check and res.returncode != 0:
             raise AgentflowError(f"git {' '.join(args)} 失败: {res.stderr.strip() or res.stdout.strip()}")
         return res.stdout.strip()
@@ -191,7 +191,11 @@ class Workspace:
                     p.write_bytes(content)
                 else:
                     p.write_text(content, encoding="utf-8")
-            isolated.git("add", "--", *files.keys())
+            # A full upstream conversion can produce thousands of files. Passing every path as
+            # a CreateProcess argument exceeds Windows' command-line limit, so stream NUL-
+            # separated pathspecs to git instead.
+            isolated.git("add", "--pathspec-from-file=-", "--pathspec-file-nul", "--",
+                         input_text="\0".join(files))
             isolated.git("commit", "-q", "--allow-empty", "-m", message)
             commit = isolated.head()
         except Exception:
