@@ -44,7 +44,8 @@ the full path from `where oaf`.
 | `list_workflows` / `validate_workflow` | workflows with params; format check + replay tests |
 | `observe` | run a workflow recognising only, never tapping; returns which states it saw |
 | `run_workflow` | `mode`: `run` (supervised, auto repair), `observe`, `trial` (at most `actions` taps); `params` e.g. `{"max_runs": 10}`; returns at once unless `wait_seconds` |
-| `stop_workflow` | stop the run on an instance after the current step |
+| `stop_workflow` | stop the run on an instance at the next action boundary |
+| `marathon_start` / `marathon_status` / `marathon_stop` | preview, start, inspect and stop the persisted daily/weekly/activity plan |
 | `diagnose` | which states of a workflow match the current screen or an image file, with scores |
 | `logs` | recent events (filter `level`, `source`), or one run's summary by `run_id` |
 | `sync` | `run` / `force` / `check` / `status` / `show` — same as `oaf sync` |
@@ -52,6 +53,13 @@ the full path from `where oaf`.
 | `approve` / `reject` | ask the user to approve (see below) / refuse |
 | `rollback` | `target=sync` (last sync or `id`) or `target=change` with `id` |
 | `get_config` / `set_config` | dotted paths such as `llm.budget.daily_tokens`, `llm.providers.0.enabled` |
+
+The runtime keeps a game-day/week task ledger and resource receipts. A workflow's execution status
+does not by itself prove a game task is complete: inspect `business_result`, `business_ok`, and the
+evidence in `status` / `logs`. The marathon stops when its verified period tasks are done, and it
+stores a cross-home physical-device lease so a second CLI, web panel, or MCP process cannot drive
+the same MuMu instance. Use `oaf doctor` and `oaf report` for read-only checks and the local daily
+report. `oaf validate --strict` treats an empty replay-sample directory as unvalidated.
 
 ## Common flows
 

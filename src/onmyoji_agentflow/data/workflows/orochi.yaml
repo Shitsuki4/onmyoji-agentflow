@@ -49,7 +49,10 @@ states:
   when:
     res: 退出结算_体力不足
   do:
-  - stop: 体力不足
+  - stop:
+      reason: 体力不足
+      result: blocked
+      verified: false
 - id: settle_6
   desc: 结算界面：单人胜利太鼓，点击退出
   from: 'assttyys 002 #6'
@@ -409,6 +412,10 @@ states:
       started: 0
     first: true
   - wait: 1500
+  - stop:
+      reason: 御魂挑战次数已达到请求上限
+      result: completed
+      verified: true
   max_repeat: 2
   on_repeat: stop
   repeat_reason: 挑战次数已打满，停止
@@ -423,6 +430,10 @@ states:
   - set: *id002
     first: true
   - wait: 1500
+  - stop:
+      reason: 御魂挑战次数已达到请求上限
+      result: completed
+      verified: true
   max_repeat: 2
   on_repeat: stop
   repeat_reason: 挑战次数已打满，停止
@@ -437,6 +448,10 @@ states:
   - set: *id002
     first: true
   - wait: 1500
+  - stop:
+      reason: 御魂挑战次数已达到请求上限
+      result: completed
+      verified: true
   max_repeat: 2
   on_repeat: stop
   repeat_reason: 挑战次数已打满，停止
@@ -451,6 +466,7 @@ states:
   - set: *id002
     first: true
   - click: [1148, 602, 1235, 663]
+    cost: {stamina: 6}
     delay: 1000
   - inc: runs
     first: true
@@ -473,6 +489,7 @@ states:
   - set: *id002
     first: true
   - click: [1055, 595, 1143, 669]
+    cost: {stamina: 6}
     delay: 1000
   - inc: runs
     first: true
@@ -493,6 +510,7 @@ states:
   - set: *id002
     first: true
   - click: [1052, 568, 1153, 648]
+    cost: {stamina: 6}
     delay: 1000
   - inc: runs
     first: true

@@ -13,6 +13,7 @@ from onmyoji_agentflow.llm import LLMClient
 from onmyoji_agentflow.store import Store
 from onmyoji_agentflow.supervisor import ConfirmationBroker, Supervisor, Workspace
 from onmyoji_agentflow.supervisor.repair import apply_ops, classify
+from onmyoji_agentflow.supervisor.supervisor import remaining_params
 from onmyoji_agentflow.workflow.schema import load_workflow
 
 pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="git required")
@@ -140,6 +141,27 @@ def test_params_change_auto_merges_and_rolls_back(tmp_path):
     assert "自动回滚" in ws.log(1)[0]
 
 
+def test_unverified_proposal_requires_approval_even_when_kind_auto_merges(tmp_path, monkeypatch):
+    sup, store, ws, _ = make_sup(tmp_path, lambda: [], confirm=lambda *a: False)
+    wf = _wf(ws)
+    before = ws.head("main")
+    monkeypatch.setattr(sup, "validate_branch",
+                        lambda *args, **kwargs: (True, {"verification": "unverified", "steps": []}))
+
+    level, note = sup.apply_proposal(
+        wf, "main",
+        {"diagnosis": "参数变化没有样本", "action": "patch", "ops": [
+            {"op": "set", "path": "limits.unknown_timeout_s", "value": 91}
+        ]},
+        None,
+    )
+
+    assert level == "proposed"
+    assert "未验证" in note
+    assert ws.head("main") == before
+    assert store.query("SELECT status FROM changes")[0]["status"] == "waiting_user"
+
+
 def test_bad_patch_is_rejected_and_main_untouched(tmp_path):
     llm = FakeLLM({"diagnosis": "x", "action": "patch", "expected_state": "prepare",
                    "ops": [{"op": "set_similarity", "state": "prepare", "value": 93}]})
@@ -162,6 +184,30 @@ def test_patch_cannot_remove_confirmation(tmp_path):
     b = load_workflow(apply_ops(raw, [{"op": "replace_state", "state": {
         "id": "buy", "when": {"colors": [[1, 1, "#000000"]]}, "do": [{"click": [0, 0, 5, 5]}]}}]))
     assert not sensitive_preserved(a, b)
+
+
+def test_each_sensitive_operation_guard_is_preserved():
+    from onmyoji_agentflow.supervisor.repair import sensitive_preserved
+    raw = {"format": 1, "name": "two_purchases", "states": [
+        {"id": "first", "sensitive": "购买", "when": {"expr": "True"},
+         "do": [{"click": [0, 0, 5, 5]}]},
+        {"id": "second", "sensitive": "购买", "when": {"expr": "True"},
+         "do": [{"click": [10, 10, 15, 15]}]},
+    ]}
+    before = load_workflow(raw)
+    changed = json.loads(json.dumps(raw))
+    changed["states"][0].pop("sensitive")
+    after = load_workflow(changed)
+    assert not sensitive_preserved(before, after)
+
+
+def test_retry_remaining_count_can_be_zero():
+    wf = load_workflow({
+        "format": 1, "name": "counted", "vars": {"done": 0},
+        "params": {"max_runs": {"default": 3}}, "counts": {"done": "max_runs"},
+        "states": [{"id": "stop", "when": {"expr": "True"}, "do": [{"stop": "done"}]}],
+    })
+    assert remaining_params(wf, {"max_runs": 3}, {"done": 3})["max_runs"] == 0
 
 
 def test_confirmation_broker(tmp_path):
@@ -277,24 +323,24 @@ def _ops(devices, kind):
     return [i for d in devices.get("all", []) for i in d.inputs if i and i[0] == kind]
 
 
-def test_local_retry_does_not_press_back_by_default(tmp_path):
-    """v0.1.4 pressed back before every local retry; on 庭院 that opens 「退出游戏」 (seen on the real device)."""
+def test_unknown_screen_is_not_retried_or_pressed_back(tmp_path):
+    """Unknown screens are sampled and handed off instead of receiving blind retries."""
     img = blank()
     sup, store, ws, devices = make_sup(tmp_path, lambda: [img], cfg_over={"max_local_retries": 2})
     out = sup.run("orochi", "main", repair=False)
     assert out.result.failure_kind == "unknown_screen"
-    assert sum(n.startswith("第 ") for n in out.notes) == 2          # two local retries happened
-    assert _ops(devices, "back") == []                              # ...without any back key
+    assert sum(n.startswith("第 ") for n in out.notes) == 0
+    assert _ops(devices, "back") == []
 
 
-def test_local_retry_presses_back_only_when_configured(tmp_path):
+def test_unknown_screen_is_not_pressed_back_even_if_legacy_retry_configured(tmp_path):
     img = blank()
     sup, store, ws, devices = make_sup(tmp_path, lambda: [img],
                                        cfg_over={"max_local_retries": 1, "recover_back_on": ["unknown_screen"]})
     out = sup.run("orochi", "main", repair=False)
     assert out.result.failure_kind == "unknown_screen"
-    assert len(_ops(devices, "back")) == 1
-    assert any("返回键" in n for n in out.notes)
+    assert _ops(devices, "back") == []
+    assert not any("返回键" in n for n in out.notes)
 
 
 def test_upgraded_workspace_gets_new_bundled_workflows_but_keeps_edits_and_deletions(tmp_path):

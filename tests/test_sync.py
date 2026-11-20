@@ -12,6 +12,7 @@ import yaml
 from onmyoji_agentflow import sync as syncmod
 from onmyoji_agentflow.app import App
 from onmyoji_agentflow.cli import main
+import onmyoji_agentflow.supervisor.supervisor as supervisormod
 from onmyoji_agentflow.workflow.schema import bundled_dir
 
 pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="git required")
@@ -172,6 +173,30 @@ def test_recognition_change_waits_for_approval_then_rollback(env):
     assert app.sync.get(r.id)["status"] == "rolled_back"
     # the rolled-back upstream version is skipped until --force
     assert app.sync.sync(local=src).status in ("skipped", "waiting_user")
+
+
+def test_unverified_recognition_candidate_never_auto_merges(env, monkeypatch):
+    app, up, src = env
+    assert app.sync.sync(local=src).status == "merged"
+    used = _used_resource(app)
+    points = up.colors["resources"][used]["points"]
+    points[0] = [points[0][0] + 1, points[0][1], points[0][2]]
+    up.commit["assttyys"] = "c" * 40
+    app.cfg.data["supervisor"]["auto_merge"]["images"] = True
+    monkeypatch.setattr(supervisormod, "load_cases", lambda _path: [])
+
+    result = app.sync.sync(local=src)
+
+    assert result.status == "waiting_user", result.message
+    validation = result.details["validation"]["orochi"]
+    assert validation["verification"] == "unverified"
+    assert validation["coverage"] == "insufficient"
+    assert not validation.get("failed_step")
+    change = app.store.query("SELECT status FROM changes WHERE id=?", (result.change_ids[0],))[0]
+    assert change["status"] == "waiting_user"
+    current = yaml.safe_load(_main_file(app, "resources/assttyys/colors.yaml"))
+    assert current["resources"][used]["points"][0][0] == points[0][0] - 1
+    assert "未验证" in Path(result.report_path).read_text(encoding="utf-8")
 
 
 def test_rolled_back_version_is_skipped_without_force(env, monkeypatch):

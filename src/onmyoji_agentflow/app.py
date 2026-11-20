@@ -6,6 +6,7 @@ import threading
 from .config import Config
 from .device import Controller, HumanizeConfig, open_device
 from .llm import LLMClient
+from .ledger import GameLedger, ResourceBudget
 from .store import Store
 from .supervisor import ConfirmationBroker, Supervisor, Workspace
 
@@ -14,6 +15,11 @@ class App:
     def __init__(self, home=None, interactive: bool = False, device_factory=None):
         self.cfg = Config(home)
         self.store = Store(self.cfg.db_path)
+        game = self.cfg.get("game") or {}
+        self.ledger = GameLedger(self.store, str(game.get("account") or "default"),
+                                 str(game.get("timezone") or "Asia/Shanghai"), game.get("daily_reset_hour", 0))
+        self.budget = ResourceBudget(self.store, self.ledger.account, self.ledger.timezone,
+                                     game.get("budgets") or {}, reset_hour=game.get("daily_reset_hour", 0))
         self.ws = Workspace(self.cfg.workspace).ensure()
         self.broker = ConfirmationBroker(self.store, interactive=interactive)
         self._devices: dict[str, object] = {}
@@ -25,6 +31,10 @@ class App:
                                      llm=self.llm, runs_dir=self.cfg.runs_dir)
         from .sync import SyncManager
         self.sync = SyncManager(self.cfg.data, self.store, self.ws, self.supervisor, llm=self.llm, home=self.cfg.home)
+        from .plans import Plans
+        from .samples import Samples
+        self.plans = Plans(self)
+        self.samples = Samples(self.store, self.cfg.runs_dir / "samples")
 
     def refresh_llm(self):
         """Pick up changed llm settings (providers switched on/off, new limits) without a restart."""

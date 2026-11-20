@@ -113,6 +113,9 @@ def cmd_validate(args):
         print(f"回放测试：没有回放样本（{cases_dir} 下没有截图），跳过")
     for r in bad:
         print(f"  {r.case}: 期望 {r.expected}，实际 {r.got}")
+    if not results and getattr(args, "strict", False):
+        print("严格校验失败：没有回放样本，不能宣称识别已验证", file=sys.stderr)
+        return 1
     return 1 if bad else 0
 
 
@@ -210,6 +213,12 @@ def cmd_key(args):
 
 def cmd_status(args):
     app = _app(args)
+    for instance in app.instance_names():
+        lease = app.supervisor.runtime_status(instance)
+        if lease:
+            print(f"设备 {instance} {lease.get('identity')} {lease.get('status')} "
+                  f"pid={lease.get('pid', '-')} 工作流={lease.get('workflow', '-')} "
+                  f"心跳={lease.get('heartbeat', '-')}")
     for r in app.store.recent_runs(limit=args.n, mode=None):
         print(f"#{r['id']} {r['workflow']}@{r['instance']} {r['mode']} {r['status']} {r['failure_kind'] or ''} {r['reason']}")
     if app.llm:
@@ -223,7 +232,71 @@ def cmd_status(args):
         print(f"待确认 #{c['id']}: {c['category']} - {c['detail']}")
     for ch in app.store.query("SELECT * FROM changes ORDER BY id DESC LIMIT 10"):
         print(f"改动 #{ch['id']} {ch['workflow']} {ch['kind']} {ch['status']} {ch['branch']}")
+    for task in app.ledger.snapshot():
+        print(f"任务 {task['scope']} {task['task_key']} {task.get('status') or 'unknown'} "
+              f"{task.get('current') or '-'} / {task.get('target') or '-'} {'已核验' if task.get('verified') else '未核验'}")
     return 0
+
+
+def cmd_tasks(args):
+    app = _app(args)
+    if args.action == "scan":
+        outcome = app.supervisor.run("task_scan", args.instance or app.instance_names()[0], repair=False)
+        print(json.dumps(outcome.result.summary(), ensure_ascii=False, indent=2))
+        return 0 if outcome.result.execution_ok else 1
+    if args.action == "list":
+        print(json.dumps({"daily": app.ledger.snapshot("daily"), "weekly": app.ledger.snapshot("weekly")},
+                         ensure_ascii=False, indent=2, default=str))
+        return 0
+    if args.action == "record":
+        evidence = json.loads(args.evidence) if args.evidence else {"source": "cli"}
+        if not args.task:
+            print("record 需要 --task", file=sys.stderr)
+            return 2
+        app.ledger.record_task(args.scope, args.task, args.current, args.target, args.claimed,
+                               verified=args.verified, evidence=evidence)
+        print(f"已记录 {args.scope}/{args.task}")
+        return 0
+    return 2
+
+
+def cmd_report(args):
+    app = _app(args)
+    from .report import write_daily_report
+    path = Path(args.output) if args.output else app.cfg.home / "reports" / f"{app.ledger.periods()[0]}.md"
+    print(write_daily_report(app, path, args.instance))
+    return 0
+
+
+def cmd_doctor(args):
+    from .doctor import inspect
+    result = inspect(home=args.home, check_device=args.device, plan_path=args.plan)
+    print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+    return 0 if result["ok"] else 1
+
+
+def cmd_stats(args):
+    app = _app(args)
+    from .account import check_team, compare, record
+    if args.action == "list":
+        print(json.dumps(app.store.account_stats(app.ledger.account, args.team), ensure_ascii=False, indent=2, default=str))
+        return 0
+    if args.action == "record":
+        if not args.team or not args.member:
+            print("record 需要 --team 和 --member", file=sys.stderr)
+            return 2
+        values = json.loads(args.values) if args.values else {}
+        evidence = json.loads(args.evidence) if args.evidence else {"source": "cli"}
+        record(app, args.team, args.member, args.speed, args.crit, args.order, values, evidence, args.source)
+        print(f"已记录 {args.team}/{args.member}，只读档案未修改游戏")
+        return 0
+    if args.action == "check":
+        print(json.dumps(check_team(app, args.team), ensure_ascii=False, indent=2))
+        return 0
+    if args.action == "compare":
+        print(json.dumps(compare(app, args.team, args.member), ensure_ascii=False, indent=2))
+        return 0
+    return 2
 
 
 def cmd_confirm(args):
@@ -392,6 +465,9 @@ def cmd_marathon(args):
         return 0
     app = _app(args)
     inst = args.instance or app.instance_names()[0]
+    if args.preview:
+        print(json.dumps(app.plans.preview(inst, args.plan), ensure_ascii=False, indent=2, default=str))
+        return 0
     plan = load_plan(args.plan)
     missing = [it["workflow"] for it in plan["items"] if it["workflow"] not in app.workflows()]
     if plan.get("home_between", True) and "home" not in app.workflows():
@@ -400,14 +476,36 @@ def cmd_marathon(args):
         print(f"工作区里没有这些工作流：{', '.join(missing)}（先跑 oaf sync）", file=sys.stderr)
         return 2
     out = Path(args.out) if args.out else app.cfg.home / "marathon" / _time.strftime("%Y%m%d-%H%M%S")
-    m = Marathon(app, inst, plan, out, deadline=parse_deadline(args.hours, args.until),
-                 repair=args.repair, max_rounds=args.rounds)
+    deadline = parse_deadline(args.hours, args.until)
+    hours = (deadline - _time.time()) / 3600 if deadline else None
     print(f"连续日常开始：实例 {inst}，记录在 {out}")
     print(f"停止：Ctrl+C，或在该目录里新建一个名为 STOP 的文件")
-    reason = m.run()
+    result = app.plans.start(inst, args.plan, args.rounds or 1, hours, str(out), background=False, repair=args.repair)
+    reason = result.get("reason")
     print(f"已停止：{reason}。汇总见 {out / 'summary.md'}")
-    print((out / "summary.md").read_text(encoding="utf-8"))
+    if (out / "summary.md").is_file():
+        print((out / "summary.md").read_text(encoding="utf-8"))
+    return 1 if result["status"] == "error" else 0
+
+
+def cmd_stop(args):
+    app = _app(args)
+    print(json.dumps(app.plans.stop(args.instance, args.mode), ensure_ascii=False))
     return 0
+
+
+def cmd_samples(args):
+    app = _app(args)
+    if args.action == "list":
+        result = app.samples.list(args.workflow)
+    elif args.action == "annotate":
+        if args.id is None or not args.annotation:
+            raise ValueError("需要 --id 和 --annotation JSON")
+        result = app.samples.annotate(args.id, json.loads(args.annotation))
+    else:
+        result = app.samples.replay(app.supervisor.load(args.workflow))
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 1 if isinstance(result, dict) and result.get("ok") is False else 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -424,6 +522,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("list", help="列出工作流").set_defaults(func=cmd_list)
     s = sub.add_parser("validate", help="检查工作流格式并跑回放测试")
     s.add_argument("workflow")
+    s.add_argument("--strict", action="store_true", help="没有样本时也判定为未验证")
     s.set_defaults(func=cmd_validate)
     s = sub.add_parser("run", help="运行工作流（带监管）")
     s.add_argument("workflow")
@@ -443,6 +542,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--out", help="记录目录（默认 <数据目录>/marathon/<开始时间>）")
     s.add_argument("--repair", action="store_true", help="失败时让大模型诊断修复（默认只记录样本，事后再学）")
     s.add_argument("--print-plan", action="store_true", help="打印计划后退出")
+    s.add_argument("--preview", action="store_true", help="按任务账本预览缺口与阻塞原因，不点击")
     s.set_defaults(func=cmd_marathon)
     s = sub.add_parser("diagnose", help="看当前画面（或一张截图）匹配哪些状态")
     s.add_argument("workflow")
@@ -484,6 +584,46 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("status", help="最近运行、待确认项、改动")
     s.add_argument("-n", type=int, default=15)
     s.set_defaults(func=cmd_status)
+    s = sub.add_parser("tasks", help="查看或记录按游戏日/周持久化的任务账本")
+    s.add_argument("action", choices=["list", "record", "scan"])
+    s.add_argument("-i", "--instance", default=None)
+    s.add_argument("--scope", choices=["daily", "weekly"], default="daily")
+    s.add_argument("--task", default="")
+    s.add_argument("--current", type=int)
+    s.add_argument("--target", type=int)
+    s.add_argument("--claimed", action="store_true")
+    s.add_argument("--verified", action="store_true")
+    s.add_argument("--evidence", help="JSON 证据")
+    s.set_defaults(func=cmd_tasks)
+    s = sub.add_parser("stop", help="跨 CLI/面板/MCP 停止同一设备上的工作流或计划")
+    s.add_argument("-i", "--instance")
+    s.add_argument("--mode", choices=["immediate", "after_battle"], default="immediate")
+    s.set_defaults(func=cmd_stop)
+    s = sub.add_parser("samples", help="列出、标注或回放未知界面样本")
+    s.add_argument("action", choices=["list", "annotate", "replay"])
+    s.add_argument("--workflow")
+    s.add_argument("--id", type=int)
+    s.add_argument("--annotation")
+    s.set_defaults(func=cmd_samples)
+    s = sub.add_parser("report", help="生成本地日常完成与资源报告")
+    s.add_argument("--output")
+    s.add_argument("-i", "--instance", default=None)
+    s.set_defaults(func=cmd_report)
+    s = sub.add_parser("doctor", help="只读检查环境、设备、工作流和 marathon 计划")
+    s.add_argument("--device", action="store_true", help="额外截一张只读设备截图检查尺寸")
+    s.add_argument("--plan")
+    s.set_defaults(func=cmd_doctor)
+    s = sub.add_parser("stats", help="查看或记录只读阵容/速度/暴击档案")
+    s.add_argument("action", choices=["list", "record", "check", "compare"])
+    s.add_argument("--team", default="")
+    s.add_argument("--member", default="")
+    s.add_argument("--speed", type=float)
+    s.add_argument("--crit", type=float)
+    s.add_argument("--order", type=int)
+    s.add_argument("--source", default="manual")
+    s.add_argument("--values")
+    s.add_argument("--evidence")
+    s.set_defaults(func=cmd_stats)
     s = sub.add_parser("confirm", help="回答待确认项")
     s.add_argument("id", type=int)
     s.add_argument("answer", choices=["yes", "no"])

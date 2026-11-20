@@ -1,0 +1,76 @@
+format: 1
+name: regional_boss
+title: 周活地域鬼王（已核对难度）
+common_popups: true
+resources: [assttyys/colors.yaml]
+params:
+  max_runs: {default: 1, min: 1, max: 3}
+  boss_name: {default: '', type: string}
+  difficulty_text: {default: '', type: string}
+vars: {runs: 0, done: 0, losses: 0, pending: 0, started: 0}
+counts: {done: max_runs}
+limits: {timeout_s: 600, unknown_timeout_s: 20, max_repeat: 12}
+include_states:
+- workflow: orochi
+  prefixes: [settle_]
+  ids: [in_battle, battle_manual, prepare]
+states:
+- id: missing_profile
+  when: {expr: "boss_name == '' or difficulty_text == ''"}
+  do:
+  - stop: {reason: 尚未核对目标地域与难度，保留体力, result: blocked}
+- id: finished
+  when:
+    all:
+    - expr: done >= max_runs
+    - text_param: boss_name
+      region: [100, 20, 430, 120]
+  do:
+  - receipt: {kind: regional_boss, key_param: boss_name}
+  - stop: {reason: 已完成该地域挑战，仍需重新读取周任务计数, result: completed, verified: true}
+- id: challenge
+  when:
+    all:
+    - expr: runs < max_runs
+    - text_param: boss_name
+      region: [100, 20, 430, 120]
+    - text_param: difficulty_text
+      region: [300, 450, 800, 180]
+    - text: 挑战
+      region: [980, 560, 270, 145]
+  do:
+  - click_found: true
+    offset: [-12, -8, 12, 8]
+    cost: {stamina: 1}
+    delay: 2000
+  - inc: runs
+  - set: {pending: 1}
+  max_repeat: 1
+- id: choose_boss
+  when:
+    all:
+    - text: 地域鬼王
+      region: [50, 0, 400, 120]
+    - text_param: boss_name
+      region: [100, 100, 1050, 520]
+  do:
+  - click_found: true
+    offset: [-10, -8, 10, 8]
+    delay: 1500
+  max_repeat: 2
+- id: navigate
+  when:
+    text: 地域鬼王
+    region: [580, 610, 180, 100]
+  do:
+  - click_found: true
+    offset: [-10, -8, 10, 8]
+    delay: 1800
+- id: courtyard
+  when:
+    text: 探索
+    region: [560, 110, 200, 180]
+  do:
+  - click_found: true
+    offset: [-10, -8, 10, 8]
+    delay: 1800

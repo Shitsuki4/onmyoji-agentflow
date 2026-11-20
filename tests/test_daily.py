@@ -99,7 +99,8 @@ def test_daily_rewards_claims_mail_and_friend_points_then_stops_in_courtyard():
     friends_done = frame_for(wf, "friend_done", base=15)
     frames = [court, mail, popup, mail_empty, court, friends, friends_done, court]
     res, dev = run(wf, frames)
-    assert res.status == "success" and "补给领完了" in res.reason, res.summary()
+    assert res.status == "success" and "补给领取流程结束" in res.reason, res.summary()
+    assert not res.business_ok
     assert res.variables["claimed"] >= 1
     backs = [i for i in dev.inputs if i[0] == "back"]
     assert len(backs) == 2      # one per screen, never a third one in the courtyard
@@ -138,15 +139,15 @@ def test_exit_dialog_is_cancelled():
 def test_home_stops_in_courtyard_and_presses_back_elsewhere():
     wf = load_workflow(WF_DIR / "home.yaml")
     court = frame_for(wf, "courtyard", base=30)
-    res, dev = run(wf, [blank(31), blank(32), court])
+    res, dev = run(wf, [blank(31), blank(32), court], advance=False)
     assert res.status == "success" and res.reason == "已回到庭院"
-    assert [i[0] for i in dev.inputs] == ["back", "back"]
+    assert not dev.inputs
 
 
 def test_home_gives_up_after_eight_backs():
     wf = load_workflow(WF_DIR / "home.yaml")
     res, dev = run(wf, [blank(33)], advance=False)
-    assert res.status == "failed" and sum(1 for i in dev.inputs if i[0] == "back") == 8
+    assert res.status == "failed" and res.failure_kind == "unknown_screen" and not dev.inputs
 
 
 # ------------------------------------------------------------------ navigation / layer
@@ -254,9 +255,14 @@ class FakeSupervisor:
     def stop(self, instance):
         pass
 
+    def execution(self, instance, owner):
+        from contextlib import nullcontext
+        return nullcontext()
+
 
 # 2026-11-17 之前的刷本计划，测试按它写的
 GRIND_PLAN = {
+    "continuous": True,
     "pause_s": 60,            # pause between rounds
     "home_between": True,     # bring the game back to the courtyard before every item
     "max_home_failures": 3,   # this many failed ``home`` runs in a row -> stop, a human is needed
@@ -278,7 +284,8 @@ GRIND_PLAN = {
 def _marathon(tmp_path, script, plan=None, **kw):
     clock = StepClock(step=1)
     sup = FakeSupervisor(script)
-    app = SimpleNamespace(supervisor=sup)
+    from onmyoji_agentflow.store import Store
+    app = SimpleNamespace(supervisor=sup, store=Store(tmp_path / "state.db"))
     m = Marathon(app, "mumu", plan or json.loads(json.dumps(GRIND_PLAN)), tmp_path / "m", clock=clock, sleep=clock.sleep, **kw)
     return m, sup
 
@@ -306,7 +313,7 @@ def test_marathon_runs_plan_with_home_between_and_totals(tmp_path):
 
 
 def test_marathon_cooldown_on_stamina(tmp_path):
-    plan = {"pause_s": 1, "home_between": False,
+    plan = {"pause_s": 1, "home_between": False, "continuous": True,
             "items": [{"workflow": "orochi", "params": {}, "cooldown_min": 0, "cooldown_on": {"体力": 120}}]}
     m, sup = _marathon(tmp_path, {"orochi": [("success", "体力不足", {})]}, plan=plan,
                        deadline=None, max_rounds=None)

@@ -78,7 +78,10 @@ states:
   when:
     res: 退出结算_体力不足
   do:
-  - stop: 体力不足
+  - stop:
+      reason: 体力不足
+      result: blocked
+      verified: false
 - id: settle_6
   desc: 结算界面：单人胜利太鼓，点击退出
   from: 'assttyys 002 #6'
@@ -323,6 +326,7 @@ states:
     - expr: runs < max_runs or (pending == 1 and started == 0)
   do:
   - click_found: true
+    cost: {realm_ticket: 1}
     offset: [0, 0, 119, 49]
     delay: 2000
   - inc: runs
@@ -349,6 +353,10 @@ states:
       started: 0
     first: true
   - wait: 1500
+  - stop:
+      reason: 结界突破请求次数已达到上限
+      result: completed
+      verified: true
   max_repeat: 2
   on_repeat: stop
   repeat_reason: 进攻次数已打满，停止

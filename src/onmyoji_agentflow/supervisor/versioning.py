@@ -16,9 +16,11 @@ from __future__ import annotations
 import shutil
 import subprocess
 import time
+import tempfile
 from pathlib import Path
 
 from ..errors import AgentflowError
+from ..runtime import WorkspaceLease
 from ..workflow.schema import bundled_dir
 
 GIT_ENV_ID = ["-c", "user.name=onmyoji-agentflow", "-c", "user.email=agent@onmyoji-agentflow.invalid",
@@ -62,10 +64,15 @@ class Workspace:
             self.git("commit", "-q", "-m", "初始化工作流与识别资源")
 
     def ensure(self) -> "Workspace":
+        with WorkspaceLease(self.path):
+            return self._ensure()
+
+    def _ensure(self) -> "Workspace":
         if not self.initialized:
             self.init()
         else:
             self.add_new_bundled()
+            self.migrate_safety_defaults()
         return self
 
     KNOWN_FILE = ".oaf-bundled-known"
@@ -110,6 +117,33 @@ class Workspace:
             self.git("commit", "-q", "--only", "-m", msg, "--", *paths)
         return added
 
+    def migrate_safety_defaults(self, source: Path | None = None) -> list[str]:
+        """Apply narrowly-scoped safety migrations to untouched legacy defaults.
+
+        User-edited workflows remain untouched.  The former home fallback pressed Back on every
+        unknown screen, so an exact legacy signature is upgraded to the pause-on-unknown version.
+        """
+        from ..yamlio import load_yaml, dump_yaml
+        if self.current_branch() != "main" or self.git("status", "--porcelain"):
+            return []
+        src = Path(source) if source else bundled_dir()
+        old = "从任意界面按返回键（最多 8 次，结算画面先点掉，探索地图先确认退出）回到庭院；连续日常 oaf marathon 在两项之间用它。"
+        changed = []
+        home = self.path / "workflows" / "home.yaml"
+        bundled = src / "workflows" / "home.yaml"
+        if home.exists() and bundled.exists():
+            text = home.read_text(encoding="utf-8")
+            if old in text and "- id: back\n" in text and "expr: backs < 8" in text:
+                raw = load_yaml(text)
+                raw["states"] = [state for state in raw["states"] if state["id"] != "back"]
+                raw["desc"] = load_yaml(bundled)["desc"]
+                home.write_text(dump_yaml(raw), encoding="utf-8")
+                changed.append("workflows/home.yaml")
+        if changed:
+            self.git("add", "--", *changed)
+            self.git("commit", "-q", "--only", "-m", "升级未知画面安全边界", "--", *changed)
+        return changed
+
     def current_branch(self) -> str:
         return self.git("rev-parse", "--abbrev-ref", "HEAD")
 
@@ -129,16 +163,25 @@ class Workspace:
 
     def propose(self, workflow: str, kind: str, files: dict[str, str | bytes | None], message: str,
                 base: str = "main", prefix: str = "agent") -> tuple[str, str]:
+        with WorkspaceLease(self.path):
+            return self._propose(workflow, kind, files, message, base, prefix)
+
+    def _propose(self, workflow: str, kind: str, files: dict[str, str | bytes | None], message: str,
+                 base: str = "main", prefix: str = "agent") -> tuple[str, str]:
         """Commit ``files`` (relative path -> content, ``None`` deletes) on a new branch from ``base``.
 
         Returns (branch, commit)."""
         self.require_clean()
         branch = f"{prefix}/{workflow}-{kind}-{time.strftime('%Y%m%d-%H%M%S')}-{int(time.time() * 1000) % 1000:03d}"
-        self.git("checkout", "-q", "main")
-        self.git("checkout", "-q", "-b", branch, base)
+        temporary = Path(tempfile.mkdtemp(prefix="oaf-proposal-"))
+        target = temporary / "workspace"
+        self.git("worktree", "add", "-q", "-b", branch, str(target), base)
+        isolated = Workspace(target)
         try:
             for rel, content in files.items():
-                p = self.path / rel
+                p = (target / rel).resolve()
+                if not p.is_relative_to(target.resolve()) or ".git" in Path(rel).parts:
+                    raise AgentflowError("候选文件不能位于工作区以外或修改 git 元数据")
                 if content is None:
                     if p.exists():
                         p.unlink()
@@ -148,16 +191,15 @@ class Workspace:
                     p.write_bytes(content)
                 else:
                     p.write_text(content, encoding="utf-8")
-            self.git("add", "-A")
-            self.git("commit", "-q", "--allow-empty", "-m", message)
-            commit = self.head()
+            isolated.git("add", "--", *files.keys())
+            isolated.git("commit", "-q", "--allow-empty", "-m", message)
+            commit = isolated.head()
         except Exception:
-            self.git("reset", "-q", "--hard", check=False)
-            self.git("checkout", "-q", "-f", "main", check=False)
-            self.git("branch", "-D", branch, check=False)
             raise
         finally:
-            self.git("checkout", "-q", "-f", "main", check=False)
+            self.git("worktree", "remove", "--force", str(target), check=False)
+            if temporary.resolve().parent == Path(tempfile.gettempdir()).resolve():
+                shutil.rmtree(temporary, ignore_errors=True)
         return branch, commit
 
     def read_bytes(self, rel: str, ref: str = "main") -> bytes | None:
@@ -185,19 +227,23 @@ class Workspace:
         return dest
 
     def merge(self, branch: str, message: str) -> str:
-        self.git("checkout", "-q", "main")
-        self.git("merge", "-q", "--no-ff", "-m", message, branch)
-        return self.head()
+        with WorkspaceLease(self.path):
+            self.require_clean()
+            self.git("checkout", "-q", "main")
+            self.git("merge", "-q", "--no-ff", "-m", message, branch)
+            return self.head()
 
     def revert(self, merge_commit: str, message: str) -> str:
-        self.git("checkout", "-q", "main")
-        try:
-            self.git("revert", "--no-edit", "-m", "1", merge_commit)
-        except AgentflowError as e:
-            self.git("revert", "--abort", check=False)
-            raise AgentflowError(f"回滚 {merge_commit[:8]} 时和后来的改动冲突，没有回滚：{e}") from e
-        self.git("commit", "--amend", "-q", "-m", message)
-        return self.head()
+        with WorkspaceLease(self.path):
+            self.require_clean()
+            self.git("checkout", "-q", "main")
+            try:
+                self.git("revert", "--no-edit", "-m", "1", merge_commit)
+            except AgentflowError as e:
+                self.git("revert", "--abort", check=False)
+                raise AgentflowError(f"回滚 {merge_commit[:8]} 时和后来的改动冲突，没有回滚：{e}") from e
+            self.git("commit", "--amend", "-q", "-m", message)
+            return self.head()
 
     def delete_branch(self, branch: str) -> None:
         self.git("branch", "-D", branch, check=False)

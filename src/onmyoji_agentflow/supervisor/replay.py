@@ -21,6 +21,7 @@ import numpy as np
 from ..workflow.engine import Runner
 from ..workflow.schema import Workflow
 from ..yamlio import dump_yaml, load_yaml
+from ..vision.ocr import OcrUnavailable
 
 
 @dataclass
@@ -28,10 +29,11 @@ class CaseResult:
     case: str
     expected: str | None
     got: str | None
+    error: str | None = None
 
     @property
     def ok(self) -> bool:
-        return self.expected == self.got
+        return self.error is None and self.expected == self.got
 
 
 class _NullCtl:
@@ -42,16 +44,24 @@ class _NullCtl:
 
 
 def first_match(wf: Workflow, img: np.ndarray, variables: dict | None = None) -> str | None:
-    r = Runner(wf, _NullCtl())
+    return _first_match_detail(wf, img, variables)[0]
+
+
+def _first_match_detail(wf: Workflow, img: np.ndarray, variables: dict | None = None) -> tuple[str | None, str | None]:
+    if img is None or not isinstance(img, np.ndarray) or img.size == 0:
+        return None, "样本截图不可读"
+    r = Runner(wf, _NullCtl(), strict_ocr=True)
     r.vars = {**(wf.raw.get("vars") or {}), "elapsed_s": 0, "actions": 0, **(variables or {})}
     for st in wf.states:
         r._found = None
         try:
             if r._match(st["when"], img):
-                return st["id"]
-        except Exception:  # noqa: BLE001 - e.g. OCR unavailable: treat as no match
-            continue
-    return None
+                return st["id"], None
+        except OcrUnavailable as e:
+            return None, "OCR 优先状态未验证：" + str(e)
+        except Exception as e:  # noqa: BLE001 - preserve unusable sample evidence
+            return None, f"{type(e).__name__}: {e}"
+    return None, None
 
 
 def load_cases(folder: Path) -> list[tuple[str, np.ndarray, dict]]:
@@ -69,8 +79,8 @@ def load_cases(folder: Path) -> list[tuple[str, np.ndarray, dict]]:
 def run_cases(wf: Workflow, cases) -> list[CaseResult]:
     out = []
     for name, img, exp in cases:
-        got = first_match(wf, img, exp.get("vars"))
-        out.append(CaseResult(name, exp.get("state"), got))
+        got, error = _first_match_detail(wf, img, exp.get("vars"))
+        out.append(CaseResult(name, exp.get("state"), got, error))
     return out
 
 

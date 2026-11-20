@@ -143,7 +143,10 @@ states:
       - text: 阴阳寮
         region: [515, 640, 120, 55]
   do:
-  - stop: 补给领完了（邮件附件 + 好友友情点）
+  - stop:
+      reason: 补给领取流程结束（邮件附件 + 好友友情点），需核对奖励回执
+      result: unknown
+      verified: false
 - id: open_mail
   desc: 庭院，点右上角邮箱
   when:
