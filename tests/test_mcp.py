@@ -85,7 +85,7 @@ def test_workflow_tools_screenshot_and_diagnose(app, tmp_path):
     names = [w["name"] for w in data["workflows"]]
     assert "orochi" in names
     res, data = call(server, "validate_workflow", {"workflow": "orochi"})
-    assert data["format"] == "ok" and data["ok"]
+    assert data["format"] == "ok" and not data["ok"] and data["coverage"] == "insufficient"
     res, data = call(server, "validate_workflow", {"workflow": "不存在"})
     assert res["isError"] and "没有工作流" in data
 

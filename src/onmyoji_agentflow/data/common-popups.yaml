@@ -1,0 +1,34 @@
+states:
+- id: shared_reward
+  when:
+    all:
+    - text: [获得奖励, 获得物品]
+      region: [400, 100, 480, 200]
+    - text: [点击空白, 点击屏幕继续]
+      region: [380, 570, 520, 140]
+  do:
+  - receipt: {kind: reward}
+  - click: [610, 655, 670, 680]
+    delay: 1000
+  max_repeat: 5
+- id: shared_exit_cancel
+  when:
+    all:
+    - text: 退出游戏
+      region: [330, 315, 330, 60]
+    - text: 取消
+      region: [740, 415, 130, 50]
+  do:
+  - click_found: true
+    offset: [-10, -8, 10, 8]
+    delay: 1200
+  max_repeat: 2
+- id: shared_social_pause
+  when:
+    all:
+    - text: [邀请好友回归, 分享给好友]
+      region: [200, 80, 900, 500]
+    - text: 发送
+      region: [200, 380, 900, 300]
+  do:
+  - stop: {reason: 社交发送弹窗，未点击发送, result: blocked}

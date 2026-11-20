@@ -144,7 +144,20 @@ TOOLS = [
          ("workflow",)),
      "annotations": {"destructiveHint": False, "idempotentHint": False}},
     {"name": "stop_workflow", "title": "停止工作流",
-     "description": "让一个实例上正在运行的工作流在当前这一步结束后停下。只能停这个 MCP 服务启动的运行和同一进程里的运行。",
+     "description": "跨 CLI/面板/MCP 停止同一物理设备；立即停止输入或战斗结算后停。",
+     "inputSchema": _schema({"instance": _INSTANCE, "mode": {"type": "string", "enum": ["immediate", "after_battle"]}}),
+     "annotations": {"idempotentHint": True}},
+    {"name": "marathon_start", "title": "启动日常计划",
+     "description": "按计划预览或后台启动日活、周活、活动工作流；支持一轮后停、截止时间和小规模试跑。",
+     "inputSchema": _schema({"instance": _INSTANCE, "plan": {"type": "string"},
+                              "out": {"type": "string"}, "rounds": {"type": "integer", "minimum": 1},
+                              "hours": {"type": "number", "minimum": 0.01}, "preview": {"type": "boolean"}},
+                             ()), "annotations": {"idempotentHint": False}},
+    {"name": "marathon_status", "title": "查看日常计划",
+     "description": "查看日常计划运行状态、任务账本、预算和最近样本。",
+     "inputSchema": _schema(), "annotations": {"readOnlyHint": True}},
+    {"name": "marathon_stop", "title": "停止日常计划",
+     "description": "请求日常计划停止；子工作流在下一次动作边界停止。",
      "inputSchema": _schema({"instance": _INSTANCE}), "annotations": {"idempotentHint": True}},
     {"name": "observe", "title": "观察模式",
      "description": "观察模式跑一个工作流：只截图识别，从不点击。跑完返回认出了哪些状态，适合新工作流或改动后先确认。",
@@ -226,6 +239,7 @@ class AgentTools:
         self.lock = threading.RLock()
         self.jobs: dict[str, dict] = {}         # instance -> current / last job started from MCP
         self.sync_job: dict | None = None
+        self.marathon_jobs: dict[str, dict] = {}
         self.panel_url = panel_url or "http://{host}:{port}/".format(**app.cfg["web"])
         self.by_name = {t["name"]: t for t in TOOLS}
 
@@ -338,6 +352,19 @@ class AgentTools:
                 out.append({"name": name, "error": str(e)})
         return _result({"workflows": out})
 
+    def t_marathon_start(self, args, session):
+        instance = self._instance(args)
+        if args.get("preview"):
+            return _result(self.app.plans.preview(instance, args.get("plan")))
+        return _result(self.app.plans.start(instance, args.get("plan"), args.get("rounds", 1),
+                                            args.get("hours"), args.get("out")))
+
+    def t_marathon_status(self, args, session):
+        return _result(self.app.plans.status())
+
+    def t_marathon_stop(self, args, session):
+        return _result(self.app.plans.stop(self._instance(args), args.get("mode", "immediate")))
+
     def t_validate_workflow(self, args, session):
         from .supervisor.replay import load_cases, run_cases
         wf = self._workflow(args)
@@ -346,15 +373,16 @@ class AgentTools:
         return _result({"workflow": wf.name, "format": "ok", "states": len(wf.states), "resources": len(wf.resources),
                         "replay": {"passed": len(results) - len(bad), "total": len(results),
                                    "failed": [{"case": r.case, "expected": r.expected, "got": r.got} for r in bad]},
-                        "ok": not bad})
+                        "coverage": "insufficient" if not results else "sampled",
+                        "ok": bool(results) and not bad})
 
     def _start_job(self, wf, instance: str, mode: str, params: dict, seconds=None, actions=None,
                    repair: bool = True) -> dict:
         sup = self.app.supervisor
-        allowed = wf.param_defaults()
-        unknown = [k for k in params if k not in allowed]
-        if unknown:
-            raise ToolError(f"工作流 {wf.name} 没有参数 {'、'.join(unknown)}，可用：{'、'.join(allowed) or '无'}")
+        try:
+            validated = wf.validate_params(params)
+        except Exception as e:
+            raise ToolError(str(e)) from e
         scfg = self.app.cfg["supervisor"]
         seconds = float(seconds or scfg.get("observe_seconds", 60)) if mode == "observe" else None
         actions = int(actions or scfg.get("trial_actions", 30)) if mode == "trial" else None
@@ -362,7 +390,7 @@ class AgentTools:
             cur = self.jobs.get(instance)
             if cur and cur["status"] == "running":
                 raise ToolError(f"实例 {instance} 正在运行 {cur['workflow']}，先 stop_workflow 或等它结束")
-            job = {"workflow": wf.name, "instance": instance, "mode": mode, "params": params,
+            job = {"workflow": wf.name, "instance": instance, "mode": mode, "params": validated,
                    "status": "running", "started": time.time(), "done": threading.Event()}
             self.jobs[instance] = job
         self.app.store.event("info", "mcp", f"MCP 启动 {wf.name}@{instance}（{mode}）")
@@ -370,11 +398,11 @@ class AgentTools:
         def work():
             try:
                 if mode == "run":
-                    out = sup.run(wf.name, instance, params, repair=repair)
+                    out = sup.run(wf.name, instance, validated, repair=repair)
                     job.update(summary=out.result.summary(), notes=list(out.notes), level=out.level, ok=out.result.ok)
                 else:
                     sup.stop_flags.setdefault(instance, threading.Event()).clear()
-                    res = sup._run_once(wf, instance, {**wf.param_defaults(), **params}, mode=mode,
+                    res = sup._run_once(wf, instance, validated, mode=mode,
                                         max_seconds=seconds, max_actions=actions, observe=mode == "observe")
                     job.update(summary=res.summary(), ok=res.ok)
                 job["status"] = "finished"
@@ -410,13 +438,7 @@ class AgentTools:
         return _result(view)
 
     def t_stop_workflow(self, args, session):
-        instance = self._instance(args)
-        self.app.supervisor.stop(instance)
-        job = self.jobs.get(instance)
-        running = bool(job and job["status"] == "running")
-        return _result({"instance": instance, "stopping": running,
-                        "message": "已让它在当前这一步结束后停下" if running else
-                        "这个 MCP 服务没有在这个实例上运行工作流；如果是网页面板或终端启动的，请在那边停止"})
+        return _result(self.app.plans.stop(self._instance(args), args.get("mode", "immediate")))
 
     def t_observe(self, args, session):
         wf = self._workflow(args)
@@ -455,6 +477,10 @@ class AgentTools:
             "sync": {"running": app.sync.lock.locked(), "last": last_sync,
                      "job": self.sync_job and {k: v for k, v in self.sync_job.items() if k != "thread"}},
             "llm": app.llm.budget.snapshot() if app.llm else "没有启用大模型供应商",
+            "marathons": [{k: v for k, v in j.items() if k not in ("marathon", "plan")} for j in self.marathon_jobs.values()],
+            "tasks": app.ledger.snapshot(),
+            "devices": {name: app.supervisor.runtime_status(name) for name in app.instance_names()},
+            "resources": app.store.resource_totals(app.ledger.account, app.ledger.periods()[0]),
         }
         return _result(out)
 

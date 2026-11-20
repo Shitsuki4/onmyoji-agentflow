@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import copy
 import os
+import math
 from pathlib import Path
 
 from .yamlio import dump_yaml, load_yaml
@@ -14,6 +15,18 @@ DEFAULT_CONFIG = {
         {"name": "main", "mumu_id": 0, "method": "auto"},
     ],
     "humanize": {"style": "oas", "base_sleep_ms": 0, "random_sleep_ms": 200},
+    "game": {
+        "account": "default",
+        "timezone": "Asia/Shanghai",
+        # None means do not impose a new cap.  A non-None value is a hard daily ceiling.
+        "budgets": {
+            "stamina": {"daily_limit": 90, "reserve": 0},
+            "jade": {"daily_limit": 0, "reserve": 0},
+            "realm_ticket": {"daily_limit": 12, "reserve": 0},
+            "event_ticket": {"daily_limit": 0, "reserve": 0},
+        },
+        "daily_reset_hour": 0,
+    },
     "web": {"host": "127.0.0.1", "port": 8765},
     "llm": {
         # OpenAI-compatible providers, tried in order (primary first). api keys live in the
@@ -100,14 +113,15 @@ def _merge(base: dict, override: dict) -> dict:
 
 
 class Config:
-    def __init__(self, home: Path | None = None):
+    def __init__(self, home: Path | None = None, migrate=True):
         self.home = Path(home) if home else data_dir()
         self.path = self.home / "config.yaml"
         self.data = copy.deepcopy(DEFAULT_CONFIG)
         self.migrated: list[str] = []
         if self.path.exists():
             self.data = _merge(DEFAULT_CONFIG, load_yaml(self.path) or {})
-            self._migrate()
+            if migrate:
+                self._migrate()
 
     def _migrate(self):
         """Drop the limits v0.1.0 wrote by default, but only when they were never edited."""
@@ -203,7 +217,7 @@ def parse_value(text: str):
 def _check_limit(path: str, v):
     if v is None:
         return
-    if isinstance(v, bool) or not isinstance(v, (int, float)) or v < 0:
+    if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or v < 0:
         raise ValueError(f"{path} 要填不小于 0 的数字，或 null 表示不限")
 
 
@@ -215,7 +229,19 @@ def validate_setting(path: str, value) -> None:
     if parts[0] not in DEFAULT_CONFIG:
         raise ValueError(f"没有这个配置项：{parts[0]}（可用：{'、'.join(DEFAULT_CONFIG)}）")
     dotted = ".".join(parts)
-    if dotted == "llm.budget":
+    if dotted.startswith("game.budgets."):
+        if len(parts) != 4 or parts[-1] not in ("daily_limit", "reserve"):
+            raise ValueError("预算使用 game.budgets.<资源>.daily_limit 或 reserve")
+        _check_limit(dotted, value)
+        if parts[-1] == "reserve" and value is None:
+            raise ValueError("最低保留量不能是 null")
+    elif dotted == "game.daily_reset_hour":
+        if type(value) is not int or not 0 <= value <= 23:
+            raise ValueError("重置小时必须是 0–23 的整数")
+    elif dotted == "game.timezone":
+        from .ledger import _zone
+        _zone(value)
+    elif dotted == "llm.budget":
         if not isinstance(value, dict):
             raise ValueError("llm.budget 要是一个字典")
         for k, v in value.items():

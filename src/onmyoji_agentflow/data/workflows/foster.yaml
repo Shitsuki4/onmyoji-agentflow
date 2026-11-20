@@ -1,0 +1,175 @@
+# 卡片按星级优先，再比较太鼓、斗鱼、伞室内、其他变异卡、太阴。
+format: 1
+name: foster
+title: 寄养高收益结界卡
+desc: >-
+  进入阴阳寮结界，核对已有寄养倒计时；没有有效寄养时，完整比较好友和跨区候选，星级优先，再比较卡型和剩余时间。
+  认不出卡型、星级、好友入口或安全狗粮时只截图暂停，不使用基础经验或智能放入，也不发送邀请。
+requires: [账号已加入阴阳寮，结界功能已解锁]
+resources: [assttyys/colors.yaml]
+similarity: 93
+params: {}
+vars:
+  opened: 0
+  selected: 0
+  unit_selected: 0
+  started: 0
+limits:
+  timeout_s: 900
+  unknown_timeout_s: 30
+  stuck_timeout_s: 120
+  no_progress_timeout_s: 300
+  max_repeat: 12
+states:
+- id: exit_dialog
+  desc: 「确定要退出游戏？」弹框，点取消
+  when:
+    all:
+    - text: 退出游戏
+      region: [330, 315, 330, 60]
+    - text: 取消
+      region: [740, 415, 130, 50]
+  do:
+  - click_found: true
+    offset: [-15, -8, 15, 8]
+    delay: 1500
+  max_repeat: 3
+- id: active_foster
+  desc: 已有有效寄养倒计时，不重复放入
+  when:
+    all:
+    - text: 式神育成
+      region: [80, 15, 180, 65]
+    - text: ''
+      pattern: '\d{1,2}[:：]\d{2}[:：]\d{2}'
+      region: [1010, 20, 260, 150]
+  do:
+  - receipt:
+      kind: foster
+      countdown_region: [1000, 20, 260, 150]
+  - stop:
+      reason: 已有有效寄养倒计时，跳过重复寄养
+      result: already_done
+      verified: true
+  max_repeat: 2
+- id: courtyard
+  desc: 庭院，进入阴阳寮
+  when:
+    all:
+    - text: 式神录
+      region: [1080, 640, 110, 55]
+    - text: 阴阳寮
+      region: [515, 640, 120, 55]
+  do:
+  - click: [550, 625, 600, 685]
+    delay: 2500
+  max_repeat: 3
+- id: guild_barrier
+  desc: 阴阳寮页面，进入结界
+  when:
+    text: 结界
+    region: [950, 580, 250, 120]
+  do:
+  - click: [1050, 620, 1140, 690]
+    delay: 2500
+  max_repeat: 3
+- id: barrier_training
+  desc: 结界页面，进入式神育成
+  when:
+    text: 式神育成
+    region: [500, 270, 230, 130]
+  do:
+  - click: [570, 300, 660, 370]
+    delay: 2000
+  max_repeat: 3
+- id: foster_slot
+  desc: 式神育成页面，打开可寄养式神位
+  when:
+    all:
+    - text: 可寄养式神
+      region: [1010, 20, 260, 150]
+    - expr: selected == 0
+    - not:
+        text: 进入好友结界寄养式神
+        region: [700, 95, 370, 60]
+    - not:
+        text: [好友, 跨区]
+        region: [180, 95, 500, 80]
+  do:
+  - click: [1142, 50, 1226, 129]
+    delay: 1500
+  max_repeat: 3
+- id: friend_list
+  desc: 好友寄养列表，按安全收益顺序寻找结界卡
+  when:
+    all:
+    - text: 进入好友结界寄养式神
+      region: [700, 95, 370, 60]
+    - text: [好友, 跨区]
+      region: [180, 95, 500, 80]
+    - expr: selected == 0
+  do:
+  - select_foster: {max_pages: 30}
+  max_repeat: 800
+- id: friend_enter
+  desc: 已选择明确收益卡，进入好友结界
+  when:
+    all:
+    - expr: selected == 1 and unit_selected == 0
+    - text: 进入好友结界寄养式神
+      region: [700, 95, 370, 60]
+  do:
+  - click: [820, 530, 930, 600]
+    delay: 2500
+  - set: {selected: 2}
+  max_repeat: 3
+- id: safe_unit
+  desc: 好友结界中只选择 OCR 同时确认的低级达摩，不使用智能放入
+  when:
+    all:
+    - expr: selected == 2 and unit_selected == 0
+    - text: [寄养, 式神]
+      region: [430, 80, 500, 140]
+  do:
+  - select_foster_unit:
+      region: [80, 430, 520, 680]
+      required_text: [达摩, 1级]
+      radius: 48
+      delay: 1200
+  - set:
+      unit_selected: 1
+  max_repeat: 3
+- id: confirm_foster
+  desc: 核对寄养收益和式神后确认
+  when:
+    all:
+    - expr: unit_selected == 1 and started == 0
+    - text: 确认寄养所选式神
+      region: [460, 125, 380, 65]
+    - text: 确定
+      region: [650, 480, 250, 120]
+  do:
+  - click: [690, 515, 800, 575]
+    delay: 2500
+  - set:
+      started: 1
+  max_repeat: 2
+- id: foster_started
+  desc: 重新看到寄养倒计时，确认启动成功
+  when:
+    all:
+    - expr: started == 1
+    - text: [寄养, 可寄养式神]
+      region: [1000, 20, 260, 150]
+    - text: ''
+      pattern: '\d{1,2}[:：]\d{2}[:：]\d{2}'
+      region: [1010, 20, 260, 150]
+  do:
+  - receipt:
+      kind: foster
+      countdown_region: [1000, 20, 260, 150]
+  - stop:
+      reason: 已启动寄养并核对倒计时
+      result: completed
+      verified: true
+  max_repeat: 3

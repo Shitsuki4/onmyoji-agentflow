@@ -1,0 +1,66 @@
+format: 1
+name: delegation
+title: 式神委派奖励与续派
+common_popups: true
+params:
+  task_name: {default: '', type: string}
+  stamina_cost: {default: 0, min: 0, max: 100}
+  team_verified: {default: false}
+vars: {claimed: 0, dispatched: 0}
+limits: {timeout_s: 240, unknown_timeout_s: 20, max_repeat: 5}
+states:
+- id: missing_profile
+  when: {expr: "task_name == '' or team_verified == False"}
+  do:
+  - stop: {reason: 委派队伍和费用尚未核对, result: blocked}
+- id: running
+  when:
+    all:
+    - text_param: task_name
+      region: [140, 80, 950, 440]
+    - text: ''
+      pattern: '\d{1,2}[:：]\d{2}[:：]\d{2}'
+      region: [140, 80, 950, 500]
+  do:
+  - receipt: {kind: delegation, key_param: task_name, countdown_region: [140, 80, 950, 500]}
+  - stop: {reason: 已核对委派倒计时，等待完成, result: already_done, verified: true}
+- id: collect
+  when:
+    all:
+    - text_param: task_name
+      region: [140, 80, 950, 440]
+    - text: 领取奖励
+      region: [400, 400, 800, 280]
+  do:
+  - click_found: true
+    offset: [-10, -8, 10, 8]
+    delay: 1200
+  - inc: claimed
+- id: select_task
+  when:
+    all:
+    - text: 式神委派
+      region: [20, 0, 300, 120]
+    - text_param: task_name
+      region: [140, 100, 950, 440]
+  do:
+  - click_found: true
+    offset: [-10, -8, 10, 8]
+    delay: 1200
+  max_repeat: 2
+- id: navigate
+  when:
+    text: 式神委派
+    region: [350, 590, 450, 120]
+  do:
+  - click_found: true
+    offset: [-10, -8, 10, 8]
+    delay: 1800
+- id: courtyard
+  when:
+    text: 探索
+    region: [560, 110, 200, 180]
+  do:
+  - click_found: true
+    offset: [-10, -8, 10, 8]
+    delay: 1800

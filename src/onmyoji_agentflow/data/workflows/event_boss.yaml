@@ -2,6 +2,12 @@
 format: 1
 name: event_boss
 title: 活动：祸主降临（超鬼王）
+activity:
+  name: 祸至无日 / 祸主降临
+  battle_start: 2026-11-11T00:00:00+08:00
+  battle_end: 2026-11-17T23:59:59+08:00
+  shop_end: 2026-11-24T23:59:59+08:00
+  timezone: Asia/Shanghai
 desc: >-
   从庭院进活动「祸至无日」→ 祸主降临：没有自己的鬼王就召唤，有就带租借阵容（2.5 倍伤害，每次 1 张租借券）挑战，
   结算点掉后回到祸主降临页再看。疲劳到 80 以上就停（原因带「疲劳」，marathon 据此冷却），打满 max_fights 次也停。
@@ -117,7 +123,10 @@ states:
       region: [150, 18, 140, 42]
     - expr: fights >= max_fights
   do:
-  - stop: 超鬼王打满本次次数
+  - stop:
+      reason: 超鬼王打满本次次数
+      result: completed
+      verified: true
 - id: boss_tired
   desc: 祸主降临页：疲劳 80 以上，停下等恢复（约 1 点/分钟，击杀返 25）
   when:
@@ -128,7 +137,10 @@ states:
       pattern: '(8[0-9]|9[0-9]|100)/100'
       region: [1080, 15, 180, 50]
   do:
-  - stop: 超鬼王疲劳高，等恢复
+  - stop:
+      reason: 超鬼王疲劳高，等恢复
+      result: blocked
+      verified: false
 - id: boss_fight
   desc: 祸主降临页：有自己的鬼王，点「挑战」
   when:

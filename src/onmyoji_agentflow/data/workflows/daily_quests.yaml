@@ -63,7 +63,10 @@ states:
       region: [870, 600, 140, 60]
     - expr: claims >= 2
   do:
-  - stop: 花合战奖励领完了
+  - stop:
+      reason: 已重复点击领取按钮，需重新核对页面是否还有可领奖励
+      result: blocked
+      verified: false
 - id: claim_all
   desc: 花合战页，点「全部领取」（OCR 常把它拆成「全部」「领取」两行）
   when:
@@ -80,7 +83,10 @@ states:
     text: 花合战
     region: [95, 22, 110, 40]
   do:
-  - stop: 花合战没有可领的奖励
+  - stop:
+      reason: 花合战没有识别到领取按钮，奖励状态仍需核对
+      result: unknown
+      verified: false
 - id: courtyard_open
   desc: 庭院（底部卷轴展开），点「花合战」
   when:
@@ -101,4 +107,6 @@ states:
     text: 式神录
     region: [1080, 640, 110, 55]
   do:
-  - stop: 没能打开花合战
+  - stop:
+      reason: 没能打开花合战
+      result: blocked

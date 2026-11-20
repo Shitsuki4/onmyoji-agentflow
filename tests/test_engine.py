@@ -65,7 +65,7 @@ def test_orochi_long_battle_without_victory_drum_counts_and_stops():
               + [frame_for(wf, "settle_11")] * 2 + [frame_for(wf, "settle_4")] * 2
               + [frame_for(wf, "challenge_done_0")])
     ctl, dev = ctl_for(frames, advance_on_input=False)
-    clock = FakeClock()
+    clock = FakeClock(step=0.1)
     res = Runner(wf, ctl, params={"max_runs": 1}, clock=clock).run()
     assert res.status == "success", res.summary()
     assert res.variables["runs"] == 1 and res.variables["done"] == 1 and res.variables["pending"] == 0
@@ -149,6 +149,30 @@ def test_trial_action_limit():
     ctl, dev = ctl_for(cycle * 10)
     res = Runner(wf, ctl, clock=FakeClock(), max_actions=4).run()
     assert res.status == "limit" and len(dev.inputs) == 4
+
+
+def test_trial_action_limit_is_checked_between_actions_in_one_state():
+    wf = load_workflow({
+        "format": 1, "name": "three_clicks",
+        "states": [{"id": "step", "when": {"expr": "True"}, "do": [
+            {"click": [10, 10, 20, 20]}, {"click": [30, 30, 40, 40]},
+            {"click": [50, 50, 60, 60]}, {"stop": "done"}]}],
+    })
+    ctl, dev = ctl_for([blank(74)])
+    res = Runner(wf, ctl, clock=FakeClock(), max_actions=1).run()
+    assert res.status == "limit" and res.actions == 1
+    assert len([i for i in dev.inputs if i[0] == "tap"]) == 1
+
+
+def test_business_result_distinguishes_blocked_stop():
+    wf = load_workflow({
+        "format": 1, "name": "blocked", "states": [{"id": "x", "when": {"expr": "True"},
+            "do": [{"stop": {"reason": "页面没打开", "result": "blocked", "verified": False}}]}],
+    })
+    ctl, _ = ctl_for([blank(75)])
+    res = Runner(wf, ctl, clock=FakeClock()).run()
+    assert res.status == "success" and res.business_result == "blocked"
+    assert not res.business_ok and res.evidence["verified"] is False
 
 
 def _sensitive_wf(tmp_path: Path):

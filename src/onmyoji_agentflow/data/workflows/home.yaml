@@ -4,7 +4,7 @@
 format: 1
 name: home
 title: 回到庭院
-desc: 从任意界面按返回键（最多 8 次，结算画面先点掉，探索地图先确认退出）回到庭院；连续日常 oaf marathon 在两项之间用它。
+desc: 只处理已识别的结算、活动和探索页面回到庭院；认不出的画面暂停并留样本，不盲目按返回键。
 resources: [assttyys/colors.yaml]
 similarity: 93
 params: {}
@@ -22,6 +22,30 @@ limits:
   no_progress_timeout_s: 600
   max_repeat: 20
 states:
+- id: known_task_or_realm_page
+  when:
+    any:
+    - text: 花合战
+      region: [90, 15, 150, 60]
+    - text: 式神育成
+      region: [80, 15, 180, 65]
+    - text: 进入好友结界寄养式神
+      region: [700, 95, 370, 60]
+  do:
+  - click: [30, 28, 55, 50]
+    delay: 1800
+  max_repeat: 4
+- id: realm_home
+  when:
+    all:
+    - text: 结界卡
+      region: [875, 280, 80, 130]
+    - text: 式神育成
+      region: [570, 280, 90, 140]
+  do:
+  - click: [35, 25, 55, 50]
+    delay: 1600
+  max_repeat: 2
 - id: exit_dialog
   desc: 「确定要退出游戏？」弹框，点取消
   when:
@@ -268,12 +292,3 @@ states:
   - click: [35, 30, 55, 50]
     delay: 3000
   max_repeat: 4
-- id: back
-  desc: 认不出是哪，按返回键（最多 8 次）
-  when:
-    expr: backs < 8
-  do:
-  - back: true
-    delay: 2000
-  - inc: backs
-  max_repeat: 8

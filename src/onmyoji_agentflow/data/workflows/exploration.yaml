@@ -58,7 +58,10 @@ states:
   when:
     res: 退出结算_体力不足
   do:
-  - stop: 体力不足
+  - stop:
+      reason: 体力不足
+      result: blocked
+      verified: false
 - id: settle_6
   desc: 结算界面：单人胜利太鼓，点击退出
   from: 'assttyys 002 #6'
@@ -280,7 +283,10 @@ states:
       - res: 探索地图界面
     - expr: rounds >= max_rounds
   do:
-  - stop: 探索轮数已打满，已回到章节界面
+  - stop:
+      reason: 探索轮数已打满，已回到章节界面
+      result: completed
+      verified: true
 - id: boss_appeared
   desc: 首领出现，点首领
   from: 'assttyys 014 #2'

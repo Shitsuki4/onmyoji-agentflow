@@ -23,6 +23,7 @@ dependencies = [
     "opencv-python-headless>=4.8",
     "PyYAML>=6.0",
     "keyring>=24",
+    "tzdata>=2024.1; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]
@@ -48,3 +49,4 @@ onmyoji_agentflow = ["data/**/*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src", "tests"]
+markers = ["real_ocr: fixed real screenshots with the actual OCR runtime"]

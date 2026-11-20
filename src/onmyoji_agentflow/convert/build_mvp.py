@@ -527,12 +527,10 @@ def build_home(F: Funcs) -> dict:
     ] + settle + [
         {"id": "explore_chapter", "desc": "在探索章节地图里，点左上返回并确认退出",
          "when": F.when(14, 0), "do": leave, "max_repeat": 3},
-        {"id": "back", "desc": "认不出是哪，按返回键（最多 8 次）",
-         "when": {"expr": "backs < 8"}, "do": [{"back": True, "delay": 2000}, {"inc": "backs"}], "max_repeat": 8},
     ]
     return {
         "format": 1, "name": "home", "title": "回到庭院",
-        "desc": "从任意界面按返回键（最多 8 次，结算画面先点掉，探索地图先确认退出）回到庭院；连续日常 oaf marathon 在两项之间用它。",
+        "desc": "只从识别过的页面回庭院；未知画面停输入并留图。",
         "resources": ["assttyys/colors.yaml"],
         "similarity": 93,
         "params": {},

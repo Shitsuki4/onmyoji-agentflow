@@ -5,7 +5,7 @@ Ops (JSON)::
     {"op": "set", "path": "limits.stuck_timeout_s", "value": 180}          # params
     {"op": "set", "path": "params.max_runs.default", "value": 10}           # params
     {"op": "set_delay", "state": "prepare", "action": 0, "value": 1500}     # params
-    {"op": "set_similarity", "state": "prepare", "value": 90}               # params
+    {"op": "set_similarity", "state": "prepare", "value": 90}               # recognition
     {"op": "recapture_colors", "state": "prepare", "points": [[x, y], ...]} # recognition
     {"op": "add_state", "state": {...}, "before": "id"}                     # workflow
     {"op": "replace_state", "state": {...}}                                  # workflow
@@ -23,7 +23,7 @@ import numpy as np
 
 from ..errors import WorkflowError
 
-PARAM_PATH_PREFIXES = ("limits.", "params.", "similarity", "loop_delay_ms")
+PARAM_PATH_PREFIXES = ("limits.", "params.", "loop_delay_ms")
 KIND_ORDER = {"params": 0, "recognition": 1, "workflow": 2}
 
 
@@ -33,8 +33,10 @@ def classify(ops: list[dict]) -> str:
         o = op.get("op")
         if o in ("set", "set_delay", "set_similarity"):
             k = "params"
+            if o == "set_similarity" or (o == "set" and any(word in str(op.get("path", "")) for word in ("similarity", "threshold"))):
+                k = "recognition"
             if o == "set" and not str(op.get("path", "")).startswith(PARAM_PATH_PREFIXES):
-                k = "workflow"
+                k = "recognition" if any(word in str(op.get("path", "")) for word in ("similarity", "threshold")) else "workflow"
         elif o == "recapture_colors":
             k = "recognition"
         elif o in ("add_state", "replace_state", "remove_state"):
@@ -75,7 +77,11 @@ def apply_ops(raw: dict, ops: list[dict], frame: np.ndarray | None = None) -> di
             st["do"][int(op.get("action", 0))]["delay"] = int(op["value"])
         elif o == "set_similarity":
             st = _state(out, op["state"])
-            st["when"]["similarity"] = float(op["value"])
+            value = float(op["value"])
+            before = float(st["when"].get("similarity", out.get("similarity", 93)))
+            if not 85 <= value <= 100 or abs(value - before) > 5:
+                raise WorkflowError("识别相似度修改必须在 85–100 内且单次变化不超过 5")
+            st["when"]["similarity"] = value
         elif o == "recapture_colors":
             if frame is None:
                 raise WorkflowError("recapture_colors 需要失败时的截图")
@@ -113,4 +119,13 @@ def apply_ops(raw: dict, ops: list[dict], frame: np.ndarray | None = None) -> di
 
 def sensitive_preserved(before, after) -> bool:
     """A repair may never drop a confirmation that the original workflow had."""
-    return before.sensitive_categories() <= after.sensitive_categories()
+    # Compare every guarded operation.  A set of categories would let a repair remove one of
+    # two independent purchase steps while another purchase still kept the category.
+    old = before.sensitive_operations()
+    new = after.sensitive_operations()
+    if len(new) < len(old):
+        return False
+    for state, kind, index, category in old:
+        if (state, kind, index, category) not in new:
+            return False
+    return True

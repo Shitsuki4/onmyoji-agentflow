@@ -686,7 +686,7 @@ class SyncManager:
                 status, message = "merged", f"上游改动让 {'、'.join(broken)} 失效，已自动修复并合并：{rmsg}"
             elif rstatus == "waiting_user":
                 status = "repair_waiting"
-                message = (f"上游改动让 {'、'.join(broken)} 失效；大模型给出的修复已通过验证，"
+                message = (f"上游改动让 {'、'.join(broken)} 失效；{rmsg}；"
                            f"等你批准改动 #{rcid}（oaf approve {rcid}）")
             else:
                 message += f"；{rmsg}"
@@ -783,6 +783,10 @@ class SyncManager:
         auto_ok = {"data": bool(self.ucfg.get("auto_merge_data", True)),
                    "recognition": bool(auto.get("images", False)),
                    "workflow": bool(auto.get("workflow", False))}[kind]
+        unverified = any((rep or {}).get("verification") == "unverified"
+                         for rep in (report.get("validation") or {}).values())
+        if unverified:
+            auto_ok = False
         if conflicts:
             auto_ok = False
         if auto_ok:
@@ -801,7 +805,8 @@ class SyncManager:
         diagnoses = []
         for name in broken:
             path = cand / "workflows" / f"{name}.yaml"
-            raw = load_yaml(path)
+            from .workflow.schema import expand_workflow
+            raw = expand_workflow(load_yaml(path), cand / "workflows")
             rep = results.get(name) or {}
             frame = None
             failed = (rep.get("replay") or {}).get("failed") or []
@@ -870,10 +875,15 @@ class SyncManager:
         auto = (self.cfg.get("supervisor") or {}).get("auto_merge") or {}
         auto_ok = {"params": auto.get("params", True), "data": auto.get("params", True),
                    "recognition": auto.get("images", False), "workflow": auto.get("workflow", False)}[rkind]
+        unverified = any((rep or {}).get("verification") == "unverified" for rep in reports.values())
+        if unverified:
+            auto_ok = False
         if auto_ok:
             merged = self.sup.merge_change(rcid)
             return "merged", f"提交 {merged[:8]}", rcid
         self.store.execute("UPDATE changes SET status='waiting_user' WHERE id=?", (rcid,))
+        if unverified:
+            note += "；缺少回放样本，修复已标记为未验证"
         return "waiting_user", note, rcid
 
     def _translate(self, cand: Path, base: str, diff: dict, instance: str | None) -> list[dict]:
@@ -1052,7 +1062,8 @@ def render_report(r: dict) -> str:
             if rep.get("failed_step"):
                 L.append(f"- {name}：没通过（{rep['failed_step']}）{rep.get('error', '')}")
             else:
-                L.append(f"- {name}：" + "，".join(rep.get("steps", [])))
+                suffix = "（未验证：缺少回放样本）" if rep.get("verification") == "unverified" else ""
+                L.append(f"- {name}：" + "，".join(rep.get("steps", [])) + suffix)
     if r.get("repair"):
         L += ["", "## 修复", "", f"- {r['repair']['status']}：{r['repair']['message']}"]
     for t in r.get("translations") or []:

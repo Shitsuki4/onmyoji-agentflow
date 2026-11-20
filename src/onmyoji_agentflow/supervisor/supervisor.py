@@ -31,14 +31,19 @@ import shutil
 import tempfile
 import threading
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import cv2
 
 from ..errors import AgentflowError, BudgetExceeded, LLMError, WorkflowError
+from ..activity import workflow_activity
 from ..llm import image_to_data_url, parse_json_reply
 from ..log import logger
+from ..runtime import DeviceLease, DeviceBusy, normalize_device_identity
+from ..runtime import WorkspaceLease
+from ..ledger import GameLedger, ResourceBudget
 from ..workflow.engine import Runner, RunResult
 from ..workflow.schema import load_workflow
 from ..yamlio import dump_yaml
@@ -71,6 +76,7 @@ class Outcome:
     result: RunResult
     level: str = "none"            # none | local | repaired | proposed | human
     notes: list = field(default_factory=list)
+    attempts: list = field(default_factory=list)
 
 
 class Supervisor:
@@ -89,11 +95,49 @@ class Supervisor:
         self.git_lock = threading.RLock()
         self.stop_flags: dict[str, threading.Event] = {}
         self.event_sink = None   # optional (instance, kind, data) callback, e.g. oaf marathon's sample saver
+        self._runtime = threading.local()
+        game = cfg.get("game") or {}
+        self.ledger = GameLedger(store, str(game.get("account") or "default"),
+                                 str(game.get("timezone") or "Asia/Shanghai"), game.get("daily_reset_hour", 0))
+        self.budget = ResourceBudget(store, self.ledger.account, self.ledger.timezone, game.get("budgets") or {},
+                                     reset_hour=game.get("daily_reset_hour", 0))
+
+    def _device_identity(self, instance: str) -> str:
+        for item in self.cfg.get("instances", []):
+            if str(item.get("name") or item.get("mumu_id")) == str(instance) or str(item.get("serial")) == str(instance):
+                return normalize_device_identity(item)
+        return normalize_device_identity(instance)
 
     # ------------------------------------------------------------------ basics
     def load(self, name: str, root: Path | None = None):
         root = root or self.ws.path
-        return load_workflow(root / "workflows" / f"{name}.yaml", [root / "resources"])
+        if not re.fullmatch(r"[\w-]+", name):
+            raise WorkflowError("工作流名只能包含文字、数字、下划线或连字符")
+        with WorkspaceLease(root):
+            return load_workflow(root / "workflows" / f"{name}.yaml", [root / "resources"])
+
+    @contextmanager
+    def execution(self, instance: str, owner: str):
+        identity = self._device_identity(instance)
+        existing = getattr(self._runtime, "lease", None)
+        if existing is not None:
+            if existing.identity != identity:
+                raise DeviceBusy("一个执行线程不能同时操作两台设备")
+            yield existing
+            return
+        lease = DeviceLease(identity, owner=owner).acquire()
+        self._runtime.lease = lease
+        self.stop_flags.setdefault(instance, threading.Event()).clear()
+        lease.start_heartbeat()
+        lease.update(home=str(self.runs_dir.parent), instance=instance)
+        try:
+            yield lease
+        finally:
+            self._runtime.lease = None
+            lease.release()
+
+    def runtime_status(self, instance: str):
+        return DeviceLease(self._device_identity(instance)).snapshot()
 
     def _confirm(self, category: str, detail: str, instance: str = "") -> bool:
         if self.confirm is None:
@@ -104,24 +148,81 @@ class Supervisor:
             return bool(self.confirm(category, detail))
 
     def _run_once(self, wf, instance: str, params: dict, mode: str = "run", max_actions=None, max_seconds=None,
-                  observe: bool = False) -> RunResult:
-        ctl = self.controller_factory(instance, observe)
-        flag = self.stop_flags.setdefault(instance, threading.Event())
-        runner = Runner(wf, ctl, params=params,
-                        confirm=lambda c, d: self._confirm(c, d, instance),
-                        max_actions=max_actions, max_seconds=max_seconds, should_stop=flag.is_set, clock=self.clock,
-                        on_event=lambda k, d: self._on_event(instance, k, d))
-        res = runner.run()
-        run_id = self.store.add_run(wf.name, instance, mode, res, wf.digest())
-        if res.status == "failed" and res.last_frame is not None:
+                  observe: bool = False, initial_vars: dict | None = None,
+                  validate_params: bool = True) -> RunResult:
+        if not observe:
+            activity = workflow_activity(wf.raw)
+            if activity is not None:
+                activity.assert_battle_open()
+        params = wf.validate_params(params) if validate_params else params
+        with self.execution(instance, f"workflow:{wf.name}:{mode}") as lease:
+            lease.update(workflow=wf.name, mode=mode, params=params)
+            ctl = self.controller_factory(instance, observe)
+            flag = self.stop_flags.setdefault(instance, threading.Event())
+            charged = set()
+            def before_input(state, action, variables):
+                boundary_key = (state["id"], tuple((name, variables.get(name))
+                                                     for name in ("runs", "rounds", "wins", "done")))
+                cost = action.get("cost")
+                if cost is None and state.get("cost"):
+                    if boundary_key in charged:
+                        return
+                    cost = state["cost"]
+                if cost:
+                    activity = workflow_activity(wf.raw)
+                    if activity:
+                        activity.assert_battle_open()
+                    balances = {name: row["amount"] for name, row in self.store.balances(self.ledger.account).items()}
+                    finalize = self.budget.authorize(cost, note=f"{wf.name}/{state['id']}", balances=balances,
+                                      evidence={"instance": instance, "basis": "input_attempt", "estimated": True})
+                    def finish(submitted):
+                        finalize(submitted)
+                        if submitted and state.get("cost"):
+                            charged.add(boundary_key)
+                    return finish
+            runner = Runner(wf, ctl, params=params,
+                            confirm=lambda c, d: self._confirm(c, d, instance),
+                            max_actions=max_actions, max_seconds=max_seconds,
+                            should_stop=lambda: "immediate" if flag.is_set() else lease.stop_mode(), clock=self.clock,
+                            on_event=lambda k, d: self._on_event(instance, k, d), initial_vars=initial_vars,
+                            validate_params=validate_params, before_input=before_input)
+            res = runner.run()
+        digest = wf.digest({"humanize": self.cfg.get("humanize"), "game": self.cfg.get("game")})
+        run_id = self.store.add_run(wf.name, instance, mode, res, digest)
+        if res.last_frame is not None:
             folder = self.runs_dir / f"{run_id:06d}"
             folder.mkdir(parents=True, exist_ok=True)
-            cv2.imencode(".png", res.last_frame)[1].tofile(str(folder / "failure.png"))
+            image_path = folder / ("failure.png" if res.status == "failed" else "final.png")
+            cv2.imencode(".png", res.last_frame)[1].tofile(str(image_path))
+            res.evidence["screenshot"] = str(image_path)
+            res.evidence["run_id"] = run_id
             (folder / "summary.json").write_text(json.dumps(res.summary(), ensure_ascii=False, indent=2, default=str),
                                                  encoding="utf-8")
+            self.store.execute("UPDATE runs SET summary=? WHERE id=?", (json.dumps(res.summary(), ensure_ascii=False), run_id))
         return res
 
     def _on_event(self, instance, kind, data):
+        lease = getattr(self._runtime, "lease", None)
+        if kind == "state" and lease:
+            lease.update(state=data.get("state"), variables=data.get("vars"))
+        if kind == "task_scan":
+            evidence = self._save_evidence(instance, data.get("frame"), "task-scan")
+            for task in data.get("tasks", []) if data.get("verified") else []:
+                self.ledger.record_task(data["scope"], task["key"], task.get("current"), task.get("target"),
+                                        task.get("claimed"), verified=bool(data.get("verified")),
+                                        evidence={**evidence, **task, "ocr_verified": bool(data.get("verified"))})
+        if kind == "task_scan_complete" and data.get("verified"):
+            evidence = self._save_evidence(instance, data.get("frame"), "task-coverage")
+            self.ledger.record_task(data["scope"], "scan_coverage", verified=bool(data.get("complete")),
+                                    evidence={**evidence, "pages": data["pages"], "task_keys": data["task_keys"],
+                                              "complete": data.get("complete")})
+        if kind == "receipt":
+            self._record_receipt(instance, data)
+        if kind == "unknown" and data.get("frame") is not None:
+            from ..samples import Samples
+            workflow = lease.snapshot().get("workflow", "unknown") if lease else "unknown"
+            Samples(self.store, self.runs_dir / "samples").add(data["frame"], workflow,
+                context={"after_state": data.get("after_state"), "instance": instance})
         if self.event_sink is not None:
             try:
                 self.event_sink(instance, kind, data)
@@ -131,19 +232,58 @@ class Supervisor:
             msg = f"[{instance}] {kind}: " + json.dumps(data, ensure_ascii=False, default=str)[:400]
             self.store.event("info", "run", msg)
 
-    def stop(self, instance: str):
-        self.stop_flags.setdefault(instance, threading.Event()).set()
+    def _save_evidence(self, instance, frame, kind):
+        folder = self.runs_dir / "evidence"
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / f"{time.time_ns()}-{kind}.png"
+        if frame is not None:
+            cv2.imencode(".png", frame)[1].tofile(str(path))
+        return {"screenshot": str(path), "instance": instance, "captured": time.time()}
+
+    def _record_receipt(self, instance, data):
+        evidence = self._save_evidence(instance, data.get("frame"), data["kind"])
+        if data["kind"] == "foster":
+            from ..foster import read_countdown
+            seconds = read_countdown(data.get("vars", {}).get("foster_timer", ""))
+            if seconds is not None and seconds > 0:
+                candidate = data.get("candidate") or {}
+                self.store.set_foster(self.ledger.account, instance, "active", due=time.time() + seconds,
+                                      **{key: candidate[key] for key in ("card_type", "stars", "friend") if key in candidate},
+                                      evidence=json.dumps(evidence, ensure_ascii=False))
+        elif data["kind"] in ("regional_boss", "delegation"):
+            from ..foster import read_countdown
+            seconds = read_countdown(data.get("vars", {}).get("delegation_timer", ""))
+            if data["kind"] == "delegation" and not seconds:
+                return
+            if seconds:
+                evidence["due"] = time.time() + seconds
+            self.store.record_task_receipt(self.ledger.account, self.ledger.periods()[1], "weekly", data["kind"],
+                                           data.get("identity"), "active" if seconds else "completed", evidence)
+
+    def stop(self, instance: str, mode: str = "immediate"):
+        if mode == "immediate":
+            self.stop_flags.setdefault(instance, threading.Event()).set()
+        DeviceLease(self._device_identity(instance), owner="stop-request").request_stop(mode)
 
     # ------------------------------------------------------------------ main entry
     def run(self, name: str, instance: str = "main", params: dict | None = None, repair: bool = True) -> Outcome:
-        self.stop_flags.setdefault(instance, threading.Event()).clear()
+        with self.execution(instance, f"workflow:{name}:run"):
+            return self._run(name, instance, params, repair)
+
+    def _run(self, name, instance, params, repair):
         wf = self.load(name)
-        params = {**wf.param_defaults(), **(params or {})}
+        activity = workflow_activity(wf.raw)
+        if activity is not None:
+            activity.assert_battle_open()
+        params = wf.validate_params(params or {})
+        original_params = dict(params)
         res = self._run_once(wf, instance, params)
-        outcome = Outcome(res)
+        outcome = Outcome(res, attempts=[res.summary()])
         retries = 0
-        while res.status == "failed" and res.failure_kind not in ("confirm_denied", "prerequisite") and retries < int(
+        while res.status == "failed" and res.failure_kind not in ("confirm_denied", "prerequisite", "budget", "unknown_screen") and retries < int(
                 self.scfg.get("max_local_retries", 2)) and not self.stop_flags[instance].is_set():
+            if getattr(self._runtime, "lease").stop_mode():
+                break
             retries += 1
             outcome.level = "local"
             outcome.notes.append(f"第 {retries} 次本地重试（{res.failure_kind}: {res.reason}）")
@@ -156,15 +296,38 @@ class Supervisor:
                     outcome.notes.append(f"重试前按了一次返回键（{res.failure_kind}）")
                 except Exception as e:  # noqa: BLE001
                     outcome.notes.append(f"恢复操作失败：{e}")
-            params = remaining_params(wf, params, res.variables)
-            res = self._run_once(wf, instance, params)
+            remaining = remaining_params(wf, original_params, res.variables)
+            if _no_remaining_count(wf, remaining):
+                outcome.notes.append("已达到工作流请求的次数，重试只会再次开战；停止重试并保留当前结算证据")
+                outcome.level = "human"
+                outcome.result.evidence = {**(outcome.result.evidence or {}),
+                                           "attempts": outcome.attempts,
+                                           "attempt_count": len(outcome.attempts),
+                                           "retry_actions": sum(int(a.get("actions") or 0)
+                                                                for a in outcome.attempts)}
+                if outcome.result.evidence.get("run_id"):
+                    self.store.execute("UPDATE runs SET summary=? WHERE id=?", (
+                        json.dumps(outcome.result.summary(), ensure_ascii=False),
+                        outcome.result.evidence["run_id"]))
+                return outcome
+            # Keep the original limit and carry forward counters.  Reducing the limit as well
+            # would subtract completed battles twice and stop a resumed run early.
+            res = self._run_once(wf, instance, original_params, initial_vars=res.variables)
+            outcome.attempts.append(res.summary())
             outcome.result = res
+        outcome.result.evidence = {**(outcome.result.evidence or {}),
+                                   "attempts": outcome.attempts,
+                                   "attempt_count": len(outcome.attempts),
+                                   "retry_actions": sum(int(a.get("actions") or 0) for a in outcome.attempts)}
+        if outcome.result.evidence.get("run_id"):
+            self.store.execute("UPDATE runs SET summary=? WHERE id=?", (
+                json.dumps(outcome.result.summary(), ensure_ascii=False), outcome.result.evidence["run_id"]))
         self.check_rollback(name)
         if res.status != "failed" or not repair:
             if res.status == "failed":
                 outcome.level = "human"
             return outcome
-        if res.failure_kind in ("confirm_denied", "device", "prerequisite"):
+        if res.failure_kind in ("confirm_denied", "device", "prerequisite", "budget"):
             outcome.level = "human"
             outcome.notes.append("需要你处理：" + res.reason)
             self.store.event("error", "supervisor", f"{name}@{instance} 需要人工处理：{res.reason}")
@@ -228,11 +391,14 @@ class Supervisor:
         auto = self.scfg.get("auto_merge", {})
         auto_ok = {"params": auto.get("params", True), "recognition": auto.get("images", False),
                    "workflow": auto.get("workflow", False)}[kind]
+        if report.get("verification") == "unverified":
+            auto_ok = False
         if not auto_ok:
-            detail = f"{wf.name}：{kind} 修改已通过验证（{proposal.get('diagnosis', '')}），分支 {branch}"
+            verification = "格式检查通过但缺少回放样本，尚未验证" if report.get("verification") == "unverified" else "修改已通过验证"
+            detail = f"{wf.name}：{kind} {verification}（{proposal.get('diagnosis', '')}），分支 {branch}"
             if not self._confirm(NEEDS_CONFIRM_MERGE, detail, instance):
                 self.store.execute("UPDATE changes SET status='waiting_user' WHERE id=?", (cid,))
-                return "proposed", f"修改已通过验证，等你确认后才会替换（分支 {branch}）"
+                return "proposed", f"{verification}，等你确认后才会替换（分支 {branch}）"
         merged = self.merge_change(cid)
         return "repaired", f"已自动修复并替换（{kind}，提交 {merged[:8]}）：{proposal.get('diagnosis', '')}"
 
@@ -271,6 +437,10 @@ class Supervisor:
         if bad:
             report["failed_step"] = "回放测试"
             return False, report
+        if not results:
+            report.update(coverage="insufficient", verification="unverified")
+            report["steps"].append("格式正确；缺少回放样本，未验证")
+            return True, report
         report["steps"].append(f"回放测试 {len(results)} 个全部通过")
         if instance is None:
             return True, report
@@ -299,7 +469,8 @@ class Supervisor:
     def merge_change(self, change_id: int) -> str:
         row = self.store.query("SELECT * FROM changes WHERE id=?", (change_id,))[0]
         try:
-            baseline, _ = self.store.failure_rate(row["workflow"], self.load(row["workflow"]).digest(),
+            baseline, _ = self.store.failure_rate(row["workflow"], self.load(row["workflow"]).digest(
+                                                  {"humanize": self.cfg.get("humanize"), "game": self.cfg.get("game")}),
                                                   int(self.scfg.get("rollback_window", 10)))
         except (WorkflowError, OSError):
             baseline = None   # upstream sync changes or brand-new workflows have no baseline
@@ -344,7 +515,7 @@ class Supervisor:
         if not rows:
             return None
         ch = rows[0]
-        digest = self.load(name).digest()
+        digest = self.load(name).digest({"humanize": self.cfg.get("humanize"), "game": self.cfg.get("game")})
         rate, n = self.store.failure_rate(name, digest, int(self.scfg.get("rollback_window", 10)))
         threshold = float(self.scfg.get("rollback_failure_rate", 0.5))
         # roll back when the new version fails often and is not better than the old one
@@ -381,5 +552,15 @@ def remaining_params(wf, params: dict, variables: dict) -> dict:
             continue
         seen.add(param)
         if param in out and isinstance(variables.get(var), int) and isinstance(out[param], int):
-            out[param] = max(1, out[param] - variables[var])
+            # Zero means that a retry may only settle/return.  Clamping to one could open an
+            # additional fight after the requested quota was already reached.
+            out[param] = max(0, out[param] - variables[var])
     return out
+
+
+def _no_remaining_count(wf, params: dict) -> bool:
+    pairs = list((wf.raw.get("counts") or {}).items())
+    expr = wf.raw.get("stop_when") or ""
+    pairs += re.findall(r"(\w+)\s*>=\s*(\w+)", expr)
+    return bool(pairs) and any(param in params and isinstance(params[param], int) and params[param] == 0
+                               for _var, param in pairs)

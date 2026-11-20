@@ -25,7 +25,7 @@ def _get_engine():
             from rapidocr_onnxruntime import RapidOCR  # type: ignore
         except ImportError as e:  # pragma: no cover - optional dependency
             raise OcrUnavailable("未安装 OCR：pip install onmyoji-agentflow[ocr]") from e
-        _engine = RapidOCR()
+        _engine = RapidOCR(intra_op_num_threads=2, inter_op_num_threads=1)
     return _engine
 
 

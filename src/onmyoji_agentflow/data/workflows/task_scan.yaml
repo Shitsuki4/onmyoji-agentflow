@@ -1,0 +1,82 @@
+format: 1
+name: task_scan
+title: 扫描今日与本周任务
+desc: 从花合战任务页读取逐项进度，按页保存截图；只读取任务，不开战或花费资源。
+resources: [assttyys/colors.yaml]
+params:
+  max_pages: {default: 8, min: 1, max: 16}
+vars: {daily_pages: 0, weekly_pages: 0, daily_done: 0, weekly_done: 0, daily_coverage: 0, weekly_coverage: 0, entered: 0, scanned: 0}
+limits: {timeout_s: 300, unknown_timeout_s: 15, max_repeat: 60}
+states:
+- id: finished
+  when:
+    all:
+    - expr: weekly_done == 1
+    - text: 本周
+      region: [660, 165, 160, 55]
+  do:
+  - stop: {reason: 已扫描今日与本周可见任务，未识别条目保持未知, result: completed, verified: false}
+- id: scan_week
+  when:
+    all:
+    - expr: daily_done == 1 and weekly_done == 0
+    - colors: [[672, 175, '#8594bb'], [805, 202, '#afb6bd']]
+      similarity: 90
+    - text: 已完成
+      region: [550, 240, 350, 345]
+  do:
+  - scan_tasks: {scope: weekly, region: [500, 225, 660, 360], paginate: true}
+  progress: true
+- id: open_week
+  when:
+    all:
+    - expr: daily_done == 1
+    - text: 本周
+      region: [660, 165, 160, 55]
+  do:
+  - click: [680, 175, 710, 202]
+    delay: 1500
+  max_repeat: 3
+- id: scan_daily
+  when:
+    all:
+    - expr: daily_done == 0 and entered == 1
+    - colors: [[515, 175, '#8594bb'], [645, 202, '#afb4be']]
+      similarity: 90
+    - text: 已完成
+      region: [550, 240, 350, 345]
+  do:
+  - scan_tasks: {scope: daily, region: [500, 225, 660, 360], paginate: true}
+  progress: true
+- id: open_daily
+  when:
+    all:
+    - expr: entered == 0
+    - text: 今日
+      region: [500, 165, 160, 55]
+  do:
+  - click: [530, 175, 560, 202]
+    delay: 1200
+  - set: {entered: 1}
+- id: task_tab
+  when:
+    all:
+    - text: 花合战
+      region: [90, 15, 150, 60]
+    - text: 任务
+      region: [1180, 300, 80, 140]
+  do:
+  - click: [1200, 340, 1225, 375]
+    delay: 1600
+  max_repeat: 3
+- id: courtyard
+  when:
+    all:
+    - text: 式神录
+      region: [1080, 640, 110, 55]
+    - text: 阴阳寮
+      region: [515, 640, 120, 55]
+  do:
+  - click: [790, 635, 810, 655]
+    delay: 2000
+  max_repeat: 2
