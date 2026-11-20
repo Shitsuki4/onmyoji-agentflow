@@ -1,5 +1,6 @@
 # Exact catalog fingerprints audited with the corresponding scoped translation.
 # A new upstream fingerprint must be reviewed; never update these automatically.
+oas:Restart#daily_sign: bcddd0a6ac5579c0f818d1c91820d6153d88f876a437aba8c44d1ef605ba6d26
 assttyys:func:022: a1b34f6d2cfe12ebd920d9f4e82dcc6f1dc2add5cc2c7177b497b026b502a604
 assttyys:func:700#food_boxes: b67120e76f415a9cb5b1960750ccdf53737246bd128327b6f18a107605cf4063
 oas:DailyTrifles#store_sign: c22ce207c0a68c84894c63e334d71c3d8a8c8d993e4867cb11ef4c54d463ca66

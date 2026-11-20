@@ -7,6 +7,12 @@ home_between: true
 pause_s: 60
 items:
   - {id: scan, workflow: task_scan, scope: daily}
+  - id: daily_sign
+    program: oas:Restart#daily_sign
+    task_key: daily_sign
+    scope: daily
+    once_per_period: true
+    on_failure: continue
   - id: store_sign
     program: oas:DailyTrifles#store_sign
     task_key: store_sign

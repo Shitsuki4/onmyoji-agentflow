@@ -162,6 +162,21 @@ def test_unverified_proposal_requires_approval_even_when_kind_auto_merges(tmp_pa
     assert store.query("SELECT status FROM changes")[0]["status"] == "waiting_user"
 
 
+def test_workflow_replay_reports_partial_recognition_without_live_execution(tmp_path):
+    from onmyoji_agentflow.supervisor.replay import case_files
+    sup, store, ws, devices = make_sup(tmp_path, lambda: [])
+    wf = _wf(ws)
+    for relative, content in case_files("one", wf.name, frame_for(wf, "prepare"), "prepare").items():
+        path = ws.path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content) if isinstance(content, bytes) else path.write_text(content, encoding="utf-8")
+    ok, report = sup._validate_in(wf, wf.name, ws.path, "main", None, "workflow")
+    assert ok and report["verification"] == "unverified" and report["coverage"] == "partial"
+    assert report["replay"]["covered_states"] == ["prepare"]
+    assert report["replay"]["uncovered_states"] and report["replay"]["negative"] == 0
+    assert not devices and not store.query("SELECT * FROM runs")
+
+
 def test_bad_patch_is_rejected_and_main_untouched(tmp_path):
     llm = FakeLLM({"diagnosis": "x", "action": "patch", "expected_state": "prepare",
                    "ops": [{"op": "set_similarity", "state": "prepare", "value": 93}]})

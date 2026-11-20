@@ -22,6 +22,52 @@ limits:
   no_progress_timeout_s: 600
   max_repeat: 20
 states:
+- id: reward_popup
+  desc: 「获得奖励」弹窗，先关闭前景弹窗再导航
+  when:
+    text: [获得奖励, 获得物品]
+    region: [440, 150, 400, 150]
+  do:
+  - click: [540, 630, 740, 690]
+    delay: 1200
+  max_repeat: 5
+- id: daily_sign_result
+  when:
+    all:
+    - text: ''
+      pattern: '第\s*\d+\s*签'
+      region: [440, 90, 230, 85]
+    - text: 累计奖励
+      region: [440, 470, 390, 100]
+  do:
+  - click: [858, 96, 885, 123]
+    delay: 1200
+  max_repeat: 2
+- id: food_box_dialog
+  when:
+    all:
+    - text: [体力食盒, 体刀食盒, 经验酒壶]
+      region: [450, 85, 380, 100]
+    - text: 当前存储
+      region: [490, 170, 330, 80]
+  do:
+  - click: [960, 150, 990, 180]
+    delay: 1000
+  max_repeat: 2
+- id: guild_home
+  when:
+    all:
+    - any:
+      - text: 集体任务
+        region: [0, 130, 200, 110]
+      - text: 装扮
+        region: [1180, 210, 100, 100]
+    - text: 寮信息
+      region: [1130, 640, 150, 80]
+  do:
+  - click: [35, 25, 55, 50]
+    delay: 1600
+  max_repeat: 2
 - id: known_task_or_realm_page
   when:
     any:
@@ -40,8 +86,11 @@ states:
     all:
     - text: 结界卡
       region: [875, 280, 80, 130]
-    - text: 式神育成
-      region: [570, 280, 90, 140]
+    - any:
+      - text: 式神育成
+        region: [570, 280, 90, 140]
+      - text: 结界防守
+        region: [270, 270, 110, 150]
   do:
   - click: [35, 25, 55, 50]
     delay: 1600
@@ -67,17 +116,16 @@ states:
       region: [1080, 640, 110, 55]
     - text: 阴阳寮
       region: [515, 640, 120, 55]
+    - not:
+        any:
+        - text: 每日一签
+          region: [450, 150, 380, 250]
+        - text: 累计奖励
+          region: [440, 470, 390, 100]
+        - text: 获得奖励
+          region: [400, 120, 480, 250]
   do:
   - stop: 已回到庭院
-- id: reward_popup
-  desc: 「获得奖励」弹窗，点空白处关掉
-  when:
-    text: [获得奖励, 获得物品]
-    region: [440, 150, 400, 150]
-  do:
-  - click: [540, 630, 740, 690]
-    delay: 1200
-  max_repeat: 5
 - id: settle_6
   desc: 结算界面：单人胜利太鼓，点击退出
   from: 'assttyys 002 #6'

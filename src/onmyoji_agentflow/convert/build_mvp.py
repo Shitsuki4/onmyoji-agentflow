@@ -522,8 +522,8 @@ def build_home(F: Funcs) -> dict:
     leave = [F.click(14, 0, 3), F.click(14, 0, 4)]
     states = [
         dict(EXIT_DIALOG_STATE),
-        {"id": "courtyard", "desc": "已在庭院，结束", "when": COURTYARD, "do": [{"stop": "已回到庭院"}]},
         REWARD_HOME,
+        {"id": "courtyard", "desc": "已在庭院，结束", "when": COURTYARD, "do": [{"stop": "已回到庭院"}]},
     ] + settle + [
         {"id": "explore_chapter", "desc": "在探索章节地图里，点左上返回并确认退出",
          "when": F.when(14, 0), "do": leave, "max_repeat": 3},

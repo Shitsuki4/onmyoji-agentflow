@@ -472,6 +472,15 @@ class Supervisor:
             return True, report
         report["steps"].append(f"回放测试 {len(results)} 个全部通过")
         if instance is None:
+            if kind == "workflow":
+                covered = {case[2].get("state") for case in cases if case[2].get("state") is not None}
+                missing = [state["id"] for state in wf.states if state["id"] not in covered]
+                report["replay"].update(covered_states=sorted(covered), uncovered_states=missing,
+                    positive=sum(case[2].get("state") is not None for case in cases),
+                    negative=sum(case[2].get("state") is None for case in cases))
+                report.update(coverage="partial" if missing or not report["replay"]["negative"] else "recognition_only",
+                              verification="unverified")
+                report["steps"].append("仅验证静态识别；未批准实机输入，不能宣称执行闭环通过")
             return True, report
         # 3. observation mode (recognise only, no input)
         obs = self._run_once(wf, instance, wf.param_defaults(), mode="observe",
