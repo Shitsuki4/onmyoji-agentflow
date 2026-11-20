@@ -24,8 +24,12 @@ DEFAULT_CONFIG = {
             "jade": {"daily_limit": 0, "reserve": 0},
             "realm_ticket": {"daily_limit": 12, "reserve": 0},
             "event_ticket": {"daily_limit": 0, "reserve": 0},
+            "medal": {"daily_limit": 0, "reserve": 0},
+            "broken_amulet": {"daily_limit": 0, "reserve": 0},
+            "mystery_amulet": {"daily_limit": 0, "reserve": 0},
         },
         "daily_reset_hour": 0,
+        "schedules": {},
     },
     "web": {"host": "127.0.0.1", "port": 8765},
     "llm": {

@@ -24,6 +24,7 @@ PROMPT = """把提供的上游 Python / AutoJS 程序完整转换成本项目统
 "notes": "实现与限制", "workflow": {...}}。
 不能静默省略条件、配置分支、停止条件、资源消耗或安全确认；表达不完整必须 complete=false。
 不能把识别资源、原始脚本路径、无操作占位状态当成已完成的翻译。
+目录带 variant/scope_description 时，只转换其声明的独立任务边界；边界内逻辑仍须完整，不能据此把原始整段脚本标记完成。
 目标格式：format:1,name,title,resources:[资源引用],params:{参数:{default:值,min:数,max:数}},
 vars:{计数:0},limits:{timeout_s,unknown_timeout_s,stuck_timeout_s,no_progress_timeout_s,max_repeat},
 states:[{id,desc,when:条件,do:[动作],progress:true/false}]。
@@ -31,6 +32,8 @@ states:[{id,desc,when:条件,do:[动作],progress:true/false}]。
 坐标只能来自原始代码/识别资源。请用原有资源名和资源引用，不能编造资源或任意读取文件。
 输入类动作必须有可识别的画面条件，不能用无条件循环点击。每次购买、抽卡、花勾玉、出售、分解前
 保留对应 confirm 或 sensitive；禁止充值、邀请、分享发送、喂养或处分受保护式神/御魂、修改系统。
+资源类点击/滑动使用 recheck:true 在用户确认后重新核对画面，并用 attempt_var 指向 vars 中初始为0的
+一次性尝试变量。该变量在发送输入前置1，避免输入送达后异常导致局部重试再次消费；未核实结果不能清零。
 到达次数上限不代表游戏任务完成；只有真实完成画面的证据才可 verified:true。
 要保留账号前置条件、活动有效期、开战前资源预算、遇未知画面暂停、有限重试。
 """
@@ -156,12 +159,15 @@ class Programs:
                 if not rows:
                     raise ValueError("没有可用的脚本转换任务，可能已被上游新版取代")
             selected = []
+            from .workflow.schema import bundled_dir
+            pins_file = bundled_dir() / "translations" / "pins.yaml"
+            pins = (load_yaml(pins_file) or {}) if pins_file.is_file() else {}
             for row in rows:
                 if row.get("change_status") in ("proposed", "waiting_user", "merged"):
                     continue
                 if row["status"] in ("pending", "waiting_agent", "budget") or (
                         retry and row["status"] in ("failed", "blocked", "rejected")) or (
-                        job_id is not None and row["status"] == "component"):
+                        (job_id is not None or row["entry_id"] in pins) and row["status"] == "component"):
                     selected.append(row)
             if limit is not None:
                 selected = selected[:limit]
@@ -171,9 +177,6 @@ class Programs:
                 for item in selected:
                     row = self._job(item["id"])
                     entry = json.loads(row["entry"])
-                    if self.llm is None:
-                        results.append(self._set(row["id"], "waiting_agent", "源码已收录；没有启用大模型，等待 agent 转换"))
-                        continue
                     pinned = row["base_commit"]
                     if root is not None and base is not None and pinned == self.ws.git("rev-parse", base):
                         candidate = Path(root)
@@ -182,12 +185,24 @@ class Programs:
                             roots[pinned] = self.ws.checkout_tmp(pinned, Path(temporary) / pinned)
                         candidate = roots[pinned]
                     try:
-                        results.append(self._compile_one(row, entry, candidate, pinned))
+                        from .convert.recipes import known_recipe
+                        recipe = known_recipe(entry, candidate)
+                        if recipe is not None:
+                            results.append(self.propose(row["id"], recipe, root=candidate, base=pinned,
+                                                       refs=self._resource_refs(entry)))
+                        elif self.llm is None:
+                            results.append(self._set(row["id"], "waiting_agent", "没有匹配已审计转换且未启用模型，等待 agent 转换"))
+                        else:
+                            results.append(self._compile_one(row, entry, candidate, pinned))
                     except Exception as error:
                         results.append(self._set(row["id"], "failed", f"{type(error).__name__}: {error}"))
                     if results[-1]["status"] == "budget":
                         break
             return results
+
+    @staticmethod
+    def _resource_refs(entry):
+        return [f"upstream/{entry['source']}/{rel}" for rel in entry["resource_files"] if rel != "navigation.yaml"]
 
     def _context(self, entry, root):
         folder = root / "resources" / "upstream" / entry["source"]
@@ -318,53 +333,64 @@ class Programs:
         transcript.write_text(json.dumps(messages, ensure_ascii=False, indent=2), encoding="utf-8")
         return self._set(row["id"], "blocked", f"已达到 {steps} 步转换上限，完整读取记录保存在 {transcript}；等待外部 agent 续作")
 
-    def propose(self, job_id, data, *, root=None, base=None, refs=None):
+    def propose(self, job_id, data, *, root=None, base=None, refs=None, replace_pending=False):
         """External agents use the same validation/approval path as the built-in compiler."""
         row = self._job(job_id)
         if row["status"] == "superseded":
             raise ValueError("源程序已更新，不能提交旧版本转换结果")
+        supersede = None
         if row.get("change_id"):
             changes = self.store.query("SELECT status FROM changes WHERE id=?", (row["change_id"],))
             if changes and changes[0]["status"] in ("proposed", "waiting_user", "merged"):
-                return {"id": job_id, "status": changes[0]["status"], "change_id": row["change_id"],
-                        "message": "已有同一源码版本的转换候选，不重复提交"}
+                if not replace_pending or changes[0]["status"] == "merged":
+                    return {"id": job_id, "status": changes[0]["status"], "change_id": row["change_id"],
+                            "message": "已有同一源码版本的转换候选，不重复提交"}
+                supersede = row["change_id"]
         entry = json.loads(row["entry"])
+        def blocked(note):
+            if supersede is not None:
+                return {"id": job_id, "status": "blocked", "change_id": supersede,
+                        "message": note + "；原候选保持待审批"}
+            return self._set(job_id, "blocked", note)
         if root is None:
             with FileMutex(self.home / "locks" / "program-compiler.lock"):
                 with tempfile.TemporaryDirectory(prefix="oaf-program-proposal-") as temporary:
                     root = self.ws.checkout_tmp(row["base_commit"], Path(temporary) / "ws")
                     _, refs = self._context(entry, root)
-                    return self.propose(job_id, data, root=root, base=row["base_commit"], refs=refs)
+                    return self.propose(job_id, data, root=root, base=row["base_commit"], refs=refs,
+                                        replace_pending=replace_pending)
         if data.get("complete") is not True or data.get("unsupported"):
-            return self._set(job_id, "blocked", "转换结果不完整，未创建可运行工作流")
+            return blocked("转换结果不完整，未创建可运行工作流")
         raw = data.get("workflow")
         if not isinstance(raw, dict):
-            return self._set(job_id, "blocked", "转换结果缺少 workflow")
+            return blocked("转换结果缺少 workflow")
         raw = json.loads(json.dumps(raw))
         if raw.get("include_states"):
-            return self._set(job_id, "blocked", "统一转换应返回完整状态，不能引用未审计的外部状态")
+            return blocked("统一转换应返回完整状态，不能引用未审计的外部状态")
         if any(ref not in (refs or []) for ref in raw.get("resources", [])):
-            return self._set(job_id, "blocked", "工作流使用了源码目录以外的资源引用")
+            return blocked("工作流使用了源码目录以外的资源引用")
         if any(spec.get("type") == "image" for spec in (raw.get("inline_resources") or {}).values()):
-            return self._set(job_id, "blocked", "图片必须引用已转换资源，不能新增任意文件路径")
+            return blocked("图片必须引用已转换资源，不能新增任意文件路径")
         # Source metadata is owned by the compiler, not the model.
         raw.update(format=1, name=entry["workflow"], title=entry["title"] + "（统一转换）")
         raw["source"] = {"origin": entry["source"], "entry_id": entry["id"],
                          "fingerprint": entry["fingerprint"], "commit": entry.get("commit"),
                          "license": "GPL-3.0" if entry["source"] == "oas" else "MIT",
                          "translated_by": "agent", "verification": "unverified"}
+        if entry.get("scope_description"):
+            raw["source"]["scope"] = entry["scope_description"]
         raw.setdefault("limits", {})
         for key, ceiling in {"timeout_s": 3600, "unknown_timeout_s": 30, "stuck_timeout_s": 120,
                              "no_progress_timeout_s": 600, "max_repeat": 30}.items():
             value = raw["limits"].get(key, ceiling)
             if type(value) not in (int, float) or not 0 < value <= ceiling:
-                return self._set(job_id, "blocked", f"limits.{key} 必须在 0–{ceiling} 范围内")
+                return blocked(f"limits.{key} 必须在 0–{ceiling} 范围内")
             raw["limits"][key] = value
         from .sync import _sensitive_problem
         problem = _sensitive_problem(raw)
         problem = problem or _guard_problem(raw)
         if problem:
-            return self._set(job_id, "blocked", problem)
+            return blocked(problem)
         workflow = load_workflow(raw, [Path(root) / "resources"])
         def visual(condition):
             return bool(set(condition) & {"text", "text_param", "colors", "find", "res", "image", "ocr"}) or any(
@@ -372,14 +398,20 @@ class Programs:
         for state in workflow.states:
             if (any(set(action) & {"click", "click_random", "click_found", "swipe", "back", "start_app"}
                     for action in state.get("do", [])) and not visual(state["when"])):
-                return self._set(job_id, "blocked", f"状态 {state['id']} 的输入缺少正向画面识别条件")
+                return blocked(f"状态 {state['id']} 的输入缺少正向画面识别条件")
         if not any(set(a) & {"click", "click_found", "click_random", "swipe", "back", "scan_tasks", "select_foster"}
                    for state in workflow.states for a in state.get("do", [])):
-            return self._set(job_id, "blocked", "无执行逻辑的占位工作流不能算转换完成")
+            return blocked("无执行逻辑的占位工作流不能算转换完成")
         path = Path(root) / "workflows" / (entry["workflow"] + ".yaml")
         before = load_workflow(path, [Path(root) / "resources"]) if path.is_file() else None
         if before and not sensitive_preserved(before, workflow):
-            return self._set(job_id, "blocked", "上游更新转换删除了已有安全确认")
+            return blocked("上游更新转换删除了已有安全确认")
+        if supersede is not None:
+            previous = self.store.query("SELECT branch FROM changes WHERE id=?", (supersede,))[0]
+            old_content = self.ws.read_bytes(f"workflows/{entry['workflow']}.yaml", previous["branch"])
+            if old_content and load_yaml(old_content) == raw:
+                return {"id": job_id, "status": "waiting_user", "change_id": supersede,
+                        "message": "草稿内容未变化，保留原审批项"}
         note = f"统一转换 {entry['id']} @{entry.get('commit', '')[:12]}：{data.get('notes', '')}"
         with self.sup.git_lock:
             branch, commit = self.ws.propose(entry["workflow"], "workflow",
@@ -390,6 +422,16 @@ class Programs:
         self.store.execute("UPDATE changes SET validation=?,status=? WHERE id=?",
             (json.dumps(report, ensure_ascii=False), "waiting_user" if ok else "rejected", cid))
         status = "waiting_user" if ok else "rejected"
+        if supersede is not None:
+            if not ok:
+                return {"id": job_id, "status": "rejected", "change_id": cid,
+                        "message": "新草稿验证失败；原候选仍保持待审批"}
+            changed = self.store.execute("UPDATE changes SET status='superseded' WHERE id=? AND status IN ('proposed','waiting_user')",
+                                         (supersede,)).rowcount
+            if not changed:
+                self.store.execute("UPDATE changes SET status='superseded' WHERE id=?", (cid,))
+                return {"id": job_id, "status": "superseded", "change_id": cid,
+                        "message": "原候选状态并发变化，新草稿不再激活；请重新检查"}
         return self._set(job_id, status, "格式/回放检查后等待用户审核；未运行游戏" if ok else
                          "验证未通过：" + str(report.get("error") or report.get("failed_step")), cid)
 

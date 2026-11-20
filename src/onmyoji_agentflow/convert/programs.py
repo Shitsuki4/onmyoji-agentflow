@@ -141,6 +141,10 @@ def build_catalog(source: str, root: Path, converted: Path, commit: str = "") ->
             if (converted / "navigation.yaml").is_file():
                 refs.append("navigation.yaml")
             add(f"oas:{task}", task, "task", seeds, refs, entrypoint=script.relative_to(root).as_posix())
+            from .recipes import OAS_SCOPES
+            for variant, description in OAS_SCOPES.get(task, {}).items():
+                add(f"oas:{task}#{variant}", description, "task", seeds, refs,
+                    entrypoint=script.relative_to(root).as_posix(), variant=variant, scope_description=description)
     elif source == "assttyys":
         folder = root / "src" / "common" / "funcList"
         funcs = {}
@@ -151,6 +155,10 @@ def build_catalog(source: str, root: Path, converted: Path, commit: str = "") ->
                 funcs[int(match[1])] = script
                 add(f"assttyys:func:{int(match[1]):03d}", script.stem, "component", [script],
                     ["colors.yaml"], func_ids=[int(match[1])])
+                from .recipes import ASS_SCOPES
+                for variant, description in ASS_SCOPES.get(int(match[1]), {}).items():
+                    add(f"assttyys:func:{int(match[1]):03d}#{variant}", description, "task", [script],
+                        ["colors.yaml"], func_ids=[int(match[1])], variant=variant, scope_description=description)
         schemes = (load_yaml(converted / "schemes.yaml") or {}).get("schemes") or {}
         scheme_file = root / "src" / "common" / "schemeList.ts"
         for title, ids in sorted(schemes.items()):

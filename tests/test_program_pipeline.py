@@ -148,6 +148,23 @@ def test_complete_translation_proposed_once_never_auto_activated(app):
     assert again["change_id"] == result["change_id"]
 
 
+def test_pending_draft_revision_supersedes_old_draft_but_still_needs_user(app):
+    first = app.programs.propose(job(app)["id"], reply())
+    data = reply()
+    data["workflow"]["states"][0]["do"][-1]["stop"]["reason"] = "revised bounded stop"
+    second = app.programs.propose(job(app)["id"], data, replace_pending=True)
+    assert second["status"] == "waiting_user" and second["change_id"] != first["change_id"]
+    assert app.store.query("SELECT status FROM changes WHERE id=?", (first["change_id"],))[0]["status"] == "superseded"
+    assert not app.ws.workflow_path(job(app)["workflow"]).exists()
+
+
+def test_bad_revision_keeps_original_draft_and_job_pointer(app):
+    first = app.programs.propose(job(app)["id"], reply())
+    second = app.programs.propose(job(app)["id"], {"complete": False}, replace_pending=True)
+    assert second["status"] == "blocked"
+    assert job(app)["change_id"] == first["change_id"] and job(app)["status"] == "waiting_user"
+
+
 @pytest.mark.parametrize("kind", ["partial", "unsafe", "unsafe_text", "foreign_resource", "no_input", "unconditional"])
 def test_bad_translations_never_become_executable(app, kind):
     data = reply()

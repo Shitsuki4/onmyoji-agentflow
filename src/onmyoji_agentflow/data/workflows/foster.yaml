@@ -38,6 +38,7 @@ states:
   desc: 已有有效寄养倒计时，不重复放入
   when:
     all:
+    - expr: started == 0
     - text: 式神育成
       region: [80, 15, 180, 65]
     - text: ''

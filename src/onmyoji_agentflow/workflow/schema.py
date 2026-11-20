@@ -302,6 +302,11 @@ def validate_action(a, resources: dict, variables: set, where: str):
     if not isinstance(a, dict) or len(set(a) & ACTION_KEYS) != 1:
         raise WorkflowError(f"{where}: 动作必须恰好是 {sorted(ACTION_KEYS)} 之一")
     key = next(iter(set(a) & ACTION_KEYS))
+    if "recheck" in a and (type(a["recheck"]) is not bool or key not in ("click", "click_random", "swipe")):
+        raise WorkflowError(f"{where}: recheck 只支持点击/滑动动作的布尔标记")
+    if "attempt_var" in a and (key not in ("click", "swipe") or not isinstance(a["attempt_var"], str)
+                               or a["attempt_var"] not in variables):
+        raise WorkflowError(f"{where}: attempt_var 需要点击/滑动动作及已声明变量")
     forbidden = set(a) & FORBIDDEN_ACTION_KEYS
     if forbidden:
         raise WorkflowError(f"{where}: 禁止的操作 {sorted(forbidden)}")
@@ -407,6 +412,8 @@ def validate(raw: dict, resources: dict) -> None:
         validate_condition(st["when"], resources, variables, where + ".when")
         for j, a in enumerate(st.get("do", []) or []):
             validate_action(a, resources, variables, f"{where}.do[{j}]")
+            if a.get("attempt_var") and a["attempt_var"] not in (raw.get("vars") or {}):
+                raise WorkflowError(f"{where}: attempt_var 必须在 vars 中声明，不能修改参数")
         if st.get("sensitive") and st["sensitive"] not in SENSITIVE:
             raise WorkflowError(f"{where}: sensitive 只能是 {SENSITIVE}")
         if st.get("on_repeat", "fail") not in ("fail", "stop"):

@@ -51,6 +51,10 @@ CREATE TABLE IF NOT EXISTS task_receipts (
 CREATE TABLE IF NOT EXISTS plan_cooldowns (
   account TEXT, device TEXT, plan_key TEXT, item_key TEXT, next_ok REAL,
   UNIQUE(account,device,plan_key,item_key));
+CREATE TABLE IF NOT EXISTS plan_steps (
+  account TEXT, plan_key TEXT, item_key TEXT, period TEXT, status TEXT,
+  attempts INTEGER DEFAULT 0, completed INTEGER DEFAULT 0, next_at REAL DEFAULT 0,
+  record TEXT, updated REAL, UNIQUE(account,plan_key,item_key,period));
 CREATE TABLE IF NOT EXISTS foster_ledger (
   id INTEGER PRIMARY KEY AUTOINCREMENT, account TEXT, instance TEXT, status TEXT,
   card_type TEXT, stars INTEGER, friend TEXT, started REAL, due REAL, evidence TEXT, updated REAL);

@@ -301,6 +301,19 @@ class Runner:
         boundary = self._action_boundary()
         if boundary:
             return boundary
+        marker = action.get("attempt_var")
+        if marker and self.vars.get(marker):
+            raise RunFailure("recognition", "该输入已尝试，结果未核对前不能重放", state["id"])
+        if action.get("recheck"):
+            # A user may spend minutes in a confirmation dialog. Never use that old frame to spend.
+            image = self.ctl.screenshot()
+            self._frame = image
+            self._found = None
+            if not self._match(state["when"], image):
+                raise RunFailure("recognition", "确认后画面条件已变化，未发送点击", state["id"])
+            boundary = self._action_boundary()
+            if boundary:
+                return boundary
         authorization = self.before_input({**state, "repeat_count": self._repeat_count}, action, self.vars)
         boundary = self._action_boundary()
         if boundary:
@@ -308,6 +321,9 @@ class Runner:
                 authorization(False)
             return boundary
         self.vars["actions"] += 1
+        if marker:
+            # Write ahead in the retry variables: native input may succeed before raising an error.
+            self.vars[marker] = 1
         try:
             operation()
         finally:
@@ -630,6 +646,8 @@ class Runner:
                                        "error": str(error), "seconds": 0})
         finally:
             self.ctl.sleep = self._base_sleep
+            if self._frame is not None:
+                res.last_frame = self._frame
         res.ended = self.clock()
         res.actions = self.vars.get("actions", 0)
         res.variables = {k: v for k, v in self.vars.items()}

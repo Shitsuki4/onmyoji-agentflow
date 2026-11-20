@@ -151,7 +151,8 @@ TOOLS = [
      "description": "按计划预览或后台启动日活、周活、活动工作流；支持一轮后停、截止时间和小规模试跑。",
      "inputSchema": _schema({"instance": _INSTANCE, "plan": {"type": ["string", "object"], "description": "计划路径或内联计划对象；items 支持 program: oas:Duel"},
                               "out": {"type": "string"}, "rounds": {"type": "integer", "minimum": 1},
-                              "hours": {"type": "number", "minimum": 0.01}, "preview": {"type": "boolean"}},
+                              "hours": {"type": "number", "minimum": 0.01}, "preview": {"type": "boolean"},
+                              "resume_job_id": {"type": "integer", "minimum": 1}},
                              ()), "annotations": {"idempotentHint": False}},
     {"name": "marathon_status", "title": "查看日常计划",
      "description": "查看日常计划运行状态、任务账本、预算和最近样本。",
@@ -372,10 +373,14 @@ class AgentTools:
         return _result({"workflows": out})
 
     def t_marathon_start(self, args, session):
+        if args.get("resume_job_id") is not None:
+            if args.get("plan") or args.get("preview") or args.get("instance"):
+                raise ValueError("恢复使用原计划和实例，不能同时传 plan/preview/instance")
+            return _result(self.app.plans.resume(args["resume_job_id"], rounds=args.get("rounds"), hours=args.get("hours")))
         instance = self._instance(args)
         if args.get("preview"):
             return _result(self.app.plans.preview(instance, args.get("plan")))
-        return _result(self.app.plans.start(instance, args.get("plan"), args.get("rounds", 1),
+        return _result(self.app.plans.start(instance, args.get("plan"), args.get("rounds"),
                                             args.get("hours"), args.get("out")))
 
     def t_marathon_status(self, args, session):

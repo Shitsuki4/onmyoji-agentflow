@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import math
 import threading
 import time
 from pathlib import Path
@@ -20,6 +21,8 @@ class Plans:
         self.app.cfg.instance(instance)
         plan = load_plan(path)
         rows = []
+        runner = Marathon(self.app, instance, plan, self.app.cfg.home / "marathon" / "preview",
+                          prepare_output=False)
         programs = {row["entry_id"]: row for row in self.app.programs.list()}
         for item in plan["items"]:
             row = copy.deepcopy(item)
@@ -30,8 +33,21 @@ class Plans:
                 workflow = self.app.supervisor.load(item["workflow"])
                 from .programs import assert_current
                 assert_current(workflow, self.app.ws.path)
-                row["params"] = workflow.validate_params(item.get("params") or {})
+                params, reason = runner.item_params(item)
+                row["checkpoint"] = runner._checkpoint(item)
+                if runner._done_for_period(item):
+                    row.update(status="done", reason="本周期已核验完成")
+                    rows.append(row)
+                    continue
+                if params is None:
+                    row.update(status="blocked", reason=reason)
+                    rows.append(row)
+                    continue
+                row["params"] = workflow.validate_params(params)
                 row["status"] = "ready"
+                index = plan["items"].index(item)
+                if runner.next_ok.get(index, 0) > time.time():
+                    row.update(status="waiting", reason="计划项仍在持久冷却期", next_at=runner.next_ok[index])
                 if item.get("goal"):
                     tasks = [task for task in self.app.ledger.snapshot(item.get("scope", "daily"))
                              if time.time() - task["updated"] < 900]
@@ -46,14 +62,23 @@ class Plans:
                 if item.get("program") and row.get("translation"):
                     row["reason"] = "上游脚本尚未通过完整转换与审批：" + str(row["translation"])
             rows.append(row)
-        return {"plan": plan, "items": rows, "instance": instance,
+        pending = self.app.store.query("SELECT id FROM changes WHERE workflow='upstream-sync' AND status IN ('proposed','waiting_user')")
+        startup = {"sync_before_start": bool(plan.get("sync_before_start")),
+                   "pending_upstream_changes": [row["id"] for row in pending],
+                   "status": "blocked" if plan.get("sync_before_start") and pending else
+                             "check_on_start" if plan.get("sync_before_start") else "ready"}
+        return {"plan": plan, "items": rows, "instance": instance, "startup": startup,
                 "runtime": self.app.supervisor.runtime_status(instance)}
 
-    def start(self, instance=None, path=None, rounds=1, hours=None, out=None, background=True, repair=True):
+    def start(self, instance=None, path=None, rounds=None, hours=None, out=None, background=True, repair=True):
         preview = self.preview(instance, path)
         instance = preview["instance"]
-        if isinstance(rounds, bool) or not isinstance(rounds, int) or rounds < 1:
+        if rounds is None and hours is None:
+            rounds = 1
+        if rounds is not None and (isinstance(rounds, bool) or not isinstance(rounds, int) or rounds < 1):
             raise ValueError("rounds 必须是正整数")
+        if hours is not None and (type(hours) not in (int, float) or not math.isfinite(hours) or hours <= 0):
+            raise ValueError("hours 必须是正有限数字")
         if preview["runtime"].get("status") == "running":
             raise ValueError("模拟器已有任务运行")
         folder = Path(out) if out else self.app.cfg.home / "marathon" / str(time.time_ns())
@@ -67,12 +92,27 @@ class Plans:
             except Exception as error:
                 job.update(status="error", reason=str(error))
                 self.app.store.event("error", "marathon", str(error))
+            finally:
+                job["job_id"] = runner.job_id
 
         if background:
             threading.Thread(target=work, daemon=True, name=f"oaf-plan-{instance}").start()
         else:
             work()
         return job
+
+    def resume(self, job_id, *, background=True, rounds=None, hours=None, repair=True):
+        """Reopen the same plan. Evidence checkpoints, not list position, decide what can run."""
+        import json
+        jobs = self.app.store.query("SELECT * FROM marathon_jobs WHERE id=? AND account=?",
+                                     (job_id, self.app.ledger.account))
+        if not jobs:
+            raise ValueError("没有本账号的计划记录")
+        row = jobs[0]
+        if self.app.supervisor.runtime_status(row["instance"]).get("status") == "running":
+            raise ValueError("模拟器仍有任务运行")
+        return self.start(row["instance"], json.loads(row["plan"]), rounds=rounds, hours=hours,
+                          background=background, repair=repair)
 
     def status(self):
         return {"jobs": self.app.store.marathon_jobs(self.app.ledger.account),

@@ -464,12 +464,19 @@ def cmd_marathon(args):
         print(plan_yaml(load_plan(args.plan)))
         return 0
     app = _app(args)
+    if args.resume is not None:
+        if args.plan or args.preview or args.until:
+            raise ValueError("--resume 使用原计划，不能同时传 --plan/--preview/--until")
+        result = app.plans.resume(args.resume, background=False, rounds=args.rounds,
+                                  hours=args.hours, repair=args.repair)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 1 if result["status"] == "error" else 0
     inst = args.instance or app.instance_names()[0]
     if args.preview:
         print(json.dumps(app.plans.preview(inst, args.plan), ensure_ascii=False, indent=2, default=str))
         return 0
     plan = load_plan(args.plan)
-    missing = [it["workflow"] for it in plan["items"] if it["workflow"] not in app.workflows()]
+    missing = [it["workflow"] for it in plan["items"] if not it.get("program") and it["workflow"] not in app.workflows()]
     if plan.get("home_between", True) and "home" not in app.workflows():
         missing.append("home")
     if missing:
@@ -480,7 +487,7 @@ def cmd_marathon(args):
     hours = (deadline - _time.time()) / 3600 if deadline else None
     print(f"连续日常开始：实例 {inst}，记录在 {out}")
     print(f"停止：Ctrl+C，或在该目录里新建一个名为 STOP 的文件")
-    result = app.plans.start(inst, args.plan, args.rounds or 1, hours, str(out), background=False, repair=args.repair)
+    result = app.plans.start(inst, args.plan, args.rounds, hours, str(out), background=False, repair=args.repair)
     reason = result.get("reason")
     print(f"已停止：{reason}。汇总见 {out / 'summary.md'}")
     if (out / "summary.md").is_file():
@@ -523,7 +530,8 @@ def cmd_programs(args):
         else:
             if not args.proposal:
                 raise ValueError("需要 --proposal 转换结果.json")
-            result = app.programs.propose(args.id, json.loads(Path(args.proposal).read_text(encoding="utf-8")))
+            result = app.programs.propose(args.id, json.loads(Path(args.proposal).read_text(encoding="utf-8")),
+                                          replace_pending=args.replace_pending)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
 
@@ -571,6 +579,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--limit", type=int, help="本批最多转换数，不填按配置（null 表示不限）")
     s.add_argument("--retry", action="store_true", help="显式重试失败、过大或不完整的转换")
     s.add_argument("--proposal", help="agent 完整转换结果 JSON 文件；只产生待审提案")
+    s.add_argument("--replace-pending", action="store_true", help="修订未批准的候选；旧草稿作废，新草稿重新等待审批")
     s.set_defaults(func=cmd_programs)
     s = sub.add_parser("handoffs", help="查看或诊断持久化的 agent 故障接管任务")
     s.add_argument("action", choices=["list", "show", "diagnose", "propose"], nargs="?", default="list")
@@ -592,7 +601,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.set_defaults(func=cmd_run)
     s = sub.add_parser("marathon", help="连续日常：按计划循环跑多个工作流（补给、结界突破、御魂、探索），记日志、统计、留样本")
     s.add_argument("-i", "--instance", default=None)
-    s.add_argument("--plan", help="计划文件（YAML）；不给就用默认计划，看默认计划：--print-plan")
+    s.add_argument("--plan", help="计划文件（YAML）或 daily/weekly/all；不给就用默认计划")
+    s.add_argument("--resume", type=int, help="从指定历史计划恢复；不重试结果不确定的步骤")
     s.add_argument("--hours", type=float, help="跑多少小时后停")
     s.add_argument("--until", help="跑到几点停，如 23:30")
     s.add_argument("--rounds", type=int, help="最多跑几轮")
