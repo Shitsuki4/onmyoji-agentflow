@@ -101,6 +101,8 @@ class Supervisor:
                                  str(game.get("timezone") or "Asia/Shanghai"), game.get("daily_reset_hour", 0))
         self.budget = ResourceBudget(store, self.ledger.account, self.ledger.timezone, game.get("budgets") or {},
                                      reset_hour=game.get("daily_reset_hour", 0))
+        from ..handoffs import Handoffs
+        self.handoffs = Handoffs(self)
 
     def _device_identity(self, instance: str) -> str:
         for item in self.cfg.get("instances", []):
@@ -149,14 +151,29 @@ class Supervisor:
 
     def _run_once(self, wf, instance: str, params: dict, mode: str = "run", max_actions=None, max_seconds=None,
                   observe: bool = False, initial_vars: dict | None = None,
-                  validate_params: bool = True) -> RunResult:
+                   validate_params: bool = True, first_run_approved: bool = False) -> RunResult:
         if not observe:
+            from ..programs import assert_current
+            assert_current(wf, wf.path.parent.parent if wf.path else self.ws.path)
             activity = workflow_activity(wf.raw)
             if activity is not None:
                 activity.assert_battle_open()
         params = wf.validate_params(params) if validate_params else params
         with self.execution(instance, f"workflow:{wf.name}:{mode}") as lease:
             lease.update(workflow=wf.name, mode=mode, params=params)
+            source = wf.raw.get("source") or {}
+            if not observe and isinstance(source, dict) and source.get("entry_id"):
+                digest = wf.digest()
+                approved = self.store.query("SELECT approved FROM program_activations WHERE instance=? AND digest=?",
+                                            (instance, digest))
+                if not approved:
+                    if not first_run_approved and not self._confirm(FIRST_RUN,
+                            f"{wf.name}：上游统一转换后的首次运行；来源 {source['entry_id']}；敏感操作仍逐项确认", instance):
+                        result = RunResult(wf.name, "failed", reason="用户未批准转换工作流的首次运行", failure_kind="confirm_denied")
+                        result.evidence["run_id"] = self.store.add_run(wf.name, instance, mode, result, digest)
+                        return result
+                    self.store.execute("INSERT OR IGNORE INTO program_activations(instance,digest,approved) VALUES (?,?,?)",
+                                       (instance, digest, time.time()))
             ctl = self.controller_factory(instance, observe)
             flag = self.stop_flags.setdefault(instance, threading.Event())
             charged = set()
@@ -272,6 +289,8 @@ class Supervisor:
 
     def _run(self, name, instance, params, repair):
         wf = self.load(name)
+        from ..programs import assert_current
+        assert_current(wf, self.ws.path)
         activity = workflow_activity(wf.raw)
         if activity is not None:
             activity.assert_battle_open()
@@ -323,6 +342,14 @@ class Supervisor:
             self.store.execute("UPDATE runs SET summary=? WHERE id=?", (
                 json.dumps(outcome.result.summary(), ensure_ascii=False), outcome.result.evidence["run_id"]))
         self.check_rollback(name)
+        handoff_id = None
+        if res.status == "failed":
+            handoff_id = self.handoffs.create(wf, instance, res)
+            res.evidence["handoff_id"] = handoff_id
+            if res.evidence.get("run_id"):
+                self.store.execute("UPDATE runs SET summary=? WHERE id=?", (
+                    json.dumps(res.summary(), ensure_ascii=False), res.evidence["run_id"]))
+            outcome.notes.append(f"已保存 agent 接管任务 #{handoff_id}，包含截图、状态、日志与源码版本")
         if res.status != "failed" or not repair:
             if res.status == "failed":
                 outcome.level = "human"
@@ -336,10 +363,12 @@ class Supervisor:
             note = self.diagnose_and_repair(wf, instance, res)
             outcome.level = note[0]
             outcome.notes.append(note[1])
-        except (LLMError, BudgetExceeded, WorkflowError, AgentflowError) as e:
+            self.handoffs.update(handoff_id, {"proposed": "waiting_user", "repaired": "repaired"}.get(note[0], "needs_agent"), note[1])
+        except Exception as e:
             outcome.level = "human"
             outcome.notes.append(f"自动修复没做成：{e}")
             self.store.event("error", "supervisor", f"{name}@{instance} 自动修复没做成：{e}")
+            self.handoffs.update(handoff_id, "needs_agent", str(e))
         return outcome
 
     # ------------------------------------------------------------------ diagnosis
@@ -458,7 +487,7 @@ class Supervisor:
             report["failed_step"] = "用户没有同意试跑"
             return False, report
         trial = self._run_once(wf, instance, wf.param_defaults(), mode="trial",
-                               max_actions=int(self.scfg.get("trial_actions", 30)))
+                               max_actions=int(self.scfg.get("trial_actions", 30)), first_run_approved=True)
         report["trial"] = trial.summary()
         if trial.status == "failed":
             report["failed_step"] = "限次试跑"

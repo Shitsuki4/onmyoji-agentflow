@@ -31,6 +31,8 @@ class App:
                                      llm=self.llm, runs_dir=self.cfg.runs_dir)
         from .sync import SyncManager
         self.sync = SyncManager(self.cfg.data, self.store, self.ws, self.supervisor, llm=self.llm, home=self.cfg.home)
+        self.programs = self.sync.programs
+        self.handoffs = self.supervisor.handoffs
         from .plans import Plans
         from .samples import Samples
         self.plans = Plans(self)
@@ -48,6 +50,7 @@ class App:
             self.llm.budget.cfg = self.cfg["llm"].get("budget") or {}
         self.supervisor.llm = self.llm
         self.sync.llm = self.llm
+        self.programs.llm = self.llm
 
     def _open_device(self, instance: str):
         return open_device(self.cfg.instance(instance), self.cfg.get("mumu_root"), self.cfg.get("adb_path"))

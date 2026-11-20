@@ -64,7 +64,8 @@ DEFAULT_CONFIG = {
         "schedule": {"enabled": False, "interval_hours": 24},   # used by `oaf web` and `oaf sync --loop`
         # assttyys schemes the LLM should translate into new workflows (scheme names from schemes.yaml)
         # max_per_sync: schemes translated per sync; null (the default) means no limit
-        "translate": {"schemes": [], "max_per_sync": None},
+        "translate": {"schemes": [], "all_scripts": True, "max_per_sync": None, "max_prompt_chars": 180000,
+                      "max_agent_steps": 24},
     },
     "supervisor": {
         "max_local_retries": 2,
@@ -255,6 +256,18 @@ def validate_setting(path: str, value) -> None:
     elif dotted == "upstream.translate.max_per_sync":
         if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value < 0):
             raise ValueError("max_per_sync 要填不小于 0 的整数，或 null 表示不限")
+    elif dotted == "upstream.translate.max_prompt_chars":
+        if type(value) is not int or not 1000 <= value <= 2000000:
+            raise ValueError("max_prompt_chars 要填 1000–2000000 的整数，超出时保留完整源码供 agent 分段处理")
+    elif dotted == "upstream.translate.max_agent_steps":
+        if type(value) is not int or not 1 <= value <= 200:
+            raise ValueError("max_agent_steps 要填 1–200 的整数")
+    elif dotted in ("upstream.translate.all_scripts", "upstream.schedule.enabled"):
+        if type(value) is not bool:
+            raise ValueError(f"{dotted} 必须是 true/false")
+    elif dotted == "upstream.schedule.interval_hours":
+        if type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
+            raise ValueError("同步间隔必须是大于 0 的有限小时数")
     elif dotted == "llm.providers":
         if not isinstance(value, list) or not all(isinstance(p, dict) and p.get("name") for p in value):
             raise ValueError("llm.providers 要是列表，每一项都要有 name")

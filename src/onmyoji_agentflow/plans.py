@@ -20,10 +20,16 @@ class Plans:
         self.app.cfg.instance(instance)
         plan = load_plan(path)
         rows = []
+        programs = {row["entry_id"]: row for row in self.app.programs.list()}
         for item in plan["items"]:
             row = copy.deepcopy(item)
+            if item.get("program"):
+                entry = programs.get(item["program"])
+                row["translation"] = {key: entry.get(key) for key in ("id", "status", "note", "change_id")} if entry else None
             try:
                 workflow = self.app.supervisor.load(item["workflow"])
+                from .programs import assert_current
+                assert_current(workflow, self.app.ws.path)
                 row["params"] = workflow.validate_params(item.get("params") or {})
                 row["status"] = "ready"
                 if item.get("goal"):
@@ -37,11 +43,13 @@ class Plans:
                         row.update(status="blocked", reason="缺少已核对账号档案")
             except (WorkflowError, OSError, ValueError) as error:
                 row.update(status="blocked", reason=str(error))
+                if item.get("program") and row.get("translation"):
+                    row["reason"] = "上游脚本尚未通过完整转换与审批：" + str(row["translation"])
             rows.append(row)
         return {"plan": plan, "items": rows, "instance": instance,
                 "runtime": self.app.supervisor.runtime_status(instance)}
 
-    def start(self, instance=None, path=None, rounds=1, hours=None, out=None, background=True, repair=False):
+    def start(self, instance=None, path=None, rounds=1, hours=None, out=None, background=True, repair=True):
         preview = self.preview(instance, path)
         instance = preview["instance"]
         if isinstance(rounds, bool) or not isinstance(rounds, int) or rounds < 1:

@@ -619,9 +619,13 @@ class Runner:
             res.status, _, res.reason = str(stopped).partition(":")
         except Exception as error:
             from ..vision.ocr import OcrUnavailable
+            res.status = "failed"
+            res.reason = f"{type(error).__name__}: {error}"
+            res.failure_kind = "recognition" if isinstance(error, OcrUnavailable) else "workflow_error"
+            res.failed_state = self._current_state.get("id")
             if not isinstance(error, OcrUnavailable):
-                raise
-            res.status, res.reason, res.failure_kind = "failed", str(error), "recognition"
+                import traceback
+                res.evidence["traceback"] = traceback.format_exc()
             self.on_event("unknown", {"frame": res.last_frame, "after_state": repeat_state,
                                        "error": str(error), "seconds": 0})
         finally:

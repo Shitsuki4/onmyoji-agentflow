@@ -44,6 +44,7 @@ from pathlib import Path
 from .errors import AgentflowError, BudgetExceeded, LLMError, WorkflowError
 from .llm import image_to_data_url, parse_json_reply
 from .log import logger
+from .runtime import FileMutex
 from .supervisor.repair import apply_ops, classify
 from .supervisor.replay import load_cases, run_cases
 from .supervisor.supervisor import NEEDS_CONFIRM_MERGE, SYSTEM_PROMPT
@@ -234,6 +235,8 @@ def convert_sources(fetched: dict[str, Fetched], out: Path) -> tuple[dict, list[
         dest = out / UP / "assttyys"
         try:
             r = assttyys.convert(src, dest)
+            from .convert.programs import build_catalog
+            r["programs"] = build_catalog("assttyys", src, dest, fetched["assttyys"].commit)
             _copy_license(src, dest, "assttyys")
             report["assttyys"] = r
             prefixes[f"{UP}/assttyys/"] = "assttyys"
@@ -256,9 +259,11 @@ def convert_sources(fetched: dict[str, Fetched], out: Path) -> tuple[dict, list[
         dest = out / UP / "oas"
         try:
             r = oas.convert(src, dest)
+            from .convert.programs import build_catalog
+            programs = build_catalog("oas", src, dest, fetched["oas"].commit)
             summary = {"tasks": len(r["tasks"]),
                        "resources": sum(t["resources"] for t in r["tasks"].values()),
-                       "navigation": r.get("navigation")}
+                       "navigation": r.get("navigation"), "programs": programs}
             (dest / "report.json").write_text(json.dumps({**summary, "by_task": r["tasks"]}, ensure_ascii=False,
                                                          indent=2, default=str), encoding="utf-8")
             _copy_license(src, dest, "oas")
@@ -425,6 +430,22 @@ class SyncManager:
         self.cache = self.home / "upstream-src"
         self.reports = self.home / "sync-reports"
         self.lock = threading.Lock()
+        from .programs import Programs
+        self.programs = Programs(cfg, store, workspace, supervisor, llm, self.home)
+
+    def _programs(self, report, translate, root=None, base=None):
+        if root is not None:
+            report["program_catalog"] = self.programs.index(root, base)
+        options = self.ucfg.get("translate") or {}
+        # An explicit legacy scheme allowlist retains its old meaning.
+        if not translate or not options.get("all_scripts", True) or options.get("schemes"):
+            return []
+        self.programs.llm = self.llm
+        results = self.programs.compile(limit=options.get("max_per_sync"), root=root, base=base)
+        report["program_translations"] = results
+        ids = [row["change_id"] for row in results if row.get("change_id")]
+        report.setdefault("change_ids", []).extend(ids)
+        return ids
 
     # .............................................................. records
     def history(self, limit: int = 20) -> list[dict]:
@@ -473,7 +494,8 @@ class SyncManager:
         if not self.lock.acquire(blocking=False):
             raise SyncError("已经有一次同步在进行")
         try:
-            return self._sync(force, only, local, instance, translate, trigger, fetch)
+            with FileMutex(self.home / "locks" / "upstream-sync.lock"):
+                return self._sync(force, only, local, instance, translate, trigger, fetch)
         finally:
             self.lock.release()
 
@@ -534,9 +556,11 @@ class SyncManager:
                     msg = f"上游没有新提交，这个版本你回滚过（同步 #{prev['id']}），跳过；要重新套用请加 --force"
                     return self._finish(sid, "skipped", msg, report, upstream=up)
                 if prev["status"] in ("waiting_user", "broken", "repair_waiting"):
+                    self._programs(report, translate)
                     msg = f"上游没有新提交；同步 #{prev['id']} 还在等你处理（{prev['status']}）"
                     return self._finish(sid, "unchanged", msg, report, upstream=up)
-                return self._finish(sid, "unchanged", "上游没有新提交，不用转换", report, upstream=up)
+                self._programs(report, translate)
+                return self._finish(sid, "unchanged", "上游没有新提交；继续处理尚未完成的脚本转换队列", report, upstream=up)
         # ---- 2. fetch
         fetched: dict[str, Fetched] = {}
         if local:
@@ -641,6 +665,8 @@ class SyncManager:
             report["notes"].append("你本地改过、上游也改了的文件保留了你的版本（冲突）：" + "、".join(conflicts))
         meaningful = [r for r in changes if r not in (MANIFEST, NOTICE)]
         if not meaningful:
+            # A prior max_per_sync / model budget may have left work in the queue.
+            self._programs(report, translate)
             if changes:
                 with self.sup.git_lock:
                     branch, commit = self.ws.propose(SYNC_WORKFLOW, "data", changes,
@@ -697,6 +723,7 @@ class SyncManager:
                 report.setdefault("translations", []).append(t)
                 if t.get("change_id"):
                     change_ids.append(t["change_id"])
+        change_ids.extend(self._programs(report, translate, cand, "main" if status == "merged" else branch))
         report["change_ids"] = change_ids
         merged = None
         if status == "merged":
@@ -1068,6 +1095,12 @@ def render_report(r: dict) -> str:
         L += ["", "## 修复", "", f"- {r['repair']['status']}：{r['repair']['message']}"]
     for t in r.get("translations") or []:
         L.append(f"- 翻译「{t.get('scheme')}」→ {t.get('workflow', '')}：{t.get('status')} {t.get('message', '')}")
+    if r.get("program_catalog"):
+        L += ["", "## 统一脚本目录（收录不等于可执行）", ""]
+        for source, counts in r["program_catalog"].items():
+            L.append(f"- {source}：{counts['tasks']} 个任务、{counts['components']} 个组件")
+    for t in r.get("program_translations") or []:
+        L.append(f"- 脚本转换 #{t['id']}：{t['status']} {t.get('message', '')}")
     if r.get("needs_translation"):
         L += ["", "## 含自定义逻辑、需要大模型翻译的功能", "", "、".join(r["needs_translation"])]
     if r.get("parse_errors"):

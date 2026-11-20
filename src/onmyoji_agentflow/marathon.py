@@ -24,7 +24,7 @@ from pathlib import Path
 
 import yaml
 
-from .errors import BudgetExceeded
+from .errors import BudgetExceeded, WorkflowError
 from .ledger import GameLedger, ResourceBudget
 from .tasks import remaining_task
 from .runtime import normalize_device_identity
@@ -70,14 +70,22 @@ DEFAULT_PLAN = {
 COUNTERS = ("done", "rounds", "losses", "refreshes", "claimed")
 
 
-def load_plan(path: str | None) -> dict:
+def load_plan(path: str | dict | None) -> dict:
     plan = json.loads(json.dumps(DEFAULT_PLAN))
     if path:
-        raw = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+        raw = json.loads(json.dumps(path)) if isinstance(path, dict) else yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
         plan.update({k: v for k, v in raw.items() if k != "items"})
         if raw.get("items"):
             plan["items"] = raw["items"]
     for it in plan["items"]:
+        if it.get("program"):
+            identifier = it["program"]
+            if not isinstance(identifier, str) or identifier.split(":", 1)[0] not in ("oas", "assttyys") or ":" not in identifier:
+                raise ValueError("program 要使用上游目录中的完整标识，如 oas:Duel")
+            name = identifier.split(":", 1)[0] + "_" + hashlib.sha256(identifier.encode()).hexdigest()[:12]
+            if it.get("workflow") and it["workflow"] != name:
+                raise ValueError("同一计划项的 program 与 workflow 不一致")
+            it["workflow"] = name
         it.setdefault("params", {})
         it.setdefault("cooldown_min", 0)
         it.setdefault("cooldown_on", {})
@@ -181,6 +189,14 @@ class Marathon:
 
     def item_params(self, item):
         params = dict(item.get("params") or {})
+        if item.get("program"):
+            try:
+                from .programs import assert_current
+                workflow = self.app.supervisor.load(item["workflow"])
+                assert_current(workflow, self.app.ws.path)
+                workflow.validate_params(params)
+            except (OSError, ValueError, WorkflowError) as error:
+                return None, f"上游脚本尚未通过完整转换与审批：{error}"
         if item.get("profile"):
             profile = (self.app.cfg.get("game", {}).get("profiles") or {}).get(item["profile"], {})
             if not profile.get("verified") or not profile.get("evidence"):
@@ -281,6 +297,8 @@ class Marathon:
                     self.budget.check(costs)
             out = self.app.supervisor.run(workflow, self.instance, params, repair=self.repair)
             res = out.result
+            if res.evidence.get("handoff_id"):
+                self.stop(f"{workflow} 已交给 agent 接管 #{res.evidence['handoff_id']}，计划暂停")
             rec = {"workflow": workflow, "status": res.status, "reason": res.reason,
                    "failure_kind": res.failure_kind, "failed_state": res.failed_state,
                    "vars": {k: res.variables.get(k) for k in COUNTERS if k in res.variables},
@@ -398,6 +416,9 @@ class Marathon:
 
     def _run_locked(self) -> str:
         sup = self.app.supervisor
+        sync = getattr(self.app, "sync", None)
+        if sync is not None and sync.due():
+            sync.sync(trigger="schedule")
         self.job_id = self.app.store.add_marathon_job(self.account, self.instance, self.plan, str(self.dir))
         prev_sink = getattr(sup, "event_sink", None)
         sup.event_sink = self._on_event

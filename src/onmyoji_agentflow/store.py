@@ -63,6 +63,16 @@ CREATE TABLE IF NOT EXISTS samples (
 CREATE TABLE IF NOT EXISTS account_stats (
   id INTEGER PRIMARY KEY AUTOINCREMENT, account TEXT, recorded REAL, source TEXT,
   team TEXT, member TEXT, speed REAL, crit REAL, order_index INTEGER, stat_values TEXT, evidence TEXT);
+CREATE TABLE IF NOT EXISTS program_jobs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, entry_id TEXT, fingerprint TEXT, source TEXT, workflow TEXT,
+  status TEXT, base_commit TEXT, entry TEXT, change_id INTEGER, note TEXT, updated REAL,
+  UNIQUE(entry_id,fingerprint));
+CREATE TABLE IF NOT EXISTS program_activations (
+  instance TEXT, digest TEXT, approved REAL, UNIQUE(instance,digest));
+CREATE TABLE IF NOT EXISTS agent_handoffs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, workflow TEXT, instance TEXT, run_id INTEGER,
+  failure_kind TEXT, status TEXT, packet_path TEXT, note TEXT, created REAL, updated REAL,
+  UNIQUE(run_id));
 """
 
 

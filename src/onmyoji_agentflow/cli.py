@@ -508,6 +508,46 @@ def cmd_samples(args):
     return 1 if isinstance(result, dict) and result.get("ok") is False else 0
 
 
+def cmd_programs(args):
+    app = _app(args)
+    if args.action == "list":
+        result = app.programs.list(args.source, args.status)
+    elif args.action == "compile":
+        limit = args.limit if args.limit is not None else app.cfg["upstream"]["translate"].get("max_per_sync")
+        result = app.programs.compile(args.id, limit, args.retry)
+    else:
+        if args.id is None:
+            raise ValueError("需要 --id 指定脚本转换任务")
+        if args.action == "source":
+            result = app.programs.source(args.id, args.path, args.offset, args.chars)
+        else:
+            if not args.proposal:
+                raise ValueError("需要 --proposal 转换结果.json")
+            result = app.programs.propose(args.id, json.loads(Path(args.proposal).read_text(encoding="utf-8")))
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_handoffs(args):
+    app = _app(args)
+    if args.action == "list":
+        result = app.handoffs.list()
+    else:
+        if args.id is None:
+            raise ValueError("需要 --id 指定 agent 接管任务")
+        if args.action == "show":
+            result = app.handoffs.get(args.id)
+        else:
+            proposal = None
+            if args.action == "propose":
+                if not args.proposal:
+                    raise ValueError("需要 --proposal 修复提案.json")
+                proposal = json.loads(Path(args.proposal).read_text(encoding="utf-8"))
+            result = app.handoffs.diagnose(args.id, proposal)
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="oaf", description="阴阳师 YAML 工作流引擎 + Agent 自动监管")
     p.add_argument("--version", action="version", version=__version__)
@@ -520,6 +560,23 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--mumu-root")
     s.set_defaults(func=cmd_devices)
     sub.add_parser("list", help="列出工作流").set_defaults(func=cmd_list)
+    s = sub.add_parser("programs", help="上游脚本目录、完整源码、可续传转换与提案（不会自动批准）")
+    s.add_argument("action", choices=["list", "source", "compile", "propose"], nargs="?", default="list")
+    s.add_argument("--id", type=int, help="programs list 中的脚本转换任务编号")
+    s.add_argument("--source", choices=["oas", "assttyys"])
+    s.add_argument("--status")
+    s.add_argument("--path", help="源码相对路径，须来自该任务的源码清单")
+    s.add_argument("--offset", type=int, default=0)
+    s.add_argument("--chars", type=int, default=12000)
+    s.add_argument("--limit", type=int, help="本批最多转换数，不填按配置（null 表示不限）")
+    s.add_argument("--retry", action="store_true", help="显式重试失败、过大或不完整的转换")
+    s.add_argument("--proposal", help="agent 完整转换结果 JSON 文件；只产生待审提案")
+    s.set_defaults(func=cmd_programs)
+    s = sub.add_parser("handoffs", help="查看或诊断持久化的 agent 故障接管任务")
+    s.add_argument("action", choices=["list", "show", "diagnose", "propose"], nargs="?", default="list")
+    s.add_argument("--id", type=int)
+    s.add_argument("--proposal", help="修复 ops JSON 文件；沿用既有验证和用户审批")
+    s.set_defaults(func=cmd_handoffs)
     s = sub.add_parser("validate", help="检查工作流格式并跑回放测试")
     s.add_argument("workflow")
     s.add_argument("--strict", action="store_true", help="没有样本时也判定为未验证")
@@ -540,7 +597,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--until", help="跑到几点停，如 23:30")
     s.add_argument("--rounds", type=int, help="最多跑几轮")
     s.add_argument("--out", help="记录目录（默认 <数据目录>/marathon/<开始时间>）")
-    s.add_argument("--repair", action="store_true", help="失败时让大模型诊断修复（默认只记录样本，事后再学）")
+    s.add_argument("--repair", action="store_true", default=True, help="失败时让 agent 诊断修复（默认开启）")
+    s.add_argument("--no-repair", dest="repair", action="store_false", help="只保存接管证据，不调用大模型")
     s.add_argument("--print-plan", action="store_true", help="打印计划后退出")
     s.add_argument("--preview", action="store_true", help="按任务账本预览缺口与阻塞原因，不点击")
     s.set_defaults(func=cmd_marathon)
