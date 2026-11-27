@@ -1,0 +1,105 @@
+{
+  "source_23": "import { Script } from '@/system/script';\nimport { IFuncOrigin, IFuncOperatorOrigin, IFuncOperator } from '@/interface/IFunc';\n// const normal = -1; //定义常量\n// const left = 0;\nconst center = 1;\n// const right = 2;\n\nexport class Func023 implements IFuncOrigin {\n\tid = 23;\n\tname = '逢魔答题';\n\tdesc = '逢魔密信自动答题，需要安装OCR扩展';\n\toperator: IFuncOperatorOrigin[] = [{\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[center, 456, 96, 0xa72c01],\n\t\t\t\t[center, 692, 90, 0xddcdc3],\n\t\t\t\t[center, 871, 63, 0xeecccc],\n\t\t\t\t[center, 818, 610, 0xc4b3a3],\n\t\t\t\t[center, 723, 618, 0xcfbcad]\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 429, 163, 429 + 433, 163 + 72, 0], // 问题区域\n\t\t\t[center, 1280, 720, 426, 252, 426 + 446, 252 + 264, 0], // 答案区域\n\t\t\t[center, 1280, 720, 487, 276, 810, 320, 1200],\t//\t第一条答案区域\n\t\t]\n\t}];\n\toperatorFunc(thisScript: Script, thisOperator: IFuncOperator[]): boolean {\n\t\tif (thisScript.oper({\n\t\t\tname: '逢魔答题_界面判断',\n\t\t\toperator: [{ desc: thisOperator[0].desc }]\n\t\t})) {\n\t\t\t// let screenImg = images.captureScreen();\n\t\t\t// 识别问题\n\t\t\tconst toDetectQuestionBmp = thisScript.helperBridge.helper.GetBitmap(...thisOperator[0].oper[0].slice(0, 4));\n\t\t\tconsole.time('ocr.detect.question');\n\t\t\tconst resultQuestion = thisScript.getOcrDetector().loadImage(toDetectQuestionBmp);\n\t\t\tconsole.timeEnd('ocr.detect.question');\n\t\t\ttoDetectQuestionBmp.recycle();\n\t\t\tlet question = '';\n\t\t\tfor (let i = 0; i < resultQuestion.length; i++) {\n\t\t\t\tquestion += resultQuestion[i].label;\n\t\t\t}\n\t\t\tconsole.log(`识别题目: ${question}`);\n\n\t\t\tconst stdQuestion = thisScript.questionSearch(question.replace(/[^\\u4e00-\\u9fa5a-zA-Z0-9]/g, ''));\n\t\t\tconsole.log(`搜索题库:${JSON.stringify(stdQuestion)}`);\n\n\t\t\tconst toDetectAnsBmp = thisScript.helperBridge.helper.GetBitmap(...thisOperator[0].oper[1].slice(0, 4));\n\t\t\tconsole.time('ocr.detect.ans');\n\t\t\tconst resultAns = thisScript.getOcrDetector().loadImage(toDetectAnsBmp);\n\t\t\tconsole.timeEnd('ocr.detect.ans');\n\t\t\ttoDetectAnsBmp.recycle();\n\n\t\t\tif (resultAns.length < 1) {\n\t\t\t\tconst img = com.stardust.autojs.core.image.ImageWrapper.ofBitmap(thisScript.helperBridge.helper.GetBitmap());\n\t\t\t\tconst path = `/sdcard/assttyys/screenshot/fmmxdt_${new Date().getTime()}.png`;\n\t\t\t\tfiles.ensureDir(path);\n\t\t\t\timg.saveTo(path);\n\t\t\t\timg.recycle();\n\t\t\t\tmedia.scanFile(path);\n\n\t\t\t\tthisScript.myToast('题库中没找到对应的答案，默认选择第一个答案');\n\t\t\t\tthisScript.regionClick([thisOperator[0].oper[2]]);\n\t\t\t\treturn true;\n\t\t\t}\n\n\t\t\tconst ansList = [];\n\t\t\tfor (let i = 0; i < resultAns.length; i++) {\n\t\t\t\tconst row = resultAns[i];\n\t\t\t\tconst frame = row.points;\n\t\t\t\tconst rect = [\n\t\t\t\t\tthisOperator[0].oper[1][0] + frame[0].x,\n\t\t\t\t\tthisOperator[0].oper[1][1] + frame[0].y,\n\t\t\t\t\tthisOperator[0].oper[1][0] + frame[2].x,\n\t\t\t\t\tthisOperator[0].oper[1][1] + frame[2].y,\n\t\t\t\t];\n\t\t\t\tansList.push({\n\t\t\t\t\ttext: row.label,\n\t\t\t\t\trect: rect\n\t\t\t\t});\n\t\t\t}\n\t\t\tconsole.log(`答案区域识别:${JSON.stringify(ansList)}`);\n\t\t\tif (stdQuestion) {\n\t\t\t\tconst stdAns = thisScript.search(ansList, 'text', stdQuestion.data.ans);\n\t\t\t\tif (stdAns) {\n\t\t\t\t\tthisScript.myToast(`选择答案: ${stdAns.data.text}, 置信度为: ${(stdQuestion.similarity * stdAns.similarity).toFixed(4)}`);\n\t\t\t\t\tthisScript.regionClick([[...stdAns.data.rect, 1500]]);\n\t\t\t\t\treturn true;\n\t\t\t\t}\n\t\t\t}\n\n\t\t\tthisScript.myToast('题库中没找到对应的答案，默认选择第一个答案');\n\t\t\tthisScript.regionClick([[...ansList[0].rect, 1500]]);\n\t\t\treturn true;\n\t\t}\n\t\treturn false;\n\t}\n}",
+  "source_508": "import {\n\tIFuncOrigin,\n\tIFuncOperatorOrigin,\n\tIFuncOperator,\n} from '@/interface/IFunc';\nimport { Script } from '@/system/script';\n\n// const normal = -1; //定义常量\nconst left = 0;\nconst center = 1;\nconst right = 2;\n\nexport class Func508 implements IFuncOrigin {\n\tid = 508;\n\tname = '逢魔首领';\n\tconfig = [\n\t\t{\n\t\t\tdesc: '是否开启极',\n\t\t\tconfig: [{\n\t\t\t\tname: 'switch_ji_enabled',\n\t\t\t\tdesc: '是否启用逢魔·极',\n\t\t\t\ttype: 'switch',\n\t\t\t\tdefault: false,\n\t\t\t}, {\n\t\t\t\tname: 'next_scheme',\n\t\t\t\tdesc: '先切换至返回庭院，再由返回庭院切换至配置的目标方案',\n\t\t\t\ttype: 'scheme',\n\t\t\t\tdefault: '__停止脚本__',\n\t\t\t}, {\n\t\t\t\tname: 'times_for_search_boss',\n\t\t\t\tdesc: '查找多少次首领都没进去就不打了',\n\t\t\t\ttype: 'number',\n\t\t\t\tdefault: 20,\n\t\t\t}, {\n\t\t\t\tname: 'switch_skip_search_boss',\n\t\t\t\tdesc: '是否直接点击boss，不使用比色寻找boss',\n\t\t\t\ttype: 'switch',\n\t\t\t\tdefault: false,\n\t\t\t}],\n\t\t},\n\t];\n\toperator: IFuncOperatorOrigin[] = [\n\t\t{ // 0 已适配66 检测_现世逢魔奖励是否已领取\n\t\t\tdesc: [1280, 720,\n\t\t\t\t[\n\t\t\t\t\t[left, 19, 700, 0x3c3841],\n\t\t\t\t\t[center, 754, 39, 0x583716],\n\t\t\t\t\t[center, 1181, 650, 0xffffff],\n\t\t\t\t\t[left, 45, 680, 0xc99c7e],\n\t\t\t\t\t[right, 1228, 209, 0x767676],\n\t\t\t\t\t[right, 1243, 252, 0x333333],\n\t\t\t\t],\n\t\t\t],\n\t\t\toper: [\n\t\t\t\t[right, 1280, 720, 1002, 645, 1045, 693, 500], // 进入首领按钮\n\t\t\t],\n\t\t},\n\t\t{\n\t\t\t// 1 已适配66 检测_是否找到逢魔首领\n\t\t\tdesc: [1280, 720,\n\t\t\t\t[\n\t\t\t\t\t[center, 694, 400, 0x810517],\n\t\t\t\t\t[center, 693, 401, 0x830417],\n\t\t\t\t\t[left, 41, 48, 0xfaefb4],\n\t\t\t\t\t[right, 771, 39, 0x593716],\n\t\t\t\t\t[center, 769, 38, 0x593716],\n\t\t\t\t\t[left, 44, 677, 0xc89a7e],\n\t\t\t\t\t[center, 624, 397, 0x600b17],\n\t\t\t\t]\n\t\t\t],\n\t\t\toper: [\n\t\t\t\t[center, 1280, 720, 579, 303, 702, 407, 300], //\t点击逢魔首领\n\t\t\t],\n\t\t},\n\t\t{\n\t\t\t// 2 已适配66 检测_首领BOSS挑战页\n\t\t\tdesc: [\n\t\t\t\t1280, 720,\n\t\t\t\t[\n\t\t\t\t\t[left, 111, 57, 0xc3a765],\n\t\t\t\t\t[left, 111, 245, 0xd4cbc3],\n\t\t\t\t\t[left, 161, 673, 0xc3a561],\n\t\t\t\t\t[center, 627, 621, 0x1f1b18],\n\t\t\t\t\t[right, 675, 640, 0x75160d],\n\t\t\t\t\t[right, 1119, 564, 0xead8b9],\n\t\t\t\t]\n\t\t\t],\n\t\t\toper: [\n\t\t\t\t[right, 1280, 720, 1062, 556, 1161, 651, 800], //\t点击挑战\n\t\t\t\t[right, 1280, 720, 1120, 58, 1157, 91, 2000], //\t点击关闭\n\t\t\t],\n\t\t},\n\t\t{\n\t\t\t// 3 检测_是否为提示框\n\t\t\tdesc: [1280, 720,\n\t\t\t\t[\n\t\t\t\t\t[right, 1058, 558, 0xcfc3b2],\n\t\t\t\t\t[center, 815, 422, 0xf4b25f],\n\t\t\t\t\t[center, 585, 433, 0xdf6851],\n\t\t\t\t\t[center, 843, 336, 0xcbb59e],\n\t\t\t\t\t[left, 117, 214, 0x595450],\n\t\t\t\t],\n\t\t\t],\n\t\t\toper: [\n\t\t\t\t[center, 1280, 720, 551, 343, 577, 371, 1200], //\t点击确认\n\t\t\t\t[center, 1280, 720, 677, 407, 838, 456, 1200],\n\t\t\t],\n\t\t},\n\t\t{ //\t4 检测_点击进入战斗\n\t\t\tdesc: [1280, 720,\n\t\t\t\t[\n\t\t\t\t\t[left, 174, 36, 0xd5c5a4],\n\t\t\t\t\t[left, 108, 26, 0xd7c5a2],\n\t\t\t\t\t[left, 48, 32, 0xd7c5a2],\n\t\t\t\t\t[center, 687, 484, 0xbeab92],\n\t\t\t\t\t[center, 846, 631, 0x8b4243],\n\t\t\t\t\t[right, 1022, 609, 0xc73e4d],\n\t\t\t\t],\n\t\t\t],\n\t\t\toper: [\n\t\t\t\t[center, 1280, 720, 597, 465, 689, 539, 1200], //\t点击进入战斗\n\t\t\t],\n\t\t},\n\t\t{\n\t\t\t//\t5 检测_战斗页结算页\n\t\t\tdesc: [1280, 720,\n\t\t\t\t[\n\t\t\t\t\t[center, 530, 115, 0xd3c4ae],\n\t\t\t\t\t[left, 150, 197, 0xf6f1de],\n\t\t\t\t\t[center, 888, 79, 0xdcc499],\n\t\t\t\t\t[center, 781, 443, 0xf8f3e0],\n\t\t\t\t\t[center, 639, 113, 0xf34c38],\n\t\t\t\t],\n\t\t\t],\n\t\t\toper: [\n\t\t\t\t[right, 1280, 720, 1217, 164, 1273, 706, 1200], //\t点击空白处\n\t\t\t],\n\t\t},\n\t\t{\n\t\t\t//\t6 检测_集结页结算页\n\t\t\tdesc: [1280, 720,\n\t\t\t\t[\n\t\t\t\t\t[center, 530, 115, 0xd3c4ae],\n\t\t\t\t\t[left, 157, 210, 0xf8f3e0],\n\t\t\t\t\t[center, 888, 79, 0xdcc499],\n\t\t\t\t\t[center, 789, 456, 0xf8f3e0],\n\t\t\t\t\t[center, 639, 113, 0xf34c38],\n\t\t\t\t],\n\t\t\t],\n\t\t},\n\t\t{\n\t\t\t//\t7 检测_逢魔BOSS集结场景\n\t\t\tdesc: [1280, 720,\n\t\t\t\t[\n\t\t\t\t\t[center, 846, 632, 0x8f4544],\n\t\t\t\t\t[right, 1022, 609, 0xc73e4d],\n\t\t\t\t\t[right, 1159, 616, 0xefefef],\n\t\t\t\t\t[left, 108, 26, 0xd7c5a2],\n\t\t\t\t\t[left, 180, 22, 0xd4c4a3],\n\t\t\t\t],\n\t\t\t],\n\t\t},\n\t\t{\n\t\t\t// 8 检测_逢魔·极 首领BOSS挑战页\n\t\t\tdesc: [1280, 720,\n\t\t\t\t[\n\t\t\t\t\t[right, 1108, 84, 0xcb9d66],\n\t\t\t\t\t[right, 1181, 140, 0x8e3128],\n\t\t\t\t\t[right, 1214, 625, 0x9a4037],\n\t\t\t\t\t[right, 1056, 621, 0x1d0c0a],\n\t\t\t\t\t[left, 73, 585, 0x892b25],\n\t\t\t\t\t[center, 610, 127, 0xcab9ab],\n\t\t\t\t],\n\t\t\t],\n\t\t},\n\t\t{\n\t\t\t//\t9 检测_是否有寻找 逢魔·极 按钮\n\t\t\tdesc: [1280, 720,\n\t\t\t\t[\n\t\t\t\t\t[right, 1022, 659, 0x8b3038],\n\t\t\t\t\t[right, 1022, 646, 0x471a21],\n\t\t\t\t\t[right, 1230, 241, 0x696969],\n\t\t\t\t\t[center, 811, 657, 0xdbd1c3],\n\t\t\t\t\t[center, 921, 678, 0xbf443b],\n\t\t\t\t]\n\t\t\t],\n\t\t\toper: [\n\t\t\t\t[center, 1280, 720, 903, 658, 940, 689, 500], // 进入首领极按钮\n\t\t\t]\n\t\t},\n\t\t{\t// 10 检测_是否找到逢魔首领\n\t\t\tdesc: [\n\t\t\t\t1280, 720,\n\t\t\t\t[\n\t\t\t\t\t[center, 694, 400, 0x810517],\n\t\t\t\t\t[center, 693, 401, 0x830417],\n\t\t\t\t\t[center, 682, 398, 0x8f0814],\n\t\t\t\t\t[left, 41, 48, 0xc4cce1],\n\t\t\t\t\t[right, 771, 39, 0x593716],\n\t\t\t\t\t[center, 564, 17, 0xe5e5e5],\n\t\t\t\t\t[left, 44, 677, 0xc89a7e],\n\t\t\t\t]\n\t\t\t],\n\t\t\toper: [\n\t\t\t\t[center, 1280, 720, 579, 303, 702, 407, 300], //\t点击逢魔首领\n\t\t\t],\n\t\t},\n\t\t{ // 11 没有极难度的逢魔(歌姬胧车)\n\t\t\tdesc: [1280, 720,\n\t\t\t\t[\n\t\t\t\t\t[right, 1182, 649, 0xffffff],\n\t\t\t\t\t[right, 930, 671, 0xddd2c1],\n\t\t\t\t\t[right, 1022, 670, 0xbc4440],\n\t\t\t\t\t[right, 1022, 655, 0x802933],\n\t\t\t\t\t[right, 940, 674, 0xdbd1c0],\n\t\t\t\t\t[left, 62, 671, 0xc89a7e],\n\t\t\t\t]\n\t\t\t],\n\t\t\toper: [\n\t\t\t\t[center, 1280, 720, 1007, 660, 1036, 684, 1000],\n\t\t\t]\n\t\t}\n\t];\n\toperatorFunc(thisScript: Script, thisOperator: IFuncOperator[]): boolean {\n\t\tconst thisConf = thisScript.scheme.config['508'];\n\t\tif (\n\t\t\tthisScript.oper({\n\t\t\t\tname: '检测_结算页',\n\t\t\t\toperator: [{\n\t\t\t\t\tdesc: thisOperator[7].desc,\n\t\t\t\t}],\n\t\t\t})\n\t\t) {\n\t\t\tconst point = thisScript.findMultiColor('逢魔_捡垃圾');\n\n\t\t\tif (point) {\n\t\t\t\tconsole.log('逢魔_捡垃圾');\n\t\t\t\tconst oper = [[point.x - 2, point.y - 2, point.x + 2, point.y + 2, 1200]];\n\t\t\t\tthisScript.regionClick(oper);\n\t\t\t}\n\n\t\t\tif (!thisScript.global.fm_kiss_boss_flag) {\n\t\t\t\tthisScript.global.fm_kiss_boss_flag = true;\n\t\t\t}\n\t\t}\n\n\t\tif (\n\t\t\tthisScript.oper({\n\t\t\t\tid: 508,\n\t\t\t\tname: '检测_是否找到逢魔首领',\n\t\t\t\toperator: [thisOperator[1], thisOperator[10]],\n\t\t\t})\n\t\t) {\n\t\t\treturn true;\n\t\t}\n\n\t\tif (\n\t\t\tthisScript.oper({\n\t\t\t\tname: '检测_首领BOSS挑战页',\n\t\t\t\toperator: [{\n\t\t\t\t\tdesc: thisOperator[2].desc,\n\t\t\t\t}, {\n\t\t\t\t\tdesc: thisOperator[8].desc,\n\t\t\t\t}],\n\t\t\t})\n\t\t) {\n\t\t\tthisScript.oper({\n\t\t\t\tid: 508,\n\t\t\t\tname: '点击首领BOSS挑战按钮',\n\t\t\t\toperator: [{\n\t\t\t\t\toper: [thisOperator[2].oper[0]],\n\t\t\t\t}],\n\t\t\t});\n\t\t\tconsole.log(\n\t\t\t\t'检测首领boss是否能挑战,重试次数为:',\n\t\t\t\tthisScript.global.checked_yard_count\n\t\t\t);\n\t\t\t// 做延时检测 防止不断重试点击挑战\n\t\t\tif (thisScript.global.checked_yard_count >= 5) {\n\t\t\t\tthisScript.global.checked_yard_count = 0;\n\t\t\t\tconsole.log('无法点击首领BOSS集结挑战，退出集结挑战页');\n\t\t\t\tthisScript.oper({\n\t\t\t\t\tid: 508,\n\t\t\t\t\tname: '检测_关闭首领BOSS',\n\t\t\t\t\toperator: [{\n\t\t\t\t\t\toper: [\n\t\t\t\t\t\t\tthisOperator[2].oper[1],\n\t\t\t\t\t\t],\n\t\t\t\t\t}],\n\t\t\t\t});\n\t\t\t\tsleep(2000);\n\n\t\t\t\tthisScript.oper({\n\t\t\t\t\tname: '无法点击首领BOSS集结挑战，换一个首领_是否有寻找 逢魔·普通/极 按钮',\n\t\t\t\t\toperator: [thisOperator[thisConf && thisConf['switch_ji_enabled'] ? 9 : 0]], //\t检测 是否有开启 逢魔·极\n\t\t\t\t})\n\t\t\t} else {\n\t\t\t\tsleep(1000);\n\t\t\t\tif (!thisScript.global.checked_yard_count) {\n\t\t\t\t\tthisScript.global.checked_yard_count = 1;\n\t\t\t\t} else {\n\t\t\t\t\tthisScript.global.checked_yard_count += 1;\n\t\t\t\t}\n\t\t\t}\n\n\t\t\treturn true;\n\t\t}\n\n\n\t\tif (\n\t\t\tthisScript.oper({\n\t\t\t\tid: 508,\n\t\t\t\tname: '检测_是否为提示框',\n\t\t\t\toperator: [thisOperator[3]],\n\t\t\t})\n\t\t) {\n\t\t\treturn true;\n\t\t}\n\n\t\tif (\n\t\t\tthisScript.oper({\n\t\t\t\tid: 508,\n\t\t\t\tname: '检测_点击进入战斗',\n\t\t\t\toperator: [thisOperator[4]],\n\t\t\t})\n\t\t) {\n\t\t\treturn true;\n\t\t}\n\n\t\tif (\n\t\t\tthisScript.oper({\n\t\t\t\tname: '检测_结算页',\n\t\t\t\toperator: [thisOperator[5]],\n\t\t\t}) ||\n\t\t\tthisScript.oper({\n\t\t\t\tname: '检测_结算页',\n\t\t\t\toperator: [{\n\t\t\t\t\tdesc: thisOperator[6].desc,\n\t\t\t\t\toper: thisOperator[5].oper,\n\t\t\t\t}],\n\t\t\t})\n\t\t) {\n\t\t\tthisScript.global.fm_kiss_boss_flag = true;\n\t\t\treturn true;\n\t\t}\n\n\t\tif (\n\t\t\tthisScript.oper({\n\t\t\t\tname: '检测_现世逢魔奖励是否已领取',\n\t\t\t\toperator: [{\n\t\t\t\t\tdesc: thisOperator[0].desc,\n\t\t\t\t}],\n\t\t\t})\n\t\t) {\n\t\t\tif (thisScript.global.fm_kiss_boss_flag) {\n\t\t\t\tthisScript.superGlobal.next_scheme_name = thisScript?.scheme?.config['508']?.next_scheme as string;\n\t\t\t\tthisScript.rerun('返回庭院');\n\t\t\t} else {\n\t\t\t\tlet operatorIndex = thisConf && thisConf['switch_ji_enabled'] ? 9 : 0\n\n\t\t\t\t// 多次寻找无果后放弃挑战逢魔·极，寻找普通逢魔\n\t\t\t\tif (thisConf && thisConf['switch_ji_enabled'] && thisScript.global.fm_boss_btn_click_cnt >= (parseInt(thisConf.times_for_search_boss as string) || 20)) {\n\t\t\t\t\toperatorIndex = 0;\n\t\t\t\t}\n\n\t\t\t\t// 尝试了多次寻找逢魔·极首领，放弃挑战逢魔·极，挑战普通逢魔，重试次数是原有的两倍\n\t\t\t\tconst reTryNum = thisConf && thisConf['switch_ji_enabled'] && operatorIndex === 0 ? 2 : 1\n\n\t\t\t\tif (\n\t\t\t\t\tthisScript.oper({\n\t\t\t\t\t\tname: '检测_是否有寻找 逢魔·普通/极 按钮',\n\t\t\t\t\t\toperator: [thisOperator[operatorIndex]], //\t检测 是否有开启 逢魔·极\n\t\t\t\t\t})\n\t\t\t\t) {\n\t\t\t\t\tif (!thisScript.global.fm_boss_btn_click_cnt) {\n\t\t\t\t\t\tthisScript.global.fm_boss_btn_click_cnt = 0;\n\t\t\t\t\t}\n\t\t\t\t\tif (thisScript.global.fm_boss_btn_click_cnt++ >= (parseInt(thisConf.times_for_search_boss as string) * reTryNum || 20 * reTryNum)) {\n\t\t\t\t\t\tthisScript.global.fm_kiss_boss_flag = true;\n\t\t\t\t\t\tthisScript.myToast(\n\t\t\t\t\t\t\t`第${thisScript.global.fm_boss_btn_click_cnt}次点击查找逢魔·普通/极首领按钮未成功进入首领挑战，标记挑战成功e`\n\t\t\t\t\t\t);\n\t\t\t\t\t} else {\n\t\t\t\t\t\tthisScript.myToast(\n\t\t\t\t\t\t\t`第${thisScript.global.fm_boss_btn_click_cnt}次点击查找逢魔·普通/极首领按钮e`\n\t\t\t\t\t\t);\n\t\t\t\t\t}\n\t\t\t\t\tif (thisConf && thisConf['switch_skip_search_boss']) {\n\t\t\t\t\t\treturn thisScript.oper({\n\t\t\t\t\t\t\tid: 508,\n\t\t\t\t\t\t\tname: '跳过比色boss直接点击中心',\n\t\t\t\t\t\t\toperator: [{\n\t\t\t\t\t\t\t\toper: thisOperator[10].oper\n\t\t\t\t\t\t\t}],\n\t\t\t\t\t\t})\n\t\t\t\t\t}\n\t\t\t\t\tsleep(2000);\n\t\t\t\t\treturn true;\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t\tif (thisScript.oper({\n\t\t\tname: '歌姬胧车',\n\t\t\toperator: [thisOperator[11]],\n\t\t})) {\n\t\t\treturn true\n\t\t}\n\t\treturn false;\n\t}\n}\n",
+  "colors": {
+    "逢魔_捡垃圾": {
+      "type": "find_colors",
+      "groups": [
+        [
+          [
+            627,
+            376,
+            "#b24620"
+          ],
+          [
+            633,
+            362,
+            "#ab4220"
+          ],
+          [
+            618,
+            370,
+            "#fff5d3"
+          ],
+          [
+            637,
+            382,
+            "#fff4d2"
+          ]
+        ],
+        [
+          [
+            488,
+            338,
+            "#b34620"
+          ],
+          [
+            493,
+            324,
+            "#a94120"
+          ],
+          [
+            501,
+            332,
+            "#fff4d4"
+          ],
+          [
+            500,
+            344,
+            "#fff4d2"
+          ]
+        ],
+        [
+          [
+            1010,
+            347,
+            "#b14520"
+          ],
+          [
+            1013,
+            333,
+            "#a94120"
+          ],
+          [
+            1021,
+            341,
+            "#fff4d4"
+          ],
+          [
+            1019,
+            352,
+            "#fff5d3"
+          ]
+        ],
+        [
+          [
+            871,
+            325,
+            "#b1461f"
+          ],
+          [
+            877,
+            313,
+            "#b0481d"
+          ],
+          [
+            883,
+            319,
+            "#fff4d4"
+          ],
+          [
+            882,
+            332,
+            "#fff4d2"
+          ]
+        ]
+      ],
+      "region": [
+        159,
+        207,
+        1267,
+        584
+      ]
+    }
+  }
+}

@@ -464,12 +464,19 @@ def cmd_marathon(args):
         print(plan_yaml(load_plan(args.plan)))
         return 0
     app = _app(args)
+    if args.resume is not None:
+        if args.plan or args.preview or args.until:
+            raise ValueError("--resume 使用原计划，不能同时传 --plan/--preview/--until")
+        result = app.plans.resume(args.resume, background=False, rounds=args.rounds,
+                                  hours=args.hours, repair=args.repair)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 1 if result["status"] == "error" else 0
     inst = args.instance or app.instance_names()[0]
     if args.preview:
         print(json.dumps(app.plans.preview(inst, args.plan), ensure_ascii=False, indent=2, default=str))
         return 0
     plan = load_plan(args.plan)
-    missing = [it["workflow"] for it in plan["items"] if it["workflow"] not in app.workflows()]
+    missing = [it["workflow"] for it in plan["items"] if not it.get("program") and it["workflow"] not in app.workflows()]
     if plan.get("home_between", True) and "home" not in app.workflows():
         missing.append("home")
     if missing:
@@ -480,7 +487,7 @@ def cmd_marathon(args):
     hours = (deadline - _time.time()) / 3600 if deadline else None
     print(f"连续日常开始：实例 {inst}，记录在 {out}")
     print(f"停止：Ctrl+C，或在该目录里新建一个名为 STOP 的文件")
-    result = app.plans.start(inst, args.plan, args.rounds or 1, hours, str(out), background=False, repair=args.repair)
+    result = app.plans.start(inst, args.plan, args.rounds, hours, str(out), background=False, repair=args.repair)
     reason = result.get("reason")
     print(f"已停止：{reason}。汇总见 {out / 'summary.md'}")
     if (out / "summary.md").is_file():
@@ -508,6 +515,55 @@ def cmd_samples(args):
     return 1 if isinstance(result, dict) and result.get("ok") is False else 0
 
 
+def cmd_programs(args):
+    app = _app(args)
+    if args.action == "list":
+        result = app.programs.list(args.source, args.status)
+    elif args.action == "audit":
+        result = app.programs.audit(args.source)
+        if args.output:
+            path = Path(args.output).resolve()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+            result = {**result["summary"], "report": str(path)}
+    elif args.action == "compile":
+        limit = args.limit if args.limit is not None else app.cfg["upstream"]["translate"].get("max_per_sync")
+        result = app.programs.compile(args.id, limit, args.retry,
+                                      include_components=args.include_components, source=args.source)
+    else:
+        if args.id is None:
+            raise ValueError("需要 --id 指定脚本转换任务")
+        if args.action == "source":
+            result = app.programs.source(args.id, args.path, args.offset, args.chars)
+        else:
+            if not args.proposal:
+                raise ValueError("需要 --proposal 转换结果.json")
+            result = app.programs.propose(args.id, json.loads(Path(args.proposal).read_text(encoding="utf-8")),
+                                          replace_pending=args.replace_pending)
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_handoffs(args):
+    app = _app(args)
+    if args.action == "list":
+        result = app.handoffs.list()
+    else:
+        if args.id is None:
+            raise ValueError("需要 --id 指定 agent 接管任务")
+        if args.action == "show":
+            result = app.handoffs.get(args.id)
+        else:
+            proposal = None
+            if args.action == "propose":
+                if not args.proposal:
+                    raise ValueError("需要 --proposal 修复提案.json")
+                proposal = json.loads(Path(args.proposal).read_text(encoding="utf-8"))
+            result = app.handoffs.diagnose(args.id, proposal)
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="oaf", description="阴阳师 YAML 工作流引擎 + Agent 自动监管")
     p.add_argument("--version", action="version", version=__version__)
@@ -520,6 +576,26 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--mumu-root")
     s.set_defaults(func=cmd_devices)
     sub.add_parser("list", help="列出工作流").set_defaults(func=cmd_list)
+    s = sub.add_parser("programs", help="上游脚本目录、完整源码、可续传转换与提案（不会自动批准）")
+    s.add_argument("action", choices=["list", "source", "audit", "compile", "propose"], nargs="?", default="list")
+    s.add_argument("--id", type=int, help="programs list 中的脚本转换任务编号")
+    s.add_argument("--source", choices=["oas", "assttyys"])
+    s.add_argument("--status")
+    s.add_argument("--path", help="源码相对路径，须来自该任务的源码清单")
+    s.add_argument("--offset", type=int, default=0)
+    s.add_argument("--chars", type=int, default=12000)
+    s.add_argument("--limit", type=int, help="本批最多转换数，不填按配置（null 表示不限）")
+    s.add_argument("--retry", action="store_true", help="显式重试失败、过大或不完整的转换")
+    s.add_argument("--include-components", action="store_true", help="全量转换时也处理所有功能组件")
+    s.add_argument("--output", help="audit 的完整 JSON 报告路径；标准输出只显示统计")
+    s.add_argument("--proposal", help="agent 完整转换结果 JSON 文件；只产生待审提案")
+    s.add_argument("--replace-pending", action="store_true", help="修订未批准的候选；旧草稿作废，新草稿重新等待审批")
+    s.set_defaults(func=cmd_programs)
+    s = sub.add_parser("handoffs", help="查看或诊断持久化的 agent 故障接管任务")
+    s.add_argument("action", choices=["list", "show", "diagnose", "propose"], nargs="?", default="list")
+    s.add_argument("--id", type=int)
+    s.add_argument("--proposal", help="修复 ops JSON 文件；沿用既有验证和用户审批")
+    s.set_defaults(func=cmd_handoffs)
     s = sub.add_parser("validate", help="检查工作流格式并跑回放测试")
     s.add_argument("workflow")
     s.add_argument("--strict", action="store_true", help="没有样本时也判定为未验证")
@@ -535,12 +611,14 @@ def build_parser() -> argparse.ArgumentParser:
     s.set_defaults(func=cmd_run)
     s = sub.add_parser("marathon", help="连续日常：按计划循环跑多个工作流（补给、结界突破、御魂、探索），记日志、统计、留样本")
     s.add_argument("-i", "--instance", default=None)
-    s.add_argument("--plan", help="计划文件（YAML）；不给就用默认计划，看默认计划：--print-plan")
+    s.add_argument("--plan", help="计划文件（YAML）或 daily/weekly/all；不给就用默认计划")
+    s.add_argument("--resume", type=int, help="从指定历史计划恢复；不重试结果不确定的步骤")
     s.add_argument("--hours", type=float, help="跑多少小时后停")
     s.add_argument("--until", help="跑到几点停，如 23:30")
     s.add_argument("--rounds", type=int, help="最多跑几轮")
     s.add_argument("--out", help="记录目录（默认 <数据目录>/marathon/<开始时间>）")
-    s.add_argument("--repair", action="store_true", help="失败时让大模型诊断修复（默认只记录样本，事后再学）")
+    s.add_argument("--repair", action="store_true", default=True, help="失败时让 agent 诊断修复（默认开启）")
+    s.add_argument("--no-repair", dest="repair", action="store_false", help="只保存接管证据，不调用大模型")
     s.add_argument("--print-plan", action="store_true", help="打印计划后退出")
     s.add_argument("--preview", action="store_true", help="按任务账本预览缺口与阻塞原因，不点击")
     s.set_defaults(func=cmd_marathon)

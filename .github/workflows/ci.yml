@@ -49,6 +49,8 @@ jobs:
           oaf --home "$RUNNER_TEMP/oaf" validate regional_boss
           oaf --home "$RUNNER_TEMP/oaf" validate task_scan
           oaf --home "$RUNNER_TEMP/oaf" marathon --print-plan
+          oaf --home "$RUNNER_TEMP/oaf" programs list
+          oaf --home "$RUNNER_TEMP/oaf" handoffs list
           oaf --home "$RUNNER_TEMP/oaf" sync status
           oaf --home "$RUNNER_TEMP/oaf" config get llm.budget
       - name: MCP smoke test (stdio)

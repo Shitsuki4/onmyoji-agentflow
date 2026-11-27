@@ -361,54 +361,105 @@ def build_realm_raid(F: Funcs) -> dict:
     }
 
 
+EXPLORATION_EXIT_DIALOG = {"all": [
+    {"colors": [[400, 300, "#cbb59c"], [850, 315, "#cbb59c"], [450, 416, "#f3b25e"], [821, 416, "#f3b25e"]]},
+    {"text": "确认退出探索", "region": [475, 285, 320, 70]},
+]}
+
+
 def build_exploration(F: Funcs) -> dict:
     op0 = F.op(14, 0)["oper"]
     icon_off = op0[0]["rect"]           # [0, 0, 42, 51] added to the found icon
     swipe_from, swipe_to = op0[1]["rect"], op0[2]["rect"]
     explore_map = F.when(14, 0)
-    leave = [{"click": op0[3]["rect"], "delay": op0[3]["delay"]}, {"click": op0[4]["rect"], "delay": op0[4]["delay"]}]
+    leave = [F.click(14, 0, 3), {"set": {"exit_requested": 1}}]
+    reset_visit = {"swipes": 0, "label_retries": 0, "exit_requested": 0}
     chapter_screen = {"any": [F.when(14, 4), F.when(14, 3), {"res": "探索地图界面"}]}
-    states = common_battle_states(F, {"rounds": "rounds + boss", "boss": 0}) + [
+    boss_icon = {"find": "探索_挑战BOSS"}
+    challenge_icon = {"find": "探索_挑战"}
+    challenge = {"click_found": True, "offset": icon_off, "delay": op0[0]["delay"]}
+    search_retest_ms = 500
+    label_height = op0[5]["rect"][2]
+    labels = {"打经验": "探索_经验标识", "打掉落": "探索_掉落标识"}
+    filter_states = []
+    for mode, label in labels.items():
+        mode_guard = {"expr": f"challenge_type == {mode!r}"}
+        filter_states.extend([
+            {"id": f"challenge_{mode}", "desc": f"挑战离{mode[1:]}标识最近的小怪",
+             "from": f"assttyys 014 {label}",
+             "when": {"all": [mode_guard, explore_map, {"not": F.when(14, 2)}, {"not": boss_icon},
+                              {"find_near": {"target": "探索_挑战", "reference": label, "max_below": label_height,
+                                             "max_distance": label_height * 15 * 1.414}}]},
+             "do": [challenge, {"set": {"label_retries": 0}}], "retest_ms": search_retest_ms,
+             "max_repeat": 4, "progress": True},
+            {"id": f"wait_label_{mode}", "desc": f"等待{mode[1:]}标识出现",
+             "from": f"assttyys 014 {label} keepScreen",
+             "when": {"all": [mode_guard, explore_map, {"expr": "label_retries < 4"}, {"not": {"find": label}}]},
+             "do": [{"wait": 400}, {"inc": "label_retries"}], "max_repeat": 4},
+        ])
+    swipe_states = [
+        {"id": sid, "desc": "当前屏幕没有符合条件的挑战图标，向左划地图",
+         "from": "assttyys 014 regionBezierSwipe",
+         "when": {"all": [explore_map, {"expr": f"swipes < max_swipes and swipe_speed == {speed!r}"}]},
+         "do": [{"swipe": {"from": swipe_from, "to": swipe_to}, "duration_ms": duration, "delay": 200},
+                {"inc": "swipes"}, {"set": {"label_retries": 0}}], "max_repeat": 40}
+        for sid, speed, duration in (("swipe_map", "慢", [800, 1200]), ("swipe_map_fast", "快", [200, 400]),
+                                     ("swipe_map_medium", "中", [500, 700]))
+    ]
+    battle_states = common_battle_states(F, {"rounds": "rounds + boss", "boss": 0})
+    next(state for state in battle_states if state["id"] == "stamina_empty")["do"] = [
+        {"stop": {"reason": "体力不足", "result": "blocked", "verified": False}}]
+    loss = next(state for state in battle_states if state["id"] == "settle_lose")
+    loss["do"][0]["set"].pop("rounds")
+    states = battle_states + [
+        {"id": "confirm_leave_map", "desc": "确认退出探索地图", "from": "assttyys 014 #0 oper[4]，实机退出弹窗",
+         "when": {"all": [{"expr": "exit_requested == 1"}, EXPLORATION_EXIT_DIALOG]},
+         "do": [F.click(14, 0, 4, recheck=True), {"set": reset_visit}], "max_repeat": 3},
+        {"id": "wait_leave_map", "desc": "已点返回，等待退出探索弹窗",
+         "when": {"all": [{"expr": "exit_requested == 1"}, explore_map]},
+         "do": [{"wait": 350}], "max_repeat": 5},
         # Rounds used up: do not stop on the result screen (「点击屏幕继续」) but leave the chapter
         # map and stop once the chapter / big exploration map is on screen.
         {"id": "rounds_done_leave", "desc": "轮数已打满，还在章节地图里：点左上角返回并确认退出",
          "from": "assttyys 014 #0 oper[3]/[4]",
          "when": {"all": [explore_map, {"expr": "rounds >= max_rounds"}]},
-         "do": leave + [{"set": {"swipes": 0}}], "max_repeat": 4},
+         "do": leave, "max_repeat": 4},
         {"id": "rounds_done", "desc": "轮数已打满，已回到章节界面或探索大地图，结束",
          "when": {"all": [chapter_screen, {"expr": "rounds >= max_rounds"}]},
-         "do": [{"stop": "探索轮数已打满，已回到章节界面"}]},
+         "do": [{"stop": {"reason": "探索轮数已打满，已回到章节界面", "result": "completed", "verified": True}}]},
         {"id": "boss_appeared", "desc": "首领出现，点首领", "from": "assttyys 014 #2",
-         "when": F.when(14, 2), "do": [{"wait": 1000}, F.click(14, 2), {"set": {"boss": 1, "swipes": 0}}], "max_repeat": 4, "progress": True},
+         "when": F.when(14, 2), "do": [{"wait": 1000}, F.click(14, 2), {"set": {"boss": 1, "swipes": "max_swipes", "label_retries": 0}}], "max_repeat": 4, "progress": True},
         {"id": "challenge_boss", "desc": "地图里有首领挑战图标，点它", "from": "assttyys 014 探索_挑战BOSS",
-         "when": {"all": [explore_map, {"find": "探索_挑战BOSS"}]},
-         "do": [{"click_found": True, "offset": icon_off, "delay": op0[0]["delay"]}, {"set": {"boss": 1, "swipes": 0}}],
-         "max_repeat": 4, "progress": True},
+         "when": {"all": [explore_map, boss_icon]},
+         "do": [challenge, {"set": {"boss": 1, "swipes": "max_swipes", "label_retries": 0}}],
+         "retest_ms": search_retest_ms, "max_repeat": 4, "progress": True},
         {"id": "challenge", "desc": "地图里有小怪挑战图标（无差别），点它", "from": "assttyys 014 探索_挑战",
-         "when": {"all": [explore_map, {"find": "探索_挑战"}]},
-         "do": [{"click_found": True, "offset": icon_off, "delay": op0[0]["delay"]}, {"set": {"swipes": 0}}],
-         "max_repeat": 4, "progress": True},
-        {"id": "swipe_map", "desc": "当前屏幕没有挑战图标，向左划地图", "from": "assttyys 014 regionBezierSwipe",
-         "when": {"all": [explore_map, {"expr": "swipes < max_swipes"}]},
-         "do": [{"swipe": {"from": swipe_from, "to": swipe_to}, "duration_ms": [800, 1200], "delay": 200},
-                {"inc": "swipes"}], "max_repeat": 40},
+         "when": {"all": [{"expr": "challenge_type == '无差别'"}, explore_map,
+                          {"not": F.when(14, 2)}, {"not": boss_icon}, challenge_icon]},
+         "do": [challenge, {"set": {"label_retries": 0}}],
+         "retest_ms": search_retest_ms, "max_repeat": 4, "progress": True},
+    ] + filter_states + swipe_states + [
         {"id": "leave_map", "desc": "划了 max_swipes 次还没怪，点左上角返回并确认退出", "from": "assttyys 014 #0 oper[3]/[4]",
          "when": explore_map,
-         "do": leave + [{"set": {"swipes": 0}}], "max_repeat": 3},
-        {"id": "chest", "desc": "章节界面有宝箱，先领宝箱", "from": "assttyys 014 #4 + 探索_宝箱",
-         "when": {"all": [F.when(14, 4), {"find": "探索_宝箱"}]},
+         "do": leave, "max_repeat": 3},
+        {"id": "chest", "desc": "章节界面有宝箱，先领宝箱", "from": "assttyys 014 #3/#4 + 探索_宝箱",
+         "when": {"all": [{"any": [F.when(14, 4), F.when(14, 3)]}, {"find": "探索_宝箱"}]},
          "do": [{"click_found": True, "offset": [0, 0, 10, 10], "delay": 500}], "max_repeat": 4},
         {"id": "enter_normal", "desc": "章节界面（普通），点探索进入", "from": "assttyys 014 #4",
-         "when": F.when(14, 4), "do": [F.click(14, 4)], "max_repeat": 5},
+         "when": F.when(14, 4), "do": [F.click(14, 4), {"set": reset_visit}], "max_repeat": 5},
         {"id": "enter_hard", "desc": "章节界面（困难），点探索进入", "from": "assttyys 014 #3",
-         "when": F.when(14, 3), "do": [F.click(14, 3)], "max_repeat": 5},
+         "when": F.when(14, 3), "do": [F.click(14, 3), {"set": reset_visit}], "max_repeat": 5},
         {"id": "misc_5", "desc": "探索界面杂项弹窗", "from": "assttyys 014 #5",
-         "when": F.when(14, 5), "do": [F.click(14, 5)], "max_repeat": 5},
+         "when": F.when(14, 5), "do": [F.click(14, 5), F.click(14, 5, 1)], "max_repeat": 5},
         {"id": "misc_6", "desc": "探索界面杂项弹窗", "from": "assttyys 014 #6",
          "when": F.when(14, 6), "do": [F.click(14, 6)], "max_repeat": 5},
         # Big exploration map (新版界面): the chapters are listed on the right under the 「主线」 tab,
         # newest at the bottom. Pick the lowest chapter title found; if the list is not showing
         # (「玩法」 tab open), click 「主线」 first; the fixed chapter_xy is only the last resort.
+        {"id": "chapter_configured", "desc": "探索大地图，点击配置中的章节坐标", "from": "assttyys 014 #1 xy",
+         "when": {"all": [{"expr": "chapter_selection == '坐标'"}, EXPLORE_MAP]},
+         "do": [{"click": {"x_param": "chapter_x", "y_param": "chapter_y"}, "delay": 1000, "recheck": True},
+                {"set": {"tab_clicks": 0}}], "max_repeat": 5},
         {"id": "chapter_last", "desc": "探索大地图，点「主线」列表里最下面（最新）的一章", "from": "assttyys 014 #1（按新版界面改写）",
          "when": {"all": [{"res": "探索地图界面"}, {"find": "探索_主线章节标题", "pick": "last"}]},
          "do": [{"click_found": True, "offset": [-12, 2, 10, 12], "delay": 1000}, {"set": {"tab_clicks": 0}}],
@@ -423,11 +474,16 @@ def build_exploration(F: Funcs) -> dict:
         {"id": "nav_courtyard", "desc": "在庭院，点「探索」灯笼进探索大地图",
          "when": {"all": [{"expr": "rounds < max_rounds"}, COURTYARD, COURTYARD_EXPLORE]},
          "do": [{"click_found": True, "offset": [-12, -8, 12, 8], "delay": 2500}], "max_repeat": 3},
+        {"id": "nav_courtyard_sakura", "desc": "在樱花庭院，点「探索」灯笼进探索大地图",
+         "from": "assttyys 029，新版实机庭院",
+         "when": {"all": [{"expr": "rounds < max_rounds"}, {"text": "加成", "region": [345, 15, 80, 80]},
+                          {"text": "召唤", "region": [1000, 145, 150, 130]},
+                          {"text": "探索", "region": [590, 120, 170, 135]}]},
+         "do": [{"click_found": True, "offset": [-12, -8, 12, 8], "delay": 2500, "recheck": True}], "max_repeat": 3},
     ]
     return {
         "format": 1, "name": "exploration", "title": "探索（个人）",
-        "desc": ("在探索地图里优先打首领，其次打小怪（无差别），没怪时划动地图，划满次数后退出重进。"
-                 "由 assttyys 方案「个人探索」的 014 翻译；「打经验」「打掉落」模式没有做。"),
+        "desc": "探索时优先挑战首领，小怪可按经验或掉落筛选。找不到目标时滑动地图，达到上限后退出重进。",
         "resources": ["assttyys/colors.yaml"],
         "inline_resources": {
             "chapter_xy": {"type": "click", "rect": [1111, 464, 1131, 478],
@@ -443,8 +499,14 @@ def build_exploration(F: Funcs) -> dict:
         },
         "similarity": 93,
         "params": {"max_rounds": {"default": 20, "min": 1, "max": 500, "desc": "探索轮数（打完首领算一轮）"},
-                   "max_swipes": {"default": 4, "min": 1, "max": 30, "desc": "没怪时最多划几次再退出（assttyys 默认 4）"}},
-        "vars": {"rounds": 0, "boss": 0, "losses": 0, "swipes": 0, "pending": 0, "started": 0, "tab_clicks": 0},
+                   "max_swipes": {"default": 4, "min": 1, "max": 30, "desc": "没怪时最多滑动次数"},
+                   "challenge_type": {"default": "无差别", "choices": ["无差别", *labels], "desc": "小怪挑战类型"},
+                   "swipe_speed": {"default": "慢", "choices": ["快", "中", "慢"], "desc": "探索地图滑动速度"},
+                   "chapter_selection": {"default": "最新", "choices": ["最新", "坐标"], "desc": "章节选择方式"},
+                   "chapter_x": {"default": 1156, "min": 10, "max": 1269, "desc": "指定章节的横坐标"},
+                   "chapter_y": {"default": 501, "min": 10, "max": 709, "desc": "指定章节的纵坐标"}},
+        "vars": {"rounds": 0, "boss": 0, "losses": 0, "swipes": 0, "pending": 0, "started": 0,
+                 "tab_clicks": 0, "label_retries": 0, "exit_requested": 0},
         "limits": dict(LIMITS),
         "counts": {"rounds": "max_rounds"},
         "states": states,
@@ -522,8 +584,8 @@ def build_home(F: Funcs) -> dict:
     leave = [F.click(14, 0, 3), F.click(14, 0, 4)]
     states = [
         dict(EXIT_DIALOG_STATE),
-        {"id": "courtyard", "desc": "已在庭院，结束", "when": COURTYARD, "do": [{"stop": "已回到庭院"}]},
         REWARD_HOME,
+        {"id": "courtyard", "desc": "已在庭院，结束", "when": COURTYARD, "do": [{"stop": "已回到庭院"}]},
     ] + settle + [
         {"id": "explore_chapter", "desc": "在探索章节地图里，点左上返回并确认退出",
          "when": F.when(14, 0), "do": leave, "max_repeat": 3},

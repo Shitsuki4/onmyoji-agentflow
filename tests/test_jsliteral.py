@@ -23,6 +23,14 @@ def test_rejects_code():
         parse("[x => 1]")
 
 
+def test_whole_literal_and_arithmetic_precedence():
+    assert parse("[10 + 2 * 3, 10 - 2 * 3]") == [16, 4]
+    assert parse("[] /* only a comment */") == []
+    for text in ("[]; dangerous()", "{} + arbitrary", "[1", "{value: 1"):
+        with pytest.raises(ValueError):
+            parse(text)
+
+
 def test_extract_and_consts():
     src = "const left = 0;\n// const right = 2;\nexport const a: IFoo = { k: [1, ']', 2] };"
     lit, end = extract_literal_after(src, r"a\s*:\s*\w+\s*=")

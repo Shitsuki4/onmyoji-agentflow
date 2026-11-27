@@ -144,7 +144,7 @@ oaf marathon --hours 6 --plan my.yaml    # 用自己的计划跑 6 小时
 - 只跑一轮用 `--rounds 1`。如果今日已有进度，先在花合战核对剩余次数，再用自定义计划限制体力开支；固定场次计划不读取任务进度。
 - 每一项开始前先跑 `home` 回到庭院；`home` 连续失败 3 次就停下，等人处理。
 - 一项因为体力、突破券、胜率低、疲劳等原因停下，会按计划里的 `cooldown_on` 歇一段时间再试，不影响其他项。
-- 认不出的画面会截图存进记录目录的 `samples/`，事后拿来补识别规则；默认不在运行中调大模型修复（要的话加 `--repair`）。
+- 认不出的画面会截图存进记录目录的 `samples/`，并保存持久的 agent 接管任务；本开发分支默认诊断修复，`--no-repair` 只留证据。发生接管后计划暂停，修复继续经过验证与审批。
 - 记录目录默认是 `<数据目录>/marathon/<开始时间>`，里面有 `events.jsonl`（每一步）和 `summary.md`（每一项的次数、成功率、用时）。
 - **想停**：在记录目录里新建一个叫 `STOP` 的文件，当前这一项做完就停；或者在终端按 Ctrl+C。
 
@@ -244,7 +244,19 @@ oaf convert --all        # 等同 oaf sync --force
 8. **回滚**：`oaf sync rollback` 在 main 上反向提交，回到上一版转换结果。之后同样的上游提交会跳过，等上游再更新
    或加 `--force` 才会重新套用。
 
-### 大模型翻译新方案
+### 上游统一脚本转换（开发分支）
+
+本分支新增 OAS / assttyys 全目录收录、完整源码快照、依赖指纹、可续传转换队列和故障接管。大型程序由 agent 按需读取代码与资源；只有完整的 `format: 1` 转换结果才能生成待审候选。未转换、未验证、未审批和实机完成分别记录，不把识别资源转换当成任务已经可用。用法见 [上游统一转换与接管](docs/上游统一转换与接管.md)。
+
+新增 8 个按源码指纹锁定的转换配方，其中 7 个独立日常/周常任务、1 个普通召唤画面组件；包括硬上限一次的蓝票单抽和勋章商店蓝票/黑蛋。它们仍需用户审核和真实回放。内置 `daily` / `weekly` / `all` 计划，支持开放窗口、依赖、跨重启检查点和寄养次数/间隔限制。先用 `oaf marathon --plan all --preview` 查看待转换、待审批及账号档案缺口；用法和实际边界见 [日常周常编排](docs/日常周常编排.md)。
+
+```powershell
+oaf programs list
+oaf programs compile --limit 2
+oaf handoffs list
+```
+
+### 大模型翻译指定 assttyys 方案
 
 assttyys 里有 100 多个功能带自定义代码，没法机械转换。想把某个 assttyys 方案变成工作流，在配置里写上方案名
 （方案名见工作区 `resources/upstream/assttyys/schemes.yaml`）：
@@ -278,7 +290,7 @@ upstream:
         - "https://gitee.com/runheng/OnmyojiAutoScript.git"
   fetch_timeout_s: 900
   auto_merge_data: true
-  schedule: {enabled: false, interval_hours: 24}   # 打开后 oaf web 运行期间会定时同步
+  schedule: {enabled: false, interval_hours: 24}   # 打开后网页 / MCP 服务运行期间会定时同步
 ```
 
 想换源、加自己的镜像，改 `urls` 就行。定时同步也可以用 Windows 任务计划程序每天跑一次 `oaf sync`。
@@ -290,7 +302,7 @@ upstream:
 
 **工具**：`list_instances`（设备 / 实例）、`screenshot`、`list_workflows`、`validate_workflow`、`run_workflow`
 （`mode` 可选 run / observe / trial）、`stop_workflow`、`observe`、`status`、`logs`、`diagnose`、`sync`（等同 `oaf sync`，
-还能 check / status / show）、`list_pending`、`approve`、`reject`、`rollback`、`get_config`、`set_config`。
+还能 check / status / show）、`upstream_programs`（源码与转换队列）、`agent_handoffs`（故障接管）、`list_pending`、`approve`、`reject`、`rollback`、`get_config`、`set_config`。
 
 **批准仍然由你来做**：花勾玉、抽卡、购买、出售、分解这类敏感操作，以及改识别数据 / 流程的修复，agent 调 `approve`
 不会直接通过——
@@ -404,7 +416,7 @@ CI（GitHub Actions）在 Windows 和 Linux 上跑全部测试，还会拉取真
 - 实机只测过一台 Win10 + MuMu 12（nx_main，手机版布局）和一个测试号（2026-11-16）：御魂 3 把、结界突破 3 次、探索 1 轮和 2 轮都跑通了；体力用完、御魂溢出、结界突破输掉、刷新冷却这些情况没在实机上遇到过。Win11 和旧版 MuMuPlayer-12.0 没测过。
 - 探索按新版大地图右侧「主线」列表点最新一章；想打别的章节，目前只能把 `chapter_xy` 改成那一章的坐标并去掉 `chapter_last` 状态。
 - 内置工作流的回放测试用的是程序合成的截图。
-- OAS 的资源会转换进工作区，但内置工作流还没有用它们；OAS 的任务流程是 Python 代码，还没有翻译通道。
+- OAS 的资源和任务源码会进入统一转换队列；本分支新增的语义转换与接管通道尚未接真实模型批量验证，不能视为全部 OAS 任务已经可运行。
 - 大模型修复和翻译只用模拟的大模型测试过，没接真实的 API 跑过。
 - OCR 是可选组件，没测过。
 - MCP：Claude Code 2.1.304 用 stdio 和 HTTP 都能连上并读到工具列表，Codex 0.163.0 能用 `codex mcp add` 加上配置；

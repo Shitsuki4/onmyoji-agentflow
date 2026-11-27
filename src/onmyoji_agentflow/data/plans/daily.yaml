@@ -1,0 +1,95 @@
+title: 每日日常与定时寮活动
+durable: true
+sync_before_start: true
+continuous: true
+task_aware: true
+home_between: true
+pause_s: 60
+items:
+  - {id: scan, workflow: task_scan, scope: daily}
+  - id: daily_sign
+    program: oas:Restart#daily_sign
+    task_key: daily_sign
+    scope: daily
+    once_per_period: true
+    on_failure: continue
+  - id: store_sign
+    program: oas:DailyTrifles#store_sign
+    task_key: store_sign
+    scope: daily
+    once_per_period: true
+    on_failure: continue
+  - id: daily_supply
+    workflow: daily_rewards
+    task_key: mail_and_friend_points
+    scope: daily
+    once_per_period: true
+    on_failure: continue
+  - id: friend_points
+    program: oas:DailyTrifles#friend_love
+    task_key: friend_points
+    once_per_period: true
+    on_failure: continue
+  - id: daily_summon
+    program: oas:DailyTrifles#one_summon
+    task_key: daily_summon
+    once_per_period: true
+    profile: daily_summon
+  - id: food_boxes
+    program: assttyys:func:700#food_boxes
+    task_key: food_boxes
+    cooldown_min: 60
+    min_interval_min: 60
+    on_failure: continue
+  - id: foster
+    workflow: foster
+    task_key: foster_started
+    limit_per_period: 4
+    min_interval_min: 360
+    cooldown_min: 15
+  - id: raid
+    workflow: realm_raid
+    task_key: realm_raid_wins
+    once_per_period: true
+    goal: realm_raid_wins
+    params: {max_runs: 12, auto_refresh: 1, max_refresh: 4, weak_first: 1, wins_per_page: 3, min_win_pct: 50}
+    cost: {realm_ticket_per_run: 1}
+  - id: daily_battles
+    workflow: orochi
+    task_key: battle_15
+    once_per_period: true
+    goal: battle_15
+    params: {max_runs: 15, layer: 10}
+    cost: {stamina_per_run: 6}
+  - id: flower_rewards
+    program: oas:TalismanPass#task_rewards
+    task_key: flower_task_rewards
+    once_per_period: true
+    on_failure: continue
+  - id: area_boss
+    program: oas:AreaBoss
+    profile: regional_boss
+    task_key: area_boss
+    once_per_period: true
+  - id: guild_missions
+    program: oas:CollectiveMissions
+    profile: guild_missions
+    task_key: guild_missions
+    once_per_period: true
+  - id: guild_banquet
+    program: oas:GuildBanquet
+    schedule_profile: guild_banquet
+    task_key: guild_banquet
+    once_per_period: true
+  - id: guild_hunt
+    program: oas:Hunt
+    schedule_profile: guild_hunt
+    profile: guild_hunt
+    task_key: guild_hunt
+    once_per_period: true
+  - id: guild_raid
+    program: oas:RyouToppa
+    schedule_profile: guild_raid
+    profile: guild_raid
+    task_key: guild_raid
+    once_per_period: true

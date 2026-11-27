@@ -49,6 +49,8 @@ the full path from `where oaf`.
 | `diagnose` | which states of a workflow match the current screen or an image file, with scores |
 | `logs` | recent events (filter `level`, `source`), or one run's summary by `run_id` |
 | `sync` | `run` / `force` / `check` / `status` / `show` — same as `oaf sync` |
+| `upstream_programs` | List the OAS/assttyys catalog and conversion queue, page through full sources, compile in the background, or submit a complete workflow proposal; never approves or runs it |
+| `agent_handoffs` | List/show durable timeout, stuck-screen and exception packets; request bounded diagnosis or submit patch ops through the existing validation/approval gate |
 | `list_pending` | sensitive-action confirmations and changes waiting for the user |
 | `approve` / `reject` | ask the user to approve (see below) / refuse |
 | `rollback` | `target=sync` (last sync or `id`) or `target=change` with `id` |

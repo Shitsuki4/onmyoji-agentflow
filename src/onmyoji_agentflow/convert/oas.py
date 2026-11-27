@@ -90,7 +90,18 @@ def convert_task(task_dir: Path, out_dir: Path, task_name: str | None = None) ->
                     resources[name] = {
                         "type": "image", "file": rel, "roi": _roi(it["roiBack"]), "front": front,
                         "threshold": float(it.get("threshold", 0.8)), "desc": desc,
+                        "method": it.get("method", "Template matching"),
+                        "roi_expand": 2,  # OAS RuleImage.ROI_BACK_EXPAND, before image matching.
                     }
+                    if it.get("method") == "Masked template matching":
+                        mask = src.with_name(src.stem + "_mask" + src.suffix)
+                        if mask.is_file():
+                            mask_rel = str(Path(rel).with_name(mask.name)).replace("\\", "/")
+                            destination = out_dir / mask_rel
+                            destination.parent.mkdir(parents=True, exist_ok=True)
+                            shutil.copyfile(mask, destination)
+                            resources[name]["mask_file"] = mask_rel
+                            n_images += 1
                 elif kind == "click":
                     # OAS RuleClick: the click area is roi_front (x, y, w, h)
                     resources[name] = {"type": "click", "rect": _xywh_to_rect(_roi(it["roiFront"])), "desc": desc}
@@ -130,27 +141,12 @@ def _asset_class_map(tasks_dir: Path) -> dict[str, str]:
 
 
 def convert_navigation(tasks_dir: Path, out_dir: Path) -> dict:
-    """Parse OAS's page graph (``Page(...)`` / ``.connect(...)``) into navigation.yaml."""
-    src_file = tasks_dir / "GameUi" / "default_pages.py"
-    if not src_file.exists():
-        src_file = tasks_dir / "GameUi" / "page.py"
-    text = src_file.read_text(encoding="utf-8")
-    classes = _asset_class_map(tasks_dir)
-
-    def res(ref: str) -> dict:
-        cls, attr = ref.split(".")
-        return {"task": classes.get(cls, cls), "name": attr}
-
-    pages = {}
-    for m in re.finditer(r"^(page_\w+)\s*=\s*Page\(\s*(\w+\.\w+)", text, re.M):
-        pages[m.group(1)] = {"check": res(m.group(2))}
-    links = []
-    for m in re.finditer(r"^(page_\w+)\.connect\(\s*(page_\w+)\s*,\s*(\w+\.\w+)", text, re.M):
-        links.append({"from": m.group(1), "to": m.group(2), "button": res(m.group(3))})
-    doc = {"source": "OnmyojiAutoScript tasks/GameUi", "license": "GPL-3.0", "pages": pages, "links": links}
+    """Parse the complete registry including composites and task-local pages."""
+    from .navigation import read_navigation
+    doc = read_navigation(tasks_dir, _asset_class_map(tasks_dir))
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "navigation.yaml").write_text(dump_yaml(doc), encoding="utf-8")
-    return {"pages": len(pages), "links": len(links)}
+    return {"pages": len(doc["pages"]), "links": len(doc["links"])}
 
 
 def convert(oas_root: str | os.PathLike, out_dir: str | os.PathLike, tasks: list[str] | None = None) -> dict:

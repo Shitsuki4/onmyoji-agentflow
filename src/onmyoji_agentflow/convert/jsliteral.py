@@ -35,24 +35,38 @@ class Parser:
                 self.i = len(s) if j < 0 else j + 1
             elif s.startswith("/*", self.i):
                 j = s.find("*/", self.i)
-                self.i = len(s) if j < 0 else j + 2
+                if j < 0:
+                    self.error("unterminated comment")
+                self.i = j + 2
             else:
                 break
 
     def value(self):
-        v = self.atom()
-        # simple arithmetic between numbers, e.g. ``429 + 433`` or ``855 - 782``
+        v = self.product()
         while isinstance(v, (int, float)) and not isinstance(v, bool):
             self.ws()
-            if self.i < len(self.s) and self.s[self.i] in "+-*" and not self.s.startswith("//", self.i):
+            if self.i < len(self.s) and self.s[self.i] in "+-":
                 op = self.s[self.i]
                 self.i += 1
-                rhs = self.atom()
-                if not isinstance(rhs, (int, float)):
+                rhs = self.product()
+                if type(rhs) not in (int, float):
                     self.error("non-numeric arithmetic")
-                v = v + rhs if op == "+" else v - rhs if op == "-" else v * rhs
+                v = v + rhs if op == "+" else v - rhs
             else:
                 break
+        return v
+
+    def product(self):
+        v = self.atom()
+        while type(v) in (int, float):
+            self.ws()
+            if self.i >= len(self.s) or self.s[self.i] != "*":
+                break
+            self.i += 1
+            rhs = self.atom()
+            if type(rhs) not in (int, float):
+                self.error("non-numeric arithmetic")
+            v *= rhs
         return v
 
     def atom(self):
@@ -101,6 +115,8 @@ class Parser:
         while self.i < len(self.s):
             c = self.s[self.i]
             if c == "\\":
+                if self.i + 1 >= len(self.s):
+                    self.error("unterminated string escape")
                 nxt = self.s[self.i + 1]
                 out.append({"n": "\n", "t": "\t"}.get(nxt, nxt))
                 self.i += 2
@@ -117,11 +133,15 @@ class Parser:
         out = []
         while True:
             self.ws()
+            if self.i >= len(self.s):
+                self.error("unterminated array")
             if self.s[self.i] == "]":
                 self.i += 1
                 return out
             out.append(self.value())
             self.ws()
+            if self.i >= len(self.s):
+                self.error("unterminated array")
             if self.s[self.i] == ",":
                 self.i += 1
             elif self.s[self.i] != "]":
@@ -132,6 +152,8 @@ class Parser:
         out = {}
         while True:
             self.ws()
+            if self.i >= len(self.s):
+                self.error("unterminated object")
             if self.s[self.i] == "}":
                 self.i += 1
                 return out
@@ -144,11 +166,15 @@ class Parser:
                 key = m.group(0)
                 self.i = m.end()
             self.ws()
+            if self.i >= len(self.s):
+                self.error("unterminated object")
             if self.s[self.i] != ":":
                 self.error("expected :")
             self.i += 1
             out[key] = self.value()
             self.ws()
+            if self.i >= len(self.s):
+                self.error("unterminated object")
             if self.s[self.i] == ",":
                 self.i += 1
             elif self.s[self.i] != "}":
@@ -156,7 +182,12 @@ class Parser:
 
 
 def parse(text: str, consts: dict | None = None):
-    return Parser(text, consts).value()
+    parser = Parser(text, consts)
+    result = parser.value()
+    parser.ws()
+    if parser.i != len(text):
+        parser.error("trailing code is not data")
+    return result
 
 
 def find_consts(src: str) -> dict:

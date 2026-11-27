@@ -9,6 +9,7 @@ import logging
 
 import numpy as np
 
+from ..errors import DeviceError
 from .adb import AdbDevice
 from .base import Device
 
@@ -58,6 +59,14 @@ class NemuDevice(Device):
         if self.adb is None:
             raise NotImplementedError("start_app requires adb")
         self.adb.start_app(package)
+
+    def restart_app(self, package: str) -> None:
+        if self.adb is None:
+            raise DeviceError("游戏重启需要绑定到当前实例的 ADB")
+        self.adb.restart_app(package)
+
+    def app_in_foreground(self, package: str) -> bool:
+        return self.adb is not None and self.adb.app_in_foreground(package)
 
     def close(self) -> None:
         self.ipc.nemu_ipc_release()

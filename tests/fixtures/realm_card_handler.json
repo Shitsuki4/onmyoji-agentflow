@@ -1,0 +1,171 @@
+{
+  "source": "import { IFuncOrigin, IFuncOperatorOrigin, IFuncOperator } from '@/interface/IFunc';\nimport { Script } from '@/system/script';\n// const normal = -1; //定义常量\nconst left = 0;\nconst center = 1;\nconst right = 2;\n\nexport class Func701 implements IFuncOrigin {\n\tid = 701;\n\tname = '结界卡更换';\n\tdesc = '';\n\tconfig = [{\n\t\tdesc: '',\n\t\tconfig: [{\n\t\t\tname: 'change_enchantment_type',\n\t\t\tdesc: '更换结界卡的所属类型',\n\t\t\ttype: 'list',\n\t\t\tdata: ['太鼓', '斗鱼'],\n\t\t\tdefault: '太鼓',\n\t\t\tvalue: '太鼓',\n\t\t}, {\n\t\t\tname: 'next_scheme',\n\t\t\tdesc: '执行完成后的操作',\n\t\t\ttype: 'scheme',\n\t\t\tdefault: '返回庭院',\n\t\t\tvalue: '返回庭院',\n\t\t}]\n\t}];\n\toperator: IFuncOperatorOrigin[] = [\n\t\t{ //\t0 判断_是否为己方结界\n\t\t\tdesc: [1280, 720,\n\t\t\t\t[\n\t\t\t\t\t[left, 309, 328, 0xddc9bb],\n\t\t\t\t\t[left, 192, 465, 0x13100d],\n\t\t\t\t\t[center, 604, 323, 0xddc9bb],\n\t\t\t\t\t[right, 912, 329, 0xddc5b3],\n\t\t\t\t\t[right, 1233, 689, 0x6e274c],\n\t\t\t\t],\n\t\t\t],\n\t\t\toper: [\n\t\t\t\t[center, 1280, 720, 599, 301, 626, 389, 1000], //  点击 式神育成\n\t\t\t\t[center, 1280, 720, 890, 305, 917, 391, 600], //  点击 结界卡\n\t\t\t],\n\t\t}, { // 1 判断_是否有结界卡奖励\n\t\t\tdesc: [1280, 720,\n\t\t\t\t[\n\t\t\t\t\t[right, 1086, 649, 0x8b3358],\n\t\t\t\t\t[left, 308, 329, 0xddc9bb],\n\t\t\t\t\t[center, 604, 323, 0xddc9bb],\n\t\t\t\t\t[right, 899, 330, 0xddc3b3],\n\t\t\t\t\t[right, 918, 206, 0x13100d],\n\t\t\t\t],\n\t\t\t],\n\n\t\t\toper: [\n\t\t\t\t[center, 1280, 720, 904, 171, 939, 197, 1000], //  点击 结界卡奖励\n\t\t\t],\n\t\t}, { // 2 检测_结界卡激活确认框\n\t\t\tdesc: [1280, 720,\n\t\t\t\t[\n\t\t\t\t\t[center, 854, 188, 0x362d28],\n\t\t\t\t\t[right, 1152, 561, 0x5c5235],\n\t\t\t\t\t[right, 1109, 120, 0x524e49],\n\t\t\t\t\t[center, 850, 255, 0xcbb59e],\n\t\t\t\t\t[center, 430, 256, 0xcbb59e],\n\t\t\t\t\t[center, 820, 436, 0xf4b25f],\n\t\t\t\t\t[center, 580, 430, 0xdf6851],\n\t\t\t\t],\n\t\t\t],\n\t\t\toper: [\n\t\t\t\t[center, 1280, 720, 704, 416, 820, 447, 1200], //  点击 确认\n\t\t\t],\n\t\t}, { // 3 检测_是否为结界卡界面\n\t\t\tdesc: [1280, 720,\n\t\t\t\t[\n\t\t\t\t\t[left, 120, 76, 0x75542b],\n\t\t\t\t\t[right, 1116, 109, 0xc7bdb2],\n\t\t\t\t\t[center, 748, 64, 0x543b2b],\n\t\t\t\t\t[right, 1150, 531, 0xb9b0a5],\n\t\t\t\t\t[center, 562, 498, 0xc7bdb2],\n\t\t\t\t],\n\t\t\t],\n\t\t\toper: [\n\t\t\t\t[right, 1280, 720, 1160, 96, 1202, 128, 1200], //  点击 关闭\n\t\t\t],\n\t\t}, { // 4 检测_结界卡界面_结界卡为空\n\t\t\tdesc: [\n\t\t\t\t1280,\n\t\t\t\t720,\n\t\t\t\t[\n\t\t\t\t\t[center, 850, 317, 0x452e20],\n\t\t\t\t\t[center, 850, 205, 0x826c61],\n\t\t\t\t\t[right, 1105, 100, 0xc7bdb3],\n\t\t\t\t\t[left, 114, 71, 0x6b4d28],\n\t\t\t\t\t[center, 747, 61, 0x543d2c],\n\t\t\t\t],\n\t\t\t],\n\t\t\toper: [\n\t\t\t\t[center, 1280, 720, 381, 107, 486, 140, 1200], // 点击 结界卡类型下拉框\n\t\t\t],\n\t\t}, { // 5 检测_检测_结界卡界面_结界卡为空_下拉框已打开\n\t\t\tdesc: [\n\t\t\t\t1280,\n\t\t\t\t720,\n\t\t\t\t[\n\t\t\t\t\t[center, 844, 291, 0x452e20],\n\t\t\t\t\t[center, 844, 211, 0x826c61],\n\t\t\t\t\t[center, 575, 102, 0xc7bdb2],\n\t\t\t\t\t[center, 466, 120, 0xe7d7c3],\n\t\t\t\t\t[center, 490, 566, 0x825e49],\n\t\t\t\t\t[center, 377, 192, 0xd7c9ba],\n\t\t\t\t],\n\t\t\t],\n\t\t\toper: [\n\t\t\t\t[center, 1280, 720, 386, 248, 497, 278, 1000], // 点击 结界卡分类 太鼓\n\t\t\t\t[center, 1280, 720, 392, 317, 491, 348, 1000], // 点击 结界卡分类 斗鱼\n\t\t\t\t[left, 1280, 720, 278, 201, 465, 266, 1000], // 点击 第一个结界卡\n\t\t\t],\n\t\t}, { // 6 检测_结界卡已放置待激活\n\t\t\tdesc: [\n\t\t\t\t1280, 720,\n\t\t\t\t[\n\t\t\t\t\t[center, 897, 276, 0xd0c8bf],\n\t\t\t\t\t[center, 847, 208, 0x826c61],\n\t\t\t\t\t[right, 1117, 117, 0xc7bdb2],\n\t\t\t\t\t[center, 572, 107, 0xc7bdb2],\n\t\t\t\t\t[right, 1088, 553, 0xfbf1b1],\n\t\t\t\t\t[right, 1150, 563, 0xdec47e],\n\t\t\t\t\t[right, 981, 605, 0x423128],\n\t\t\t\t\t[center, 958, 590, 0x3f3025],\n\t\t\t\t\t[center, 934, 640, 0x423128],\n\t\t\t\t]\n\t\t\t],\n\t\t\toper: [\n\t\t\t\t[right, 1280, 720, 1062, 573, 1140, 638, 1200], //  点击激活\n\t\t\t],\n\t\t}, { // 7 desc:式神育成页 oper123:上阵N卡\n\t\t\tdesc: [1280, 720,\n\t\t\t\t[\n\t\t\t\t\t[right, 1084, 83, 0xa7371d],\n\t\t\t\t\t[right, 1184, 203, 0x525252],\n\t\t\t\t\t[right, 968, 204, 0x505150],\n\t\t\t\t\t[right, 1127, 715, 0x3e2d1c],\n\t\t\t\t\t[right, 1185, 152, 0x414141],\n\t\t\t\t],\n\t\t\t],\n\t\t\toper: [\n\t\t\t\t[center, 1280, 720, 40, 636, 90, 670, 700],\n\t\t\t\t[center, 1280, 720, 126, 303, 177, 343, 1000],\n\t\t\t\t[center, 1280, 720, 1034, 548, 1056, 576, 700],\n\t\t\t\t[left, 1280, 720, 23, 24, 60, 63, 1200], //\t点击 退出\n\t\t\t\t[center, 1280, 720, 599, 301, 626, 389, 1000], //  点击 式神育成\n\t\t\t]\n\t\t}, { // 8 检测_结界卡已激活_高星(4+星)适配\n\t\t\tdesc: [\n\t\t\t\t1280,\n\t\t\t\t720,\n\t\t\t\t[\n\t\t\t\t\t[center, 897, 276, 0xd0c8bf],\n\t\t\t\t\t[center, 847, 208, 0x826c61],\n\t\t\t\t\t[right, 1117, 117, 0xc7bdb2],\n\t\t\t\t\t[center, 572, 107, 0xc7bdb2],\n\t\t\t\t\t[right, 1150, 563, 0xdec47e],\n\t\t\t\t\t[center, 946, 605, 0xc4a379],\n\t\t\t\t\t[right, 986, 586, 0xd2af88],\n\t\t\t\t\t[right, 974, 596, 0xbc9a73],\n\t\t\t\t],\n\t\t\t],\n\t\t}, { // 9 检测_结界卡已激活_低星(3-星)适配\n\t\t\tdesc: [\n\t\t\t\t1280,\n\t\t\t\t720,\n\t\t\t\t[\n\t\t\t\t\t[center, 897, 276, 0xd0c8bf],\n\t\t\t\t\t[center, 847, 208, 0x826c61],\n\t\t\t\t\t[right, 1117, 117, 0xc7bdb2],\n\t\t\t\t\t[center, 572, 107, 0xc7bdb2],\n\t\t\t\t\t[right, 1150, 563, 0xdec47e],\n\t\t\t\t\t[center, 946, 605, 0xc4a379],\n\t\t\t\t\t[right, 986, 586, 0x3f2f27],\n\t\t\t\t\t[right, 974, 596, 0x403027],\n\t\t\t\t],\n\t\t\t],\n\t\t}, { // 10 还剩余几分钟到期\n\t\t\tdesc: [\n\t\t\t\t1280, 720,\n\t\t\t\t[\n\t\t\t\t\t[center, 939, 276, 0xae4721],\n\t\t\t\t\t[center, 947, 276, 0xaa360d],\n\t\t\t\t\t[center, 951, 276, 0xb45e3e],\n\t\t\t\t\t[center, 958, 276, 0xaf4a25],\n\t\t\t\t\t[right, 967, 276, 0xb15330],\n\t\t\t\t\t[right, 975, 276, 0xac4019],\n\t\t\t\t\t[right, 1056, 568, 0xf6e7a4],\n\t\t\t\t\t[right, 1119, 584, 0x3d2a16],\n\t\t\t\t\t[right, 1108, 636, 0xe2bb54],\n\t\t\t\t\t[right, 1145, 636, 0xdfb84d],\n\t\t\t\t]\n\t\t\t],\n\t\t\toper: [\n\t\t\t\t[center, 1280, 720, 1145, 92, 1201, 131, 1000],\n\t\t\t]\n\t\t}, { // 11 COR范围\n\t\t\toper: [\n\t\t\t\t[center, 1280, 720, 918, 253, 1026, 294, 1000],\n\t\t\t]\n\t\t}, { //\t12 判断_是否为己方结界\n\t\t\tdesc: [1280, 720,\n\t\t\t\t[\n\t\t\t\t\t[center, 611, 300, 0x0c0804],\n\t\t\t\t\t[center, 913, 305, 0x0c0804],\n\t\t\t\t\t[left, 318, 305, 0x0c0804],\n\t\t\t\t\t[center, 613, 294, 0xe1cf6b],\n\t\t\t\t\t[left, 202, 462, 0x10100c],\n\t\t\t\t],\n\t\t\t],\n\t\t\toper: [\n\t\t\t\t[center, 1280, 720, 582, 270, 638, 400, 600], //  点击 式神育成\n\t\t\t],\n\t\t}, { // 13 育成候补式神\n\t\t\tdesc: [1280, 720,\n\t\t\t\t[\n\t\t\t\t\t[center, 460, 258, 0xcbb59e],\n\t\t\t\t\t[center, 799, 268, 0xcbb59e],\n\t\t\t\t\t[center, 467, 429, 0xdf6851],\n\t\t\t\t\t[center, 700, 431, 0xf4b25f],\n\t\t\t\t\t[center, 641, 429, 0xcbb59c],\n\t\t\t\t\t[center, 560, 356, 0x3e2e10],\n\t\t\t\t]\n\t\t\t],\n\t\t\toper: [\n\t\t\t\t[center, 1280, 720, 544, 351, 566, 369, 1000],\n\t\t\t\t[center, 1280, 720, 690, 414, 831, 453, 1000],\n\t\t\t]\n\t\t}, { // 14 退出结算_取消确认框\n\t\t\tdesc: '退出结算_取消确认框',\n\t\t\toper: [\n\t\t\t\t[center, 1280, 720, 444, 410, 598, 449, 1000],\n\t\t\t\t[center, 1280, 720, 955, 150, 988, 185, 1000],\n\t\t\t]\n\t\t}, { // 15 育成界面_全部\n\t\t\tdesc: [1280, 720,\n\t\t\t\t[\n\t\t\t\t\t[left, 36, 642, 0x4e2e9f],\n\t\t\t\t\t[left, 60, 660, 0x3534b8],\n\t\t\t\t\t[left, 94, 650, 0x263e82],\n\t\t\t\t\t[left, 79, 635, 0x2c3d8e],\n\t\t\t\t\t[left, 65, 671, 0x2b2788],\n\t\t\t\t]\n\t\t\t],\n\t\t\toper: [\n\t\t\t\t[center, 1280, 720, 40, 636, 90, 670, 700],\n\t\t\t\t[center, 1280, 720, 39, 292, 86, 329, 1000],\n\t\t\t]\n\t\t}\n\t];\n\toperatorFunc(thisScript: Script, thisOperator: IFuncOperator[]): boolean {\n\t\tconst thisconf = thisScript.scheme.config['701'];\n\t\tif (thisScript.oper({\n\t\t\tid: 701,\n\t\t\tname: '还剩余几分钟到期',\n\t\t\toperator: [thisOperator[10]]\n\t\t})) {\n\t\t\tthisScript.myToast('结界卡快到期，等待1分钟再操作');\n\t\t\tsleep(60000); // 等待1分钟再操作\n\t\t\treturn true;\n\t\t}\n\t\tif (thisScript.oper({\n\t\t\tid: 701,\n\t\t\tname: '结界界面',\n\t\t\toperator: [{ desc: thisOperator[0].desc }],\n\t\t})) {\n\t\t\tif (thisScript.oper({\n\t\t\t\tid: 701,\n\t\t\t\tname: '领取结界卡奖励',\n\t\t\t\toperator: [thisOperator[1]]\n\t\t\t})) {\n\t\t\t\tchange();\n\t\t\t}\n\t\t\tthisScript.regionClick([thisOperator[0].oper[1]]); // 点击 结界卡\n\t\t\treturn true;\n\t\t}\n\t\tif (thisScript.oper({\n\t\t\tid: 701,\n\t\t\tname: '检测_是否为结界卡界面',\n\t\t\toperator: [{ desc: thisOperator[3].desc, }]\n\t\t})) {\n\t\t\tif (thisScript.oper({\n\t\t\t\tid: 701,\n\t\t\t\tname: '检测_结界卡界面_结界卡为空_下拉框已打开',\n\t\t\t\toperator: [{ desc: thisOperator[5].desc }],\n\t\t\t})) {\n\t\t\t\tconst change_enchantment_type_index =\n\t\t\t\t\tthisconf && thisconf.change_enchantment_type === '斗鱼'\n\t\t\t\t\t\t? 1\n\t\t\t\t\t\t: 0 || 0;\n\t\t\t\treturn thisScript.oper({\n\t\t\t\t\tid: 701,\n\t\t\t\t\tname: '点击 结界卡分类',\n\t\t\t\t\toperator: [{\n\t\t\t\t\t\toper: [\n\t\t\t\t\t\t\tthisOperator[5].oper[change_enchantment_type_index],\n\t\t\t\t\t\t\tthisOperator[5].oper[2],\n\t\t\t\t\t\t]\n\t\t\t\t\t}],\n\t\t\t\t});\n\t\t\t}\n\t\t\tif (thisScript.oper({ // [2]需要测试别处是否能点击到\n\t\t\t\tid: 701,\n\t\t\t\tname: '更换结界操作_杂项',\n\t\t\t\toperator: [thisOperator[2], thisOperator[4], thisOperator[6]],\n\t\t\t})) {\n\t\t\t\treturn true;\n\t\t\t}\n\t\t\tif (thisScript.oper({\n\t\t\t\tid: 701,\n\t\t\t\tname: '检测_结界卡已激活',\n\t\t\t\toperator: [\n\t\t\t\t\t{ desc: thisOperator[8].desc },\n\t\t\t\t\t{ desc: thisOperator[9].desc }\n\t\t\t\t]\n\t\t\t})) {\n\t\t\t\tif (thisScript.getOcrDetector()) {\n\t\t\t\t\tconst timeStr_ocr = thisScript.findNum(0, thisOperator[11].oper[0]);\n\t\t\t\t\tconst timeStr = timeStr_ocr[0]?.label ?? '';   // OCR 没识别到就给空字符串\n\t\t\t\t\tif (timeStr) {\n\t\t\t\t\t\t// 统一格式，把中文冒号、空格都替换成英文冒号\n\t\t\t\t\t\tconst cleanTime = timeStr.replace(/：/g, ':').replace(/\\s+/g, '');\n\t\t\t\t\t\tconst [h, m, s] = cleanTime.split(':').map(Number);\n\t\t\t\t\t\tconst totalSeconds = h * 3600 + m * 60 + s;\n\t\t\t\t\t\tconsole.log('OCR 时间:', cleanTime, '=> 秒数:', totalSeconds,);\n\t\t\t\t\t\tthisScript.superGlobal.runTime = totalSeconds;\n\t\t\t\t\t} else {\n\t\t\t\t\t\tconsole.log('OCR 没识别到时间');\n\t\t\t\t\t\tthisScript.superGlobal.runTime = 300; // 5分钟后再试\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t\tconsole.log('更换完毕');\n\t\t\t\tthisScript.regionClick([thisOperator[3].oper[0]]); // 关闭\n\t\t\t\tthisScript.doPush(thisScript, { text: '更换完毕，请查看。', before() { thisScript.myToast('脚本即将停止，正在上传数据'); } });\n\t\t\t\tthisScript.rerun(thisconf.next_scheme);\n\t\t\t\tsleep(3000);\n\t\t\t\treturn true;\n\t\t\t}\n\t\t}\n\t\treturn false;\n\t\tfunction change() {\n\t\t\tlog('开始更换满级式神');\n\t\t\tlet curCnt = 0;\n\t\t\tconst maxCount = 10;\n\t\t\tfor (; ;) {\n\t\t\t\tthisScript.keepScreen();\n\t\t\t\tif (thisScript.oper({\n\t\t\t\t\tid: 701,\n\t\t\t\t\tname: '进入式神育成',\n\t\t\t\t\toperator: [thisOperator[12], thisOperator[13], thisOperator[14]]\n\t\t\t\t})) {\n\t\t\t\t\tcurCnt = 0;\n\t\t\t\t\tcontinue;\n\t\t\t\t}\n\t\t\t\tif (thisScript.oper({\n\t\t\t\t\tid: 701,\n\t\t\t\t\tname: '判断_是否为己方结界_点击式神育成',\n\t\t\t\t\toperator: [{ desc: thisOperator[7].desc }],\n\t\t\t\t})) {\n\t\t\t\t\tconst emptyPoint = thisScript.findMultiColorEx('寄养狗粮_空');\n\t\t\t\t\tif (emptyPoint && emptyPoint.length > 0) {\n\t\t\t\t\t\tconst emptyCount = emptyPoint.length;\n\t\t\t\t\t\tif (thisScript.oper({\n\t\t\t\t\t\t\tid: 701,\n\t\t\t\t\t\t\tname: '式神育成_全部',\n\t\t\t\t\t\t\toperator: [{ desc: thisOperator[15].desc }]\n\t\t\t\t\t\t})) {\n\t\t\t\t\t\t\tthisScript.regionClick([thisOperator[7].oper[0]]);\n\t\t\t\t\t\t\tthisScript.regionClick([thisOperator[7].oper[1]]);\n\t\t\t\t\t\t}\n\t\t\t\t\t\tthisScript.keepScreen();\n\t\t\t\t\t\tconst region = [910, 473, 1138, 568];\n\t\t\t\t\t\tconst fullLevelPoint = thisScript.findMultiColorEx('寄养狗粮_满级标识', region);\n\t\t\t\t\t\tif (fullLevelPoint && fullLevelPoint.length > 0) {\n\t\t\t\t\t\t\tthisScript.regionClick(thisOperator[15].oper);\n\t\t\t\t\t\t\tthisScript.doPush(thisScript, { text: '全部N卡已满级' });\n\t\t\t\t\t\t\tcurCnt = 0;\n\t\t\t\t\t\t\tcontinue;\n\t\t\t\t\t\t}\n\t\t\t\t\t\tfor (let i = 0; i < emptyCount; i++) {\n\t\t\t\t\t\t\tthisScript.regionClick([thisOperator[7].oper[2]]);\n\t\t\t\t\t\t}\n\t\t\t\t\t\tcurCnt = 0;\n\t\t\t\t\t\tcontinue;\n\t\t\t\t\t} else {\n\t\t\t\t\t\tconsole.log('没有空位了');\n\t\t\t\t\t}\n\t\t\t\t\tconst fullLevelPoint = thisScript.findMultiColorEx('寄养狗粮_满级标识');\n\t\t\t\t\tif (fullLevelPoint && fullLevelPoint.length > 0) {\n\t\t\t\t\t\tconsole.log('有狗粮满级了,清空狗粮');\n\t\t\t\t\t\tfor (let i = 0; i < fullLevelPoint.length; i++) {\n\t\t\t\t\t\t\tif (fullLevelPoint[i].y < 350) {\n\t\t\t\t\t\t\t\tconst oper = [\n\t\t\t\t\t\t\t\t\t[\n\t\t\t\t\t\t\t\t\t\tfullLevelPoint[i].x,\n\t\t\t\t\t\t\t\t\t\tfullLevelPoint[i].y,\n\t\t\t\t\t\t\t\t\t\tfullLevelPoint[i].x + 20,\n\t\t\t\t\t\t\t\t\t\tfullLevelPoint[i].y + 20,\n\t\t\t\t\t\t\t\t\t\t500,\n\t\t\t\t\t\t\t\t\t],\n\t\t\t\t\t\t\t\t];\n\t\t\t\t\t\t\t\tconsole.log('清空满级狗粮', i);\n\t\t\t\t\t\t\t\tthisScript.regionClick(oper);\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t\tcurCnt = 0;\n\t\t\t\t\t\tcontinue;\n\t\t\t\t\t} else {\n\t\t\t\t\t\t// 狗粮没满级\n\t\t\t\t\t\tconsole.log('狗粮没满级');\n\t\t\t\t\t\tthisScript.regionClick([thisOperator[7].oper[3]]);\n\t\t\t\t\t\tbreak;\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t\tcurCnt++;\n\t\t\t\tif (curCnt >= maxCount) {\n\t\t\t\t\tbreak;\n\t\t\t\t}\n\t\t\t\tsleep(300)\n\t\t\t}\n\t\t}\n\t}\n}",
+  "resources": {
+    "退出结算_取消确认框": {
+      "type": "colors",
+      "points": [
+        [
+          460,
+          258,
+          "#cbb59e"
+        ],
+        [
+          799,
+          268,
+          "#cbb59e"
+        ],
+        [
+          467,
+          429,
+          "#df6851"
+        ],
+        [
+          700,
+          431,
+          "#f4b25f"
+        ],
+        [
+          641,
+          429,
+          "#cbb59e"
+        ]
+      ]
+    },
+    "寄养狗粮_空": {
+      "type": "find_colors",
+      "groups": [
+        [
+          [
+            756,
+            203,
+            "#525252"
+          ],
+          [
+            756,
+            227,
+            "#d9bc99"
+          ],
+          [
+            778,
+            303,
+            "#c6c0ae"
+          ],
+          [
+            751,
+            290,
+            "#262420"
+          ],
+          [
+            760,
+            443,
+            "#dcbc96"
+          ]
+        ],
+        [
+          [
+            544,
+            203,
+            "#515151"
+          ],
+          [
+            546,
+            228,
+            "#d8bc9b"
+          ],
+          [
+            536,
+            290,
+            "#262420"
+          ],
+          [
+            543,
+            414,
+            "#c9c0ac"
+          ],
+          [
+            544,
+            445,
+            "#d5b48d"
+          ]
+        ]
+      ],
+      "region": [
+        19,
+        183,
+        1269,
+        481
+      ]
+    },
+    "寄养狗粮_满级标识": {
+      "type": "find_colors",
+      "groups": [
+        [
+          [
+            282,
+            243,
+            "#382314"
+          ],
+          [
+            272,
+            255,
+            "#2c160b"
+          ],
+          [
+            283,
+            264,
+            "#351f13"
+          ],
+          [
+            286,
+            252,
+            "#faba18"
+          ],
+          [
+            282,
+            256,
+            "#e7b42b"
+          ],
+          [
+            282,
+            249,
+            "#e9ab14"
+          ]
+        ],
+        [
+          [
+            981,
+            489,
+            "#392315"
+          ],
+          [
+            982,
+            510,
+            "#362015"
+          ],
+          [
+            970,
+            500,
+            "#2c1609"
+          ],
+          [
+            992,
+            499,
+            "#311d12"
+          ],
+          [
+            983,
+            495,
+            "#e9ad15"
+          ]
+        ]
+      ],
+      "region": [
+        28,
+        214,
+        1254,
+        626
+      ],
+      "similarity": 95
+    }
+  }
+}

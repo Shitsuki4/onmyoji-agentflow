@@ -14,7 +14,10 @@ from onmyoji_agentflow.activity import ActivityWindow
 from onmyoji_agentflow.device.base import Controller
 from onmyoji_agentflow.device.replay import ReplayDevice
 from onmyoji_agentflow.errors import BudgetExceeded, WorkflowError
-from onmyoji_agentflow.foster import FosterCandidate, FosterSelector, choose_foster, read_card, read_countdown
+from onmyoji_agentflow.foster import (
+    FosterCandidate, FosterSelector, choose_foster, missing_cross_friend_rows, read_card,
+    read_countdown, selected_friend,
+)
 from onmyoji_agentflow.ledger import GameLedger, ResourceBudget, period_keys
 from onmyoji_agentflow.runtime import DeviceBusy, DeviceLease, FileMutex, normalize_device_identity
 from onmyoji_agentflow.store import Store
@@ -253,6 +256,83 @@ def test_foster_checks_both_tabs_before_selection():
     assert selector.best is not None and selector.phase == "previewed"
     assert terminal["result"] == "blocked"
     assert terminal["evidence"]["stars"] == 6
+
+
+def test_foster_requires_highlight_for_the_clicked_friend():
+    selector = FosterSelector(4, require_highlight=True)
+    rows = [("最近寄养", 511, 192), ("friend", 359, 221), ("other", 369, 328)]
+    card = [("6星太鼓", 880, 330)]
+    wrong = blank()
+    wrong[274:278, 320:600] = (255, 10, 140)
+    wrong[375:379, 320:600] = (255, 10, 140)
+    assert "click" in selector.step(rows, card, wrong, active_region=0)  # Reset at top.
+    assert "click" in selector.step(rows, card, wrong, active_region=0)  # Select friend.
+    for _ in range(3):
+        assert "wait" in selector.step(rows, card, wrong, active_region=0)
+    assert selector.step(rows, card, wrong, active_region=0)["stop"]["result"] == "blocked"
+    assert selector.candidates == []
+
+
+def test_ranked_foster_treats_ocr_punctuation_width_as_the_same_identity():
+    selector = FosterSelector(4, require_highlight=True)
+    image = blank()
+    image[169:173, 320:600] = (255, 10, 140)
+    image[270:274, 320:600] = (255, 10, 140)
+    card = [("6星太鼓", 880, 330)]
+    for name in ("同一位：(", "同一位：(", "同一位:("):
+        step = selector.step([(name, 400, 221)], card, image, active_region=0)
+    assert len(selector.seen) == len(selector.candidates) == 1
+    assert "swipe" in step
+
+
+def test_ranked_foster_stops_when_scroll_skips_an_entire_viewport():
+    selector = FosterSelector(require_highlight=True)
+    selector.phase = "scan"
+    selector.previous_page = ("好友甲", "好友乙")
+    step = selector.step([("好友丙", 400, 221)], [], active_region=0)
+    assert step["stop"]["result"] == "blocked"
+    assert "没有重叠" in step["stop"]["reason"]
+    assert not selector.seen
+
+
+@pytest.mark.parametrize("start", [504, 509])
+def test_foster_clipped_bottom_row_demands_the_continuous_highlight_wall(start):
+    image = blank()
+    rows = [("上一行", 398, 456), ("最后一行", 388, 562)]
+    image[start:start + 8, 320:600] = (255, 10, 140)
+    assert selected_friend(image, rows) is None
+    image[start:604, 209:215] = (255, 10, 140)
+    assert selected_friend(image, rows) == "最后一行"
+    assert selected_friend(image, [*rows, ("同一行内歧义", 440, 565)]) is None
+
+
+def test_foster_cross_view_detects_an_unread_nickname_without_counting_server_text():
+    image = blank(245)
+    image[208:226, 345:385] = (50, 50, 60)
+    image[240:259, 345:395] = (49, 68, 185)
+    image[524:543, 350:385] = (50, 50, 60)
+    assert missing_cross_friend_rows(image, [("第一行", 365, 217)]) == 1
+    assert missing_cross_friend_rows(image, [("第一行", 365, 217), ("最后一行", 365, 534)]) == 0
+
+
+def test_foster_verifies_the_active_tab_and_ranks_both_regions():
+    selector = FosterSelector(4, require_highlight=True)
+    rows = [("friend", 400, 221)]
+    image = blank()
+    image[169:173, 320:600] = (255, 10, 140)
+    image[270:274, 320:600] = (255, 10, 140)
+    region = 0
+    terminal = None
+    for _ in range(30):
+        card = [("5星太鼓" if region == 0 else "6星斗鱼", 880, 330)]
+        action = selector.step(rows, card, image, active_region=region)
+        if action.get("click") == [370, 115, 405, 135]:
+            region = 1
+        if "stop" in action:
+            terminal = action["stop"]
+            break
+    assert {candidate.region for candidate in selector.candidates} == {"0", "1"}
+    assert terminal and terminal["evidence"] == {"stars": 6, "card_type": "斗鱼", "region": "1"}
 
 
 def test_foster_card_reader_skips_occupied_and_rejects_ambiguous_stars(tmp_path):

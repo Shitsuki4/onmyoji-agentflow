@@ -1,0 +1,300 @@
+{
+  "source": "import { IFuncOrigin, IFuncOperatorOrigin, IFuncOperator, } from '@/interface/IFunc';\nimport { Script } from '@/system/script';\n// const normal = -1; //定义常量\nconst left = 0;\nconst center = 1;\nconst right = 2;\n\nexport class Func605 implements IFuncOrigin {\n\tid = 605;\n\tname = '寮宴会';\n\tdesc = '';\n\tconfig = [{\n\t\tdesc: '',\n\t\tconfig: [{\n\t\t\tname: 'admin',\n\t\t\tdesc: '寮管理主动开启并筹备(只支持三种极品料理)',\n\t\t\ttype: 'switch',\n\t\t\tdefault: false,\n\t\t}]\n\t}]\n\toperator: IFuncOperatorOrigin[] = [{ //\t0 检测_宴会\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[left, 40, 39, 0xfdeeb4],\n\t\t\t\t[right, 1127, 35, 0xd7af82],\n\t\t\t\t[right, 1181, 40, 0xcfa578],\n\t\t\t\t[right, 1243, 41, 0xcca174],\n\t\t\t\t[right, 1063, 21, 0xfa8c42],\n\t\t\t\t[left, 101, 474, 0xe5bc8b],\n\t\t\t\t[right, 1216, 645, 0xfefcf7],\n\t\t\t],\n\t\t],\n\t\toper: [\n\t\t\t[left, 1280, 720, 19, 156, 98, 242, 1200], //\t点击左侧式神\n\t\t\t[center, 1280, 720, 1006, 175, 1037, 238, 1000], //\t点击轮换\n\t\t],\n\t}, { //\t1 检测_寮会结束\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[center, 590, 177, 0xe4b231],\n\t\t\t\t[center, 717, 166, 0xf1f1e6],\n\t\t\t\t[center, 652, 223, 0xe8a639],\n\t\t\t\t[left, 102, 200, 0xf3d9af],\n\t\t\t\t[left, 101, 446, 0xf3d8a5],\n\t\t\t\t[right, 1219, 639, 0xfffdf9],\n\t\t\t\t[right, 1057, 69, 0xf7dca9],\n\t\t\t],\n\t\t],\n\t}, { //\t2 检测_吃饭式神未开轮换\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[center, 330, 257, 0xf2d7ab],\n\t\t\t\t[center, 568, 257, 0xf2d7ab],\n\t\t\t\t[center, 806, 257, 0xf2d7a9],\n\t\t\t\t[center, 753, 129, 0x301c13],\n\t\t\t\t[left, 216, 711, 0x3e2d1c],\n\t\t\t\t[right, 1228, 687, 0x381c10],\n\t\t\t\t[right, 1170, 559, 0xe8d6ae],\n\t\t\t\t[right, 1024, 287, 0x2f398b],\n\t\t\t],\n\t\t],\n\t\toper: [\n\t\t\t[right, 1280, 720, 1005, 177, 1040, 231, 1200], //\t点击_轮换按钮\n\t\t],\n\t}, { //\t3 检测_吃饭式神已开轮换\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[center, 330, 257, 0xf2d7ab],\n\t\t\t\t[center, 568, 257, 0xf2d7ab],\n\t\t\t\t[center, 806, 257, 0xf2d7a9],\n\t\t\t\t[center, 753, 129, 0x301c13],\n\t\t\t\t[right, 1228, 687, 0x381c10],\n\t\t\t\t[right, 1170, 559, 0xe8d6ae],\n\t\t\t\t[right, 1023, 296, 0xffffff],\n\t\t\t],\n\t\t],\n\t\toper: [\n\t\t\t[left, 1280, 720, 30, 17, 75, 62, 1200], //\t返回\n\t\t],\n\t}, { //\t4 宴会_寮管理开启\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[right, 940, 228, 0x9aaf98],\n\t\t\t\t[right, 991, 240, 0xcb614a],\n\t\t\t\t[right, 1014, 231, 0xcb6049],\n\t\t\t\t[right, 1034, 221, 0xc74c4b],\n\t\t\t\t[right, 1051, 219, 0xc85050],\n\t\t\t\t[right, 1064, 231, 0xcc5554],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 922, 197, 1091, 305, 522],\n\t\t]\n\t}, { //\t5 宴会_料理筹备界面\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[left, 157, 96, 0x43312f],\n\t\t\t\t[left, 157, 144, 0x1e1311],\n\t\t\t\t[center, 418, 80, 0x32231f],\n\t\t\t\t[center, 434, 122, 0x241815],\n\t\t\t\t[left, 188, 112, 0xeab35a],\n\t\t\t\t[center, 365, 111, 0xeab85d],\n\t\t\t]\n\t\t]\n\t}, { // 6 宴会_宴会筹备完成\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[right, 678, 596, 0x8bb729],\n\t\t\t\t[right, 766, 648, 0xe94f48],\n\t\t\t\t[right, 884, 602, 0xcdc2bb],\n\t\t\t\t[right, 946, 626, 0xb7213c],\n\t\t\t\t[right, 1097, 652, 0x745130],\n\t\t\t\t[right, 1147, 645, 0xefeade],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 910, 326, 965, 371, 1000],\n\t\t\t[center, 1280, 720, 834, 382, 942, 417, 3000],\n\t\t]\n\t}, { // 7 宴会_一键放入\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[center, 478, 417, 0x453429],\n\t\t\t\t[center, 576, 427, 0x46362a],\n\t\t\t\t[right, 712, 425, 0x443328],\n\t\t\t\t[right, 817, 427, 0x453429],\n\t\t\t\t[left, 307, 149, 0x870818],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 707, 416, 813, 438, 1000],\n\t\t\t[center, 1280, 720, 1083, 422, 1117, 456, 1000],\n\t\t]\n\t}, { // 8 点击阴阳寮\n\t\tdesc: '页面是否为庭院_菜单已展开_另一种图标_御祝图标_只支持默认庭院皮肤与默认装饰',\n\t\toper: [\n\t\t\t[center, 1280, 720, 544, 612, 594, 661, 1200]\t// 点击阴阳寮\n\t\t]\n\t}, { // 9 判断是否为寮首页\n\t\tdesc: [\n\t\t\t1280, 720,\n\t\t\t[\n\t\t\t\t[right, 1096, 630, 0xb1251f],\n\t\t\t\t[right, 1105, 662, 0xdbe3f1],\n\t\t\t\t[left, 45, 39, 0xf4e4a3],\n\t\t\t\t[center, 886, 644, 0xe0cbaa],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 868, 627, 927, 684, 1200]\t// 点击下方神社\n\t\t],\n\t\tretest: 1000\n\t}, { // 10 本周已开启两次\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[center, 582, 228, 0xe3d2bf],\n\t\t\t\t[right, 991, 233, 0x7b7570],\n\t\t\t\t[center, 584, 324, 0xe7d6c4],\n\t\t\t\t[right, 797, 364, 0xa72d02],\n\t\t\t\t[right, 805, 366, 0xb44e28],\n\t\t\t\t[right, 804, 378, 0xb14720],\n\t\t\t\t[right, 797, 378, 0xa72d02],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 24, 40, 76, 73, 1000],\n\t\t]\n\t}, { // 11 探索地图界面\n\t\tdesc: '探索地图界面',\n\t\toper: [\n\t\t\t[center, 1280, 720, 1149, 252, 1168, 266, 1000],\n\t\t\t[center, 1280, 720, 1149, 543, 1175, 556, 1000],\n\t\t]\n\t}, { // 12 式神碎片\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[right, 872, 286, 0x5e2920],\n\t\t\t\t[right, 871, 303, 0x602b22],\n\t\t\t\t[right, 872, 425, 0x69332a],\n\t\t\t\t[right, 872, 440, 0x6b362c],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 42, 443, 182, 464, 1000],\n\t\t]\n\t}, { // 13 狸猫挑战\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[right, 890, 222, 0x7f5537],\n\t\t\t\t[right, 912, 224, 0xe7ad6d],\n\t\t\t\t[right, 899, 234, 0xe9b67b],\n\t\t\t\t[right, 901, 239, 0xe4a25c],\n\t\t\t\t[right, 916, 260, 0x33231d],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 963, 220, 1183, 258, 1000],\n\t\t\t[center, 1280, 720, 1083, 582, 1172, 664, 1000],\n\t\t]\n\t}, { // 14 饿鬼挑战\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[right, 888, 222, 0xf5d767],\n\t\t\t\t[right, 919, 222, 0x716768],\n\t\t\t\t[right, 909, 239, 0xfcfcfc],\n\t\t\t\t[right, 910, 257, 0x4f79aa],\n\t\t\t\t[right, 901, 256, 0x3cd4d4],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 963, 215, 1156, 261, 1000],\n\t\t\t[center, 1280, 720, 1092, 594, 1172, 668, 1000],\n\t\t]\n\t}, { // 15 河童挑战\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[right, 892, 312, 0x5ba09f],\n\t\t\t\t[right, 921, 315, 0x59aeaa],\n\t\t\t\t[right, 899, 336, 0x463143],\n\t\t\t\t[right, 921, 336, 0x463243],\n\t\t\t\t[right, 912, 349, 0x5055aa],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 954, 303, 1171, 353, 1000],\n\t\t\t[center, 1280, 720, 1090, 585, 1168, 665, 1000],\n\t\t]\n\t}, { // 16 返回\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[right, 1131, 584, 0xe0d5bf],\n\t\t\t\t[right, 1094, 637, 0xdfd3be],\n\t\t\t\t[right, 1163, 640, 0xe0d4bd],\n\t\t\t\t[left, 25, 452, 0xa13e20],\n\t\t\t\t[left, 41, 24, 0xf1dc99],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 28, 19, 56, 47, 1000],\n\t\t]\n\t}, { // 17 第一章\n\t\tdesc: [\n\t\t\t1280, 720,\n\t\t\t[\n\t\t\t\t[right, 1092, 227, 0xede2c3],\n\t\t\t\t[right, 1098, 226, 0xebe0c2],\n\t\t\t\t[right, 1107, 226, 0xe0d6b9],\n\t\t\t\t[right, 1120, 233, 0xeadfc0],\n\t\t\t\t[right, 1079, 229, 0xeadfc1],\n\t\t\t]\n\t\t]\n\t}, { // 18 庭院进入探索\n\t\tdesc: '页面是否为庭院_菜单已展开_只支持默认庭院皮肤与默认装饰',\n\t\toper: [\n\t\t\t[center, 1280, 720, 658, 127, 697, 170, 1000],\n\t\t]\n\t}, { // 19 探索地图进入秘闻\n\t\tdesc: '探索地图界面',\n\t\toper: [\n\t\t\t[center, 1280, 720, 544, 636, 602, 701, 1000],\n\t\t]\n\t}, { // 20 秘闻往下滑动\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[left, 61, 149, 0x532f2c],\n\t\t\t\t[left, 74, 484, 0x573534],\n\t\t\t\t[left, 122, 135, 0x918776],\n\t\t\t\t[right, 763, 134, 0x9c917f],\n\t\t\t\t[right, 1193, 137, 0x552d28],\n\t\t\t\t[right, 836, 178, 0x69413c],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 758, 587, 803, 618, 1000],\n\t\t\t[center, 1280, 720, 751, 27, 799, 56, 1000],\n\t\t]\n\t}, { // 21 点击荒川秘闻(左)\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[left, 139, 278, 0x717c8d],\n\t\t\t\t[left, 137, 356, 0x707b8c],\n\t\t\t\t[left, 215, 299, 0xe8eaef],\n\t\t\t\t[left, 242, 360, 0xe7e9ee],\n\t\t\t\t[left, 174, 356, 0x222231],\n\t\t\t\t[left, 235, 279, 0xe08275],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 181, 297, 428, 346, 1000],\n\t\t]\n\t}, { // 22 进入荒川秘闻\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[right, 955, 204, 0xd0e6e6],\n\t\t\t\t[right, 1158, 192, 0x802f2f],\n\t\t\t\t[right, 1055, 476, 0x183e5d],\n\t\t\t\t[right, 1035, 531, 0x204b68],\n\t\t\t\t[right, 941, 447, 0xdfdee2],\n\t\t\t\t[right, 968, 363, 0x2e345b],\n\t\t\t\t[right, 1010, 347, 0x293172],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 1150, 606, 1245, 677, 1000],\n\t\t]\n\t}, { // 23 荒川秘闻往下滑动\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[left, 96, 164, 0xbc9cd4],\n\t\t\t\t[left, 77, 226, 0xa385b7],\n\t\t\t\t[left, 83, 184, 0xb999d2],\n\t\t\t\t[left, 103, 186, 0xbc9bd4],\n\t\t\t\t[left, 142, 66, 0x3a383e],\n\t\t\t\t[right, 1098, 66, 0x3d3b41],\n\t\t\t\t[right, 890, 152, 0xf3f6f7],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 575, 582, 612, 615, 1000],\n\t\t\t[center, 1280, 720, 580, 121, 615, 152, 1000],\n\t\t]\n\t}, { // 24 荒川秘闻挑战\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[left, 189, 357, 0x782d2c],\n\t\t\t\t[left, 306, 368, 0xb24d44],\n\t\t\t\t[left, 223, 362, 0x7d2e2e],\n\t\t\t\t[center, 350, 428, 0xeba94f],\n\t\t\t\t[center, 368, 410, 0x882111],\n\t\t\t\t[center, 387, 442, 0x231818],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 198, 395, 289, 450, 1000],\n\t\t\t[center, 1280, 720, 1056, 575, 1149, 643, 1000],\n\t\t]\n\t}, { // 25 点击荒川秘闻(右)\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[center, 489, 282, 0x738294],\n\t\t\t\t[center, 488, 350, 0x6b7888],\n\t\t\t\t[center, 556, 294, 0xe4e1e6],\n\t\t\t\t[center, 560, 319, 0xd6d7de],\n\t\t\t\t[center, 579, 361, 0xe6e7ee],\n\t\t\t\t[center, 639, 295, 0xd6cfc6],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 522, 289, 782, 352, 1000],\n\t\t]\n\t}, { // 26 秘闻挑战开启提示\n\t\tdesc: '秘闻挑战开启',\n\t\toper: [\n\t\t\t[left, 1280, 720, 452, 605, 870, 683, 2000],\n\t\t]\n\t},\n\t];\n\toperatorFunc(thisScript: Script, thisOperator: IFuncOperator[]): boolean {\n\t\tconst thisconfig = thisScript.scheme.config['605'];\n\t\tif (thisScript.global.liao_banquet_collect) {\n\t\t\tif (thisScript.oper({\n\t\t\t\tname: '第一章',\n\t\t\t\toperator: [thisOperator[17]]\n\t\t\t})) {\n\t\t\t\tthisScript.doPush(thisScript, { text: '宴会筹备失败，请查看。', before() { thisScript.myToast('脚本即将停止，正在上传数据'); } });\n\t\t\t\tthisScript.stop();\n\t\t\t\tsleep(3000);\n\t\t\t\treturn;\n\t\t\t}\n\t\t\tif (thisScript.oper({\n\t\t\t\tname: '探索界面',\n\t\t\t\toperator: [{ desc: thisOperator[11].desc }]\n\t\t\t})) {\n\t\t\t\tlet point;\n\t\t\t\tif (thisScript.runTimes['2'] === undefined || thisScript.runTimes['2'] < 1) {\n\t\t\t\t\tpoint = thisScript.findMultiColor('宴会筹备_狸猫');\n\t\t\t\t} else if (thisScript.runTimes['2'] < 2) {\n\t\t\t\t\tpoint = thisScript.findMultiColor('宴会筹备_饿鬼');\n\t\t\t\t} else if (thisScript.runTimes['2'] < 3) {\n\t\t\t\t\tpoint = thisScript.findMultiColor('宴会筹备_河童');\n\t\t\t\t} else if (thisScript.runTimes['2'] < 6) {\n\t\t\t\t\tthisScript.regionClick([thisOperator[19].oper[0]]);\n\t\t\t\t} else {\n\t\t\t\t\tthisScript.doPush(thisScript, { text: '宴会筹备已完成，请查看。', before() { thisScript.myToast('脚本即将停止，正在上传数据'); } });\n\t\t\t\t\tthisScript.stop();\n\t\t\t\t\tsleep(3000);\n\t\t\t\t\treturn;\n\t\t\t\t}\n\t\t\t\tif (point) {\n\t\t\t\t\tconst oper = [[point.x + 5, point.y + 5, point.x + 10, point.y + 10, 2500]];\n\t\t\t\t\tthisScript.regionClick(oper);\n\t\t\t\t\treturn true;\n\t\t\t\t} else {\n\t\t\t\t\tthisScript.regionSwipe(thisOperator[11].oper[0], thisOperator[11].oper[1], [2000, 2050], 200);\n\t\t\t\t}\n\t\t\t\treturn true;\n\t\t\t}\n\t\t\tif (thisScript.runTimes['2'] === undefined || thisScript.runTimes['2'] < 1) {\n\t\t\t\tif (thisScript.oper({\n\t\t\t\t\tname: '狸猫',\n\t\t\t\t\toperator: [thisOperator[13]]\n\t\t\t\t})) {\n\t\t\t\t\treturn true;\n\t\t\t\t}\n\t\t\t} else if (thisScript.runTimes['2'] < 2) {\n\t\t\t\tif (thisScript.oper({\n\t\t\t\t\tname: '饿鬼',\n\t\t\t\t\toperator: [thisOperator[14]]\n\t\t\t\t})) {\n\t\t\t\t\treturn true;\n\t\t\t\t}\n\t\t\t} else if (thisScript.runTimes['2'] < 3) {\n\t\t\t\tif (thisScript.oper({\n\t\t\t\t\tname: '河童',\n\t\t\t\t\toperator: [thisOperator[15]]\n\t\t\t\t})) {\n\t\t\t\t\treturn true;\n\t\t\t\t}\n\t\t\t}\n\t\t\tif (thisScript.oper({\n\t\t\t\tname: '杂项',\n\t\t\t\toperator: [thisOperator[12], thisOperator[16], thisOperator[18]]\n\t\t\t})) {\n\t\t\t\treturn true;\n\t\t\t}\n\t\t\tif (thisScript.oper({\n\t\t\t\tname: '进入荒川秘闻',\n\t\t\t\toperator: [thisOperator[21], thisOperator[22], thisOperator[25], thisOperator[26]]\n\t\t\t})) {\n\t\t\t\treturn true;\n\t\t\t}\n\t\t\tif (thisScript.runTimes['2'] === 6) {\n\t\t\t\tthisScript.global.liao_banquet_collect = false;\n\t\t\t\tthisScript.global.liao_banquet_onGoing = true;\n\t\t\t\treturn true;\n\t\t\t} else if (thisScript.oper({\n\t\t\t\tname: '荒川秘闻挑战',\n\t\t\t\toperator: [thisOperator[24]]\n\t\t\t})) {\n\t\t\t\treturn true;\n\t\t\t}\n\t\t\tif (thisScript.oper({\n\t\t\t\tname: '荒川秘闻往下滑动',\n\t\t\t\toperator: [{ desc: thisOperator[23].desc }]\n\t\t\t})) {\n\t\t\t\tthisScript.regionSwipe(thisOperator[23].oper[0], thisOperator[23].oper[1], [400, 510], 1000);\n\t\t\t\treturn true;\n\t\t\t}\n\t\t\tif (thisScript.oper({\n\t\t\t\tname: '秘闻往下滑动',\n\t\t\t\toperator: [{ desc: thisOperator[20].desc }]\n\t\t\t})) {\n\t\t\t\tthisScript.regionSwipe(thisOperator[20].oper[0], thisOperator[20].oper[1], [400, 510], 1000);\n\t\t\t\treturn true;\n\t\t\t}\n\t\t}\n\t\tif (thisScript.global.liao_banquet_onGoing) {\n\t\t\tif (thisScript.oper({\n\t\t\t\tname: '宴会_结束',\n\t\t\t\toperator: [{ desc: thisOperator[1].desc }, thisOperator[10]]\n\t\t\t})) {\n\t\t\t\tthisScript.rerun('返回庭院');\n\t\t\t\treturn true;\n\t\t\t}\n\t\t\tif (thisconfig.admin) {\n\t\t\t\tif (!thisScript.oper({\n\t\t\t\t\tname: '宴会_吃饭界面',\n\t\t\t\t\toperator: [{ desc: thisOperator[0].desc }],\n\t\t\t\t}) && thisScript.oper({\n\t\t\t\t\tname: '宴会__寮管理开启',\n\t\t\t\t\toperator: [thisOperator[4], thisOperator[9]],\n\t\t\t\t})) {\n\t\t\t\t\treturn true;\n\t\t\t\t}\n\t\t\t\tlet curCnt = 0;\n\t\t\t\tconst maxCount = 3;\n\t\t\t\twhile (thisScript.oper({\n\t\t\t\t\tname: '宴会__宴会筹备界面',\n\t\t\t\t\toperator: [thisOperator[5]],\n\t\t\t\t})) {\n\t\t\t\t\tcurCnt++;\n\t\t\t\t\tif (thisScript.oper({\n\t\t\t\t\t\tname: '宴会__宴会筹备完成',\n\t\t\t\t\t\toperator: [thisOperator[6]],\n\t\t\t\t\t})) {\n\t\t\t\t\t\t// 点击开启宴会\n\t\t\t\t\t} else {\n\t\t\t\t\t\tthisScript.global.liao_banquet_collect = true;\n\t\t\t\t\t\tthisScript.global.liao_banquet_onGoing = false;\n\t\t\t\t\t\treturn true;\n\t\t\t\t\t}\n\t\t\t\t\tif (curCnt >= maxCount) {\n\t\t\t\t\t\tthisScript.doPush(thisScript, { text: '开启超时,请查看', before() { thisScript.myToast('脚本即将停止，正在上传数据'); } });\n\t\t\t\t\t\tthisScript.stop();\n\t\t\t\t\t\tsleep(2000);\n\t\t\t\t\t\treturn false;\n\t\t\t\t\t}\n\t\t\t\t\tsleep(1000);\n\t\t\t\t\tthisScript.keepScreen(false);\n\t\t\t\t}\n\t\t\t}\n\t\t\tif (thisScript.oper({\n\t\t\t\tname: '进入寮神社',\n\t\t\t\toperator: [thisOperator[8]]\n\t\t\t})) {\n\t\t\t\treturn true;\n\t\t\t}\n\t\t\tif (thisScript.oper({\n\t\t\t\tname: '宴会_吃饭界面',\n\t\t\t\toperator: [{ desc: thisOperator[0].desc }],\n\t\t\t})) {\n\t\t\t\tconst point1 = thisScript.findMultiColor('宴会_举高高');\n\t\t\t\tif (point1) {\n\t\t\t\t\tconsole.log('查找举高高成功');\n\t\t\t\t\tconst oper = [[point1.x, point1.y, point1.x, point1.y, 120]];\n\t\t\t\t\tthisScript.regionClick(oper);\n\t\t\t\t\treturn true;\n\t\t\t\t}\n\t\t\t\tif (!thisScript.global.banquet_change_flag) {\n\t\t\t\t\treturn thisScript.oper({\n\t\t\t\t\t\tname: '宴会_式神轮换',\n\t\t\t\t\t\toperator: [{ oper: thisOperator[0].oper }]\n\t\t\t\t\t});\n\t\t\t\t}\n\t\t\t\treturn true;\n\t\t\t}\n\t\t\tif (thisScript.oper({\n\t\t\t\tname: '检测_吃饭式神已开轮换',\n\t\t\t\toperator: [thisOperator[3]],\n\t\t\t})) {\n\t\t\t\tthisScript.global.banquet_change_flag = true;\n\t\t\t\treturn true;\n\t\t\t}\n\t\t\tif (thisScript.oper({\n\t\t\t\tname: '检测_吃饭式神未开轮换',\n\t\t\t\toperator: [thisOperator[2]]\n\t\t\t})) {\n\t\t\t\treturn true;\n\t\t\t}\n\t\t\tif (thisScript.oper({\n\t\t\t\tname: '宴会_一键放入',\n\t\t\t\toperator: [thisOperator[7]]\n\t\t\t})) {\n\t\t\t\treturn true;\n\t\t\t}\n\t\t}\n\t\treturn false;\n\t}\n}",
+  "resources": {
+    "页面是否为庭院_菜单已展开_另一种图标_御祝图标_只支持默认庭院皮肤与默认装饰": {
+      "type": "colors",
+      "points": [
+        [
+          1223,
+          662,
+          "#dbcbc7"
+        ],
+        [
+          1155,
+          41,
+          "#cca375"
+        ],
+        [
+          451,
+          631,
+          "#e8e4e1"
+        ],
+        [
+          673,
+          651,
+          "#db8b3f"
+        ]
+      ]
+    },
+    "页面是否为庭院_菜单已展开_只支持默认庭院皮肤与默认装饰": {
+      "type": "colors",
+      "points": [
+        [
+          1228,
+          646,
+          "#d6c6c3"
+        ],
+        [
+          366,
+          56,
+          "#f9cf9a"
+        ],
+        [
+          1154,
+          28,
+          "#d7b289"
+        ],
+        [
+          1220,
+          25,
+          "#d3ae84"
+        ]
+      ]
+    },
+    "探索地图界面": {
+      "type": "colors",
+      "points": [
+        [
+          36,
+          36,
+          "#f7e3a5"
+        ],
+        [
+          117,
+          26,
+          "#f7efb5"
+        ],
+        [
+          1164,
+          25,
+          "#d6b289"
+        ],
+        [
+          1223,
+          23,
+          "#d6ad86"
+        ],
+        [
+          508,
+          35,
+          "#731c10"
+        ]
+      ]
+    },
+    "秘闻挑战开启": {
+      "type": "colors",
+      "points": [
+        [
+          379,
+          112,
+          "#f2edca"
+        ],
+        [
+          372,
+          131,
+          "#e4cd9c"
+        ],
+        [
+          371,
+          183,
+          "#c9a763"
+        ],
+        [
+          531,
+          130,
+          "#e3caa1"
+        ],
+        [
+          526,
+          180,
+          "#d3a863"
+        ],
+        [
+          803,
+          150,
+          "#dbba80"
+        ],
+        [
+          658,
+          156,
+          "#dcba77"
+        ],
+        [
+          894,
+          186,
+          "#cda863"
+        ],
+        [
+          797,
+          177,
+          "#d3a965"
+        ]
+      ]
+    },
+    "宴会_举高高": {
+      "type": "find_colors",
+      "groups": [
+        [
+          [
+            653,
+            212,
+            "#fffeed"
+          ],
+          [
+            665,
+            200,
+            "#484f60"
+          ],
+          [
+            672,
+            186,
+            "#485061"
+          ],
+          [
+            636,
+            205,
+            "#474f5e"
+          ],
+          [
+            619,
+            214,
+            "#363647"
+          ],
+          [
+            614,
+            197,
+            "#37384b"
+          ],
+          [
+            632,
+            247,
+            "#688baf"
+          ]
+        ]
+      ],
+      "region": [
+        127,
+        155,
+        1171,
+        569
+      ]
+    },
+    "宴会筹备_狸猫": {
+      "type": "find_colors",
+      "groups": [
+        [
+          [
+            1139,
+            359,
+            "#754e33"
+          ],
+          [
+            1149,
+            370,
+            "#e9b67b"
+          ],
+          [
+            1162,
+            370,
+            "#fcf2db"
+          ],
+          [
+            1149,
+            391,
+            "#291b18"
+          ],
+          [
+            1156,
+            395,
+            "#bcb624"
+          ]
+        ]
+      ],
+      "region": [
+        1050,
+        197,
+        1271,
+        558
+      ],
+      "similarity": 93
+    },
+    "宴会筹备_饿鬼": {
+      "type": "find_colors",
+      "groups": [
+        [
+          [
+            1139,
+            389,
+            "#f9db64"
+          ],
+          [
+            1159,
+            403,
+            "#fdfefb"
+          ],
+          [
+            1158,
+            420,
+            "#4d74a3"
+          ],
+          [
+            1162,
+            411,
+            "#385076"
+          ],
+          [
+            1155,
+            427,
+            "#2bccd8"
+          ]
+        ]
+      ],
+      "region": [
+        1050,
+        197,
+        1271,
+        558
+      ],
+      "similarity": 93
+    },
+    "宴会筹备_河童": {
+      "type": "find_colors",
+      "groups": [
+        [
+          [
+            1201,
+            318,
+            "#5daaa3"
+          ],
+          [
+            1226,
+            318,
+            "#5caca6"
+          ],
+          [
+            1237,
+            328,
+            "#fefdfd"
+          ],
+          [
+            1205,
+            335,
+            "#3c293f"
+          ],
+          [
+            1224,
+            338,
+            "#503b48"
+          ]
+        ]
+      ],
+      "region": [
+        1050,
+        197,
+        1271,
+        558
+      ],
+      "similarity": 93
+    }
+  }
+}

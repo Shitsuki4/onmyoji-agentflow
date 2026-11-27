@@ -24,7 +24,7 @@ from pathlib import Path
 
 import yaml
 
-from .errors import BudgetExceeded
+from .errors import BudgetExceeded, WorkflowError
 from .ledger import GameLedger, ResourceBudget
 from .tasks import remaining_task
 from .runtime import normalize_device_identity
@@ -36,6 +36,7 @@ DEFAULT_PLAN = {
     "max_home_failures": 3,   # this many failed ``home`` runs in a row -> stop, a human is needed
     "continuous": False,
     "task_aware": True,
+    "durable": True,
     "batch_limit": 3,
     "items": [
         {"workflow": "task_scan", "scope": "daily"},
@@ -44,7 +45,7 @@ DEFAULT_PLAN = {
          "once_per_period": True, "cooldown_min": 240},
         # 寄养只在没有有效寄养时尝试；工作流先观察候选，无法识别卡型/星级就暂停留图
         {"workflow": "foster", "task_key": "foster_started", "scope": "daily",
-         "cooldown_min": 15},
+         "limit_per_period": 4, "min_interval_min": 360, "cooldown_min": 15},
         # 日活「结界突破胜利」：只挑最弱的，胜率低就停手留券
         {"workflow": "realm_raid", "task_key": "realm_raid_wins", "scope": "daily", "once_per_period": True,
          "goal": "realm_raid_wins",
@@ -70,17 +71,50 @@ DEFAULT_PLAN = {
 COUNTERS = ("done", "rounds", "losses", "refreshes", "claimed")
 
 
-def load_plan(path: str | None) -> dict:
+def _plan_date(value):
+    if isinstance(value, _dt.date):
+        return value.isoformat()
+    raise TypeError(f"计划包含不能持久化的值：{type(value).__name__}")
+
+
+def load_plan(path: str | dict | None) -> dict:
     plan = json.loads(json.dumps(DEFAULT_PLAN))
     if path:
-        raw = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+        if isinstance(path, dict):
+            raw = json.loads(json.dumps(path, default=_plan_date))
+        else:
+            from .workflow.schema import bundled_dir
+            if path == "all":
+                raw = load_plan("daily")
+                raw["items"] += load_plan("weekly")["items"]
+            else:
+                filename = bundled_dir() / "plans" / f"{path}.yaml" if path in ("daily", "weekly") else Path(path)
+                raw = yaml.safe_load(filename.read_text(encoding="utf-8")) or {}
+        if not isinstance(raw, dict):
+            raise ValueError("计划必须是 YAML 对象")
+        # PyYAML reads unquoted ISO dates as datetime.date; keep persisted plans JSON-safe.
+        raw = json.loads(json.dumps(raw, default=_plan_date))
         plan.update({k: v for k, v in raw.items() if k != "items"})
-        if raw.get("items"):
+        if "items" in raw:
             plan["items"] = raw["items"]
+    if not isinstance(plan["items"], list) or not plan["items"]:
+        raise ValueError("计划 items 必须是非空列表")
     for it in plan["items"]:
+        if not isinstance(it, dict):
+            raise ValueError("计划项必须是对象")
+        if it.get("program"):
+            identifier = it["program"]
+            if not isinstance(identifier, str) or identifier.split(":", 1)[0] not in ("oas", "assttyys") or ":" not in identifier:
+                raise ValueError("program 要使用上游目录中的完整标识，如 oas:Duel")
+            name = identifier.split(":", 1)[0] + "_" + hashlib.sha256(identifier.encode()).hexdigest()[:12]
+            if it.get("workflow") and it["workflow"] != name:
+                raise ValueError("同一计划项的 program 与 workflow 不一致")
+            it["workflow"] = name
         it.setdefault("params", {})
         it.setdefault("cooldown_min", 0)
         it.setdefault("cooldown_on", {})
+    from .orchestration import validate_items
+    validate_items(plan)
     return plan
 
 
@@ -102,12 +136,14 @@ class Totals:
 
 class Marathon:
     def __init__(self, app, instance: str, plan: dict, out_dir: Path, *, deadline: float | None = None,
-                 repair: bool = False, clock=time.time, sleep=time.sleep, max_rounds: int | None = None):
+                 repair: bool = False, clock=time.time, sleep=time.sleep, max_rounds: int | None = None,
+                 prepare_output: bool = True):
         self.app = app
         self.instance = instance
         self.plan = plan
         self.dir = Path(out_dir)
-        (self.dir / "samples").mkdir(parents=True, exist_ok=True)
+        if prepare_output:
+            (self.dir / "samples").mkdir(parents=True, exist_ok=True)
         self.deadline = deadline
         self.repair = repair
         self.clock = clock
@@ -133,6 +169,8 @@ class Marathon:
                                      game.get("budgets") or {}, game.get("daily_reset_hour", 0)) if getattr(app, "store", None) else None
         self.device_key = normalize_device_identity(cfg.instance(instance) if hasattr(cfg, "instance") else instance)
         self.plan_key = hashlib.sha256(json.dumps(plan, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:20]
+        from .orchestration import Checkpoints
+        self.checkpoints = Checkpoints(app.store, self.account, "tasks-v1") if self.ledger and plan.get("durable") else None
         self._watch_stop = threading.Event()
         self._load_state()
 
@@ -160,10 +198,32 @@ class Marathon:
     def _period(self, scope: str):
         if not self.ledger:
             return None
-        day, week = self.ledger.periods()
+        day, week = self.ledger.periods(_dt.datetime.fromtimestamp(self.clock(), _dt.timezone.utc))
         return week if scope == "weekly" else day
 
+    @staticmethod
+    def _item_key(item):
+        return item.get("task_key") or item.get("id") or (item["workflow"] + ":" + hashlib.sha256(
+            json.dumps(item.get("params") or {}, sort_keys=True).encode()).hexdigest()[:8])
+
+    def _checkpoint(self, item):
+        return self.checkpoints.get(self._item_key(item), self._period(item.get("scope", "daily"))) if self.checkpoints else {}
+
+    def _quota_count(self, item):
+        if not self.ledger:
+            return 0
+        receipts = self.app.store.task_receipts(self.account, self._period(item.get("scope", "daily")),
+                                               item.get("task_key") or self._item_key(item))
+        return sum(row["status"] == "completed" for row in receipts)
+
     def _done_for_period(self, item: dict) -> bool:
+        if item.get("goal") and self.ledger and self._goal_remaining(item) == 0:
+            return True
+        state = self._checkpoint(item)
+        if state.get("status") == "completed":
+            return True
+        if item.get("limit_per_period") and self._quota_count(item) >= item["limit_per_period"]:
+            return True
         if not item.get("once_per_period") or not self.ledger:
             return False
         key = item.get("task_key") or item["workflow"]
@@ -181,6 +241,45 @@ class Marathon:
 
     def item_params(self, item):
         params = dict(item.get("params") or {})
+        if item.get("enabled", True) is not True:
+            return None, "任务未启用"
+        state = self._checkpoint(item)
+        if state.get("status") in ("running", "needs_review"):
+            return None, "上次执行中断或结果不确定，需要核对游戏回执后再执行"
+        limit = item.get("limit_per_period", 1 if item.get("once_per_period") and not item.get("goal") else None)
+        if state.get("status") == "completed" or (limit and max(state.get("completed", 0), self._quota_count(item)) >= limit):
+            return None, "本周期次数已经核验完成"
+        if state.get("next_at", 0) > self.clock():
+            return None, f"等待持久间隔：{state['next_at']}"
+        if self.ledger:
+            oas_due = self.app.store.oas_due_times(self.account).get(item["workflow"], 0)
+            if oas_due > self.clock():
+                return None, f"等待 OAS 下次运行时间：{oas_due}"
+        for name in item.get("after", []):
+            dependency = next(it for it in self.plan["items"] if it.get("id") == name)
+            if not self._done_for_period(dependency):
+                return None, f"等待依赖完成：{name}"
+        schedule = item.get("schedule")
+        if item.get("schedule_profile"):
+            profile = (self.app.cfg.get("game", {}).get("schedules") or {}).get(item["schedule_profile"], {})
+            if not profile.get("verified") or not profile.get("evidence") or not profile.get("schedule"):
+                return None, "缺少已核对的活动开放日程"
+            schedule = profile["schedule"]
+        if schedule:
+            from .orchestration import schedule_gate
+            opened, next_at = schedule_gate(schedule, self.clock(), self.ledger.timezone if self.ledger else "Asia/Shanghai")
+            if not opened:
+                return None, f"不在开放窗口；下次：{next_at}" if next_at else "活动窗口已结束"
+        if item.get("program"):
+            if self.app.store.query("SELECT id FROM changes WHERE workflow='upstream-sync' AND status IN ('proposed','waiting_user') LIMIT 1"):
+                return None, "上游识别/源码更新仍待审批，暂停使用旧转换"
+            try:
+                from .programs import assert_current
+                workflow = self.app.supervisor.load(item["workflow"])
+                assert_current(workflow, self.app.ws.path)
+                workflow.validate_params(params)
+            except (OSError, ValueError, WorkflowError) as error:
+                return None, f"上游脚本尚未通过完整转换与审批：{error}"
         if item.get("profile"):
             profile = (self.app.cfg.get("game", {}).get("profiles") or {}).get(item["profile"], {})
             if not profile.get("verified") or not profile.get("evidence"):
@@ -196,8 +295,7 @@ class Marathon:
                     return None, "档案中的地域/委派实例已完成或正在进行"
                 params.update(choice)
         if item.get("goal") and self.ledger:
-            rows = self.ledger.snapshot(item.get("scope", "daily"))
-            rows = [row for row in rows if self.clock() - row["updated"] < 900]
+            rows = self._recent_goal_rows(item.get("scope", "daily"))
             remaining = remaining_task(rows, item["goal"])
             if remaining is None:
                 return None, "未读取到近期游戏任务进度，保留资源"
@@ -281,22 +379,24 @@ class Marathon:
                     self.budget.check(costs)
             out = self.app.supervisor.run(workflow, self.instance, params, repair=self.repair)
             res = out.result
+            if res.evidence.get("handoff_id"):
+                self.stop(f"{workflow} 已交给 agent 接管 #{res.evidence['handoff_id']}，计划暂停")
             rec = {"workflow": workflow, "status": res.status, "reason": res.reason,
                    "failure_kind": res.failure_kind, "failed_state": res.failed_state,
                    "vars": {k: res.variables.get(k) for k in COUNTERS if k in res.variables},
                    "notes": out.notes, "level": out.level, "ok": res.ok,
                    "business_result": res.business_result, "business_ok": res.business_ok,
-                   "evidence": res.evidence}
+                   "evidence": res.evidence, "actions": res.actions}
             if item:
                 self._mark_task(item, rec)
             if res.status == "failed":
                 self._save_sample(res.last_frame, "failed",
                                   {"workflow": workflow, "reason": res.reason, "failure_kind": res.failure_kind,
                                    "last_states": [s for _, s in res.history[-15:]]})
-        except Exception as e:  # noqa: BLE001 - keep the day going, record it
+        except Exception as e:  # noqa: BLE001 - record uncertain outcomes; durable plans pause below
             rec = {"workflow": workflow, "status": "error", "reason": f"{type(e).__name__}: {e}", "ok": False,
                    "business_result": "blocked", "business_ok": False, "evidence": {},
-                   "vars": {}, "notes": [], "level": "human"}
+                   "vars": {}, "notes": [], "level": "human", "actions": None}
         rec.update(seconds=round(self.clock() - t0, 1), round=self.rounds,
                    time=_dt.datetime.now().isoformat(timespec="seconds"), params=params)
         self._record(rec)
@@ -338,9 +438,24 @@ class Marathon:
             self._watch_stop.wait(0.5)
 
     def run(self) -> str:
-        with self.app.supervisor.execution(self.instance, f"marathon:{self.account}") as lease:
-            self.lease = lease
-            return self._run_locked()
+        self.job_id = self.app.store.add_marathon_job(self.account, self.instance, self.plan, str(self.dir))
+        try:
+            # Network/conversion work never holds an emulator lease and never silently uses a pending update.
+            sync = getattr(self.app, "sync", None)
+            if sync is not None and (self.plan.get("sync_before_start") or sync.due()):
+                result = sync.sync(trigger="plan" if self.plan.get("sync_before_start") else "schedule")
+                pending = self.app.store.query("SELECT id FROM changes WHERE workflow='upstream-sync' AND status IN ('proposed','waiting_user')")
+                if result.status not in ("merged", "unchanged") or result.details.get("errors") or pending:
+                    self.stop_reason = f"上游同步尚未就绪：{result.status}；请先处理同步报告/待审批更新"
+                    self.write_summary(final=True)
+                    self.app.store.update_marathon_job(self.job_id, "stopped", self.stop_reason, str(self.dir))
+                    return self.stop_reason
+            with self.app.supervisor.execution(self.instance, f"marathon:{self.account}") as lease:
+                self.lease = lease
+                return self._run_locked()
+        except BaseException:
+            self.app.store.update_marathon_job(self.job_id, "error", self.stop_reason or "计划启动/执行异常", str(self.dir))
+            raise
 
     def _skip(self, item, reason):
         self._record({"workflow": item["workflow"], "status": "skipped", "reason": reason,
@@ -359,9 +474,15 @@ class Marathon:
             self.stop(f"任务扫描未通过：{scan['reason']}")
         return scan["ok"] and not self._should_stop()
 
+    def _recent_goal_rows(self, scope):
+        if not self.ledger:
+            return []
+        now = self.clock()
+        rows = self.ledger.snapshot(scope, now=_dt.datetime.fromtimestamp(now, _dt.timezone.utc))
+        return [row for row in rows if now - row["updated"] < 900]
+
     def _goal_remaining(self, item):
-        rows = self.ledger.snapshot(item.get("scope", "daily")) if self.ledger else []
-        return remaining_task([row for row in rows if self.clock() - row["updated"] < 900], item["goal"])
+        return remaining_task(self._recent_goal_rows(item.get("scope", "daily")), item["goal"])
 
     def _run_item(self, index, item):
         batches = int(self.plan.get("max_batches_per_task", 10)) if item.get("goal") else 1
@@ -377,8 +498,29 @@ class Marathon:
                 if not home["ok"] or self._should_stop():
                     return
             before = self._goal_remaining(item) if item.get("goal") else None
+            period = self._period(item.get("scope", "daily"))
+            if self.checkpoints and not self.checkpoints.begin(self._item_key(item), period, self.clock()):
+                self._skip(item, "持久检查点阻止重复或不确定任务")
+                return
             rec = self._run(item["workflow"], params, item)
             self._cooldown(index, item, rec)
+            if self.checkpoints:
+                # A visible pre-existing foster timer is not another newly started foster.
+                counted = int(bool(rec.get("business_ok")) and not (
+                    item["workflow"] == "foster" and rec.get("business_result") != "completed"))
+                if counted and rec.get("evidence", {}).get("run_id") is not None:
+                    self.app.store.record_task_receipt(self.account, period, item.get("scope", "daily"),
+                        item.get("task_key") or self._item_key(item), str(rec["evidence"]["run_id"]),
+                        "completed", rec["evidence"])
+                state = self._checkpoint(item)
+                limit = item.get("limit_per_period", 1 if item.get("once_per_period") and not item.get("goal") else None)
+                status = "completed" if not item.get("goal") and limit and state.get("completed", 0) + counted >= limit else "pending"
+                if not rec.get("business_ok"):
+                    status = "needs_review" if rec.get("actions") != 0 else "blocked"
+                next_at = self.clock() + float(item.get("min_interval_min", 0)) * 60 if counted else 0
+                self.checkpoints.finish(self._item_key(item), period, status, counted, next_at, rec, self.clock())
+                if not rec.get("business_ok") and item.get("on_failure", "pause") == "pause":
+                    self.stop(f"{item['workflow']} 未取得完成回执，计划暂停；已保存检查点")
             if self._should_stop():
                 return
             if rec.get("failure_kind") in ("unknown_screen", "device", "recognition"):
@@ -390,6 +532,8 @@ class Marathon:
                 return
             after = self._goal_remaining(item)
             if after == 0:
+                if self.checkpoints:
+                    self.checkpoints.finish(self._item_key(item), period, "completed", 0, 0, rec, self.clock())
                 return
             if after is None or before is None or after >= before:
                 self._skip(item, "执行后游戏进度没有可核验的增加，本轮不再消耗")
@@ -398,7 +542,6 @@ class Marathon:
 
     def _run_locked(self) -> str:
         sup = self.app.supervisor
-        self.job_id = self.app.store.add_marathon_job(self.account, self.instance, self.plan, str(self.dir))
         prev_sink = getattr(sup, "event_sink", None)
         sup.event_sink = self._on_event
         home_failures = 0
@@ -406,6 +549,8 @@ class Marathon:
         watchdog.start()
         job_status = "finished"
         try:
+            if self._should_stop():
+                return self.stop_reason
             if self.plan.get("task_aware") and not self._scan():
                 self.stop_reason = self.stop_reason or "启动核对未完成，停止计划"
                 return self.stop_reason
@@ -413,15 +558,16 @@ class Marathon:
                 if self.max_rounds is not None and self.rounds >= self.max_rounds:
                     self.stop(f"跑满 {self.max_rounds} 轮")
                     break
-                due = [(i, it) for i, it in enumerate(self.plan["items"])
-                       if not self._done_for_period(it) and self.clock() >= self.next_ok.get(i, 0)
-                       and not (self.plan.get("task_aware") and it["workflow"] == "task_scan")]
+                oas_due = self.app.store.oas_due_times(self.account) if self.ledger else {}
+                schedule = [(i, it, max(self.next_ok.get(i, 0), oas_due.get(it["workflow"], 0)))
+                            for i, it in enumerate(self.plan["items"]) if not self._done_for_period(it)
+                            and not (self.plan.get("task_aware") and it["workflow"] == "task_scan")]
+                due = [(i, it) for i, it, next_run in schedule if self.clock() >= next_run]
                 if not due:
                     if not self.plan.get("continuous", False):
                         self.stop_reason = "本轮可执行目标已处理，冷却项与未验证项保留待办"
                         break
-                    pending = [self.next_ok.get(i, self.clock() + 600) for i, it in enumerate(self.plan["items"])
-                               if not self._done_for_period(it)]
+                    pending = [next_run for _, _, next_run in schedule]
                     if not pending and any(it.get("once_per_period") for it in self.plan["items"]):
                         self.stop("本周期已完成的任务都已核对，自动停止")
                         break
@@ -436,7 +582,7 @@ class Marathon:
                     if params is None:
                         self._skip(item, reason)
                         continue
-                    if self.plan.get("home_between", True):
+                    if item.get("home_between", self.plan.get("home_between", True)):
                         h = self._run("home", {})
                         home_failures = 0 if h["ok"] else home_failures + 1
                         if home_failures >= int(self.plan.get("max_home_failures", 3)):

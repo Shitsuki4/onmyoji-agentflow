@@ -51,6 +51,13 @@ CREATE TABLE IF NOT EXISTS task_receipts (
 CREATE TABLE IF NOT EXISTS plan_cooldowns (
   account TEXT, device TEXT, plan_key TEXT, item_key TEXT, next_ok REAL,
   UNIQUE(account,device,plan_key,item_key));
+CREATE TABLE IF NOT EXISTS oas_task_schedules (
+  account TEXT, task TEXT, workflow TEXT, next_run REAL, finished REAL, run_id INTEGER,
+  PRIMARY KEY(account,task));
+CREATE TABLE IF NOT EXISTS plan_steps (
+  account TEXT, plan_key TEXT, item_key TEXT, period TEXT, status TEXT,
+  attempts INTEGER DEFAULT 0, completed INTEGER DEFAULT 0, next_at REAL DEFAULT 0,
+  record TEXT, updated REAL, UNIQUE(account,plan_key,item_key,period));
 CREATE TABLE IF NOT EXISTS foster_ledger (
   id INTEGER PRIMARY KEY AUTOINCREMENT, account TEXT, instance TEXT, status TEXT,
   card_type TEXT, stars INTEGER, friend TEXT, started REAL, due REAL, evidence TEXT, updated REAL);
@@ -63,6 +70,16 @@ CREATE TABLE IF NOT EXISTS samples (
 CREATE TABLE IF NOT EXISTS account_stats (
   id INTEGER PRIMARY KEY AUTOINCREMENT, account TEXT, recorded REAL, source TEXT,
   team TEXT, member TEXT, speed REAL, crit REAL, order_index INTEGER, stat_values TEXT, evidence TEXT);
+CREATE TABLE IF NOT EXISTS program_jobs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, entry_id TEXT, fingerprint TEXT, source TEXT, workflow TEXT,
+  status TEXT, base_commit TEXT, entry TEXT, change_id INTEGER, note TEXT, updated REAL,
+  UNIQUE(entry_id,fingerprint));
+CREATE TABLE IF NOT EXISTS program_activations (
+  instance TEXT, digest TEXT, approved REAL, UNIQUE(instance,digest));
+CREATE TABLE IF NOT EXISTS agent_handoffs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, workflow TEXT, instance TEXT, run_id INTEGER,
+  failure_kind TEXT, status TEXT, packet_path TEXT, note TEXT, created REAL, updated REAL,
+  UNIQUE(run_id));
 """
 
 
@@ -90,12 +107,37 @@ class Store:
     # -- runs
     def add_run(self, workflow, instance, mode, result, digest) -> int:
         s = result.summary()
-        cur = self.execute(
-            "INSERT INTO runs(workflow, instance, mode, status, failure_kind, reason, digest, started, ended, summary)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?)",
-            (workflow, instance, mode, result.status, result.failure_kind, result.reason, digest,
-             time.time() - (result.ended - result.started), time.time(), json.dumps(s, ensure_ascii=False, default=str)))
-        return cur.lastrowid
+        schedule = (result.evidence.get("oas_schedule")
+                    if mode == "run" and result.status == "success" and result.oas_schedule else None)
+        with self._lock, self._conn:
+            finished = time.time()
+            cur = self._conn.execute(
+                "INSERT INTO runs(workflow, instance, mode, status, failure_kind, reason, digest, started, ended, summary)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (workflow, instance, mode, result.status, result.failure_kind, result.reason, digest,
+                 finished - (result.ended - result.started), finished, json.dumps(s, ensure_ascii=False, default=str)))
+            records = []
+            if mode == "run" and result.oas_wakes:
+                records.extend(
+                    (wake["account"], wake["task"], wake["workflow"], wake["next_run"],
+                     wake["observed_at"], cur.lastrowid) for wake in result.evidence.get("oas_wakes", ())
+                )
+            if schedule is not None:
+                records.append((schedule["account"], result.oas_schedule, workflow, schedule["next_run"],
+                                schedule["finished_at"], cur.lastrowid))
+            if records:
+                self._conn.executemany("""
+                    INSERT INTO oas_task_schedules(account,task,workflow,next_run,finished,run_id) VALUES (?,?,?,?,?,?)
+                    ON CONFLICT(account,task) DO UPDATE SET workflow=excluded.workflow, next_run=excluded.next_run,
+                        finished=excluded.finished, run_id=excluded.run_id
+                    WHERE excluded.finished >= oas_task_schedules.finished
+                    """, records)
+            return cur.lastrowid
+
+    def oas_due_times(self, account: str) -> dict[str, float]:
+        return {row["workflow"]: row["next_run"] for row in self.query(
+            "SELECT workflow, MAX(next_run) AS next_run FROM oas_task_schedules WHERE account=? GROUP BY workflow",
+            (account,))}
 
     def recent_runs(self, workflow: str | None = None, limit: int = 50, mode: str | None = "run") -> list[dict]:
         sql, args = "SELECT * FROM runs WHERE 1=1", []

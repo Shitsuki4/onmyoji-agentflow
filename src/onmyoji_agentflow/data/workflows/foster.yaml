@@ -38,6 +38,7 @@ states:
   desc: 已有有效寄养倒计时，不重复放入
   when:
     all:
+    - expr: started == 0
     - text: 式神育成
       region: [80, 15, 180, 65]
     - text: ''
@@ -60,6 +61,14 @@ states:
       region: [1080, 640, 110, 55]
     - text: 阴阳寮
       region: [515, 640, 120, 55]
+    - not:
+        any:
+        - text: 每日一签
+          region: [450, 150, 380, 250]
+        - text: 累计奖励
+          region: [440, 470, 390, 100]
+        - text: 获得奖励
+          region: [400, 120, 480, 250]
   do:
   - click: [550, 625, 600, 685]
     delay: 2500
@@ -67,8 +76,17 @@ states:
 - id: guild_barrier
   desc: 阴阳寮页面，进入结界
   when:
-    text: 结界
-    region: [950, 580, 250, 120]
+    any:
+    - text: 结界
+      region: [950, 580, 250, 120]
+    - all:
+      - any:
+        - text: 集体任务
+          region: [0, 130, 200, 110]
+        - text: 装扮
+          region: [1180, 210, 100, 100]
+      - text: 寮信息
+        region: [1130, 640, 150, 80]
   do:
   - click: [1050, 620, 1140, 690]
     delay: 2500
@@ -76,8 +94,14 @@ states:
 - id: barrier_training
   desc: 结界页面，进入式神育成
   when:
-    text: 式神育成
-    region: [500, 270, 230, 130]
+    any:
+    - text: 式神育成
+      region: [500, 270, 230, 130]
+    - all:
+      - text: 结界防守
+        region: [270, 270, 110, 150]
+      - text: 结界卡
+        region: [860, 270, 110, 150]
   do:
   - click: [570, 300, 660, 370]
     delay: 2000

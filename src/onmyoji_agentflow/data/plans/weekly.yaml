@@ -1,0 +1,33 @@
+title: 周常购买、秘闻与斗技
+durable: true
+sync_before_start: true
+continuous: true
+task_aware: true
+home_between: true
+pause_s: 60
+items:
+  - id: weekly_blue_ticket
+    program: oas:RichMan#medal_blue
+    task_key: weekly_blue_ticket
+    scope: weekly
+    once_per_period: true
+    profile: weekly_medal_purchase
+  - id: weekly_black_daruma
+    program: oas:RichMan#medal_black
+    task_key: weekly_black_daruma
+    scope: weekly
+    once_per_period: true
+    profile: weekly_medal_purchase
+  - id: secret_race
+    program: oas:Secret
+    task_key: secret_race
+    scope: weekly
+    once_per_period: true
+    profile: secret_race
+  - id: duel
+    program: oas:Duel
+    task_key: duel
+    scope: weekly
+    once_per_period: true
+    profile: duel
+    schedule_profile: duel

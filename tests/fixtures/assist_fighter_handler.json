@@ -1,0 +1,36 @@
+{
+  "license": "MIT License\n\nCopyright (c) 2019 Chaos\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n",
+  "source": "import { IFuncOrigin, IFuncOperatorOrigin, IFuncOperator } from '@/interface/IFunc';\nimport { Script } from '@/system/script';\n\n// const normal = -1; //定义常量\nconst left = 0;\nconst center = 1;\nconst right = 2;\n\nexport class Func694 implements IFuncOrigin {\n\tid = 694;\n\tname = '上阵协战式神';\n\tdesc = '上阵第一个式神进行协战,用于协战十五次(排在准备前面,不要锁定阵容)';\n\toperator: IFuncOperatorOrigin[] = [{ // 0 上阵协战式神\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[center, 610, 536, 0xeba1ae],\n\t\t\t\t[center, 608, 619, 0xf95e89],\n\t\t\t\t[right, 714, 601, 0xf95e89],\n\t\t\t\t[right, 706, 674, 0xfa5c8a],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 648, 581, 679, 607, 1000],\n\t\t\t[center, 1280, 720, 618, 240, 649, 265, 1000],\n\t\t\t[center, 1280, 720, 1134, 562, 1224, 611, 1000],\n\t\t]\n\t}, { // 1 未准备\n\t\tdesc: '准备界面_未准备',\n\t\toper: [\n\t\t\t[center, 1280, 720, 785, 494, 825, 530, 2000],\n\t\t]\n\t}, { // 2 无协战式神\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[left, 270, 551, 0xffe78d],\n\t\t\t\t[center, 370, 636, 0xffed91],\n\t\t\t\t[center, 370, 558, 0xffec91],\n\t\t\t\t[left, 270, 631, 0xffe68c],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 23, 19, 49, 45, 1000],\n\t\t\t[center, 1280, 720, 23, 19, 49, 45, 1000],\n\t\t\t[center, 1280, 720, 680, 397, 802, 448, 1000],\n\t\t\t[center, 1280, 720, 680, 397, 802, 448, 1000],\n\t\t]\n\t}, { // 3 上阵\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[left, 266, 613, 0xf75d8c],\n\t\t\t\t[left, 266, 654, 0xf95e89],\n\t\t\t\t[center, 371, 667, 0xf95e89],\n\t\t\t\t[center, 371, 627, 0xf95e89],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 297, 561, 337, 601, 1000],\n\t\t\t[center, 1280, 720, 604, 244, 634, 275, 1000],\n\t\t\t[center, 1280, 720, 1135, 557, 1217, 611, 1000],\n\t\t]\n\t}, { // 4 御魂九层\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[left, 108, 573, 0xa24623],\n\t\t\t\t[left, 199, 587, 0x80291b],\n\t\t\t\t[left, 129, 598, 0x902a16],\n\t\t\t\t[left, 147, 581, 0xf1dfd0],\n\t\t\t\t[left, 139, 590, 0xf7eadb],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 98, 470, 191, 494, 1000],\n\t\t]\n\t}, { // 5 购买体力\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[center, 363, 205, 0xcec4bb],\n\t\t\t\t[right, 875, 219, 0xd2c9c3],\n\t\t\t\t[center, 336, 496, 0xa3999e],\n\t\t\t\t[right, 919, 473, 0xcfc6be],\n\t\t\t\t[center, 586, 475, 0xf3b25e],\n\t\t\t\t[right, 701, 476, 0xf3b25e],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 568, 454, 712, 485, 2000],\n\t\t\t[center, 1280, 720, 581, 672, 724, 699, 1000],\n\t\t]\n\t}, { // 6 解锁阵容 待改\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[center, 558, 579, 0xa69dd5],\n\t\t\t\t[center, 586, 578, 0xa598c6],\n\t\t\t\t[center, 566, 577, 0x7f6747],\n\t\t\t\t[center, 577, 590, 0x6b5842],\n\t\t\t\t[center, 567, 587, 0x6d563f],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 562, 572, 583, 589, 1000],\n\t\t]\n\t}, { // 7 解锁阵容(五倍券)\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[right, 648, 671, 0xb4aaf3],\n\t\t\t\t[right, 648, 669, 0xb0a6ed],\n\t\t\t\t[right, 674, 669, 0xbbacec],\n\t\t\t\t[right, 674, 672, 0xc4b8f5],\n\t\t\t\t[right, 657, 672, 0x856949],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 652, 665, 669, 680, 1000],\n\t\t]\n\t}, { // 8 师徒界面\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[left, 44, 27, 0xefd38c],\n\t\t\t\t[left, 34, 36, 0xf7e7ac],\n\t\t\t\t[left, 44, 46, 0xefd697],\n\t\t\t\t[left, 174, 46, 0xf8f3e0],\n\t\t\t\t[left, 225, 30, 0xf8f3e0],\n\t\t\t\t[left, 271, 35, 0x573614],\n\t\t\t\t[left, 284, 36, 0x5a3716],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 21, 16, 67, 56, 1000],\n\t\t]\n\t},];\n\toperatorFunc(thisScript: Script, thisOperator: IFuncOperator[]): boolean {\n\t\tconst thisconf = thisScript.scheme.config['0'];\n\t\tif (thisScript.global.frist) {\n\t\t\tif (thisScript.oper({\n\t\t\t\tid: 692,\n\t\t\t\tname: 'frist',\n\t\t\t\toperator: [thisOperator[2]]\n\t\t\t})) {\n\t\t\t\tif (thisconf.after_operation === '切换方案') {\n\t\t\t\t\tthisScript.rerun(thisconf.next_scheme);\n\t\t\t\t\tsleep(3000);\n\t\t\t\t} else if (thisconf.after_operation === '停止脚本') {\n\t\t\t\t\tthisScript.doPush(thisScript, { text: `[${thisScript.schemeHistory.map(item => item.schemeName).join('、')}]已停止，请查看。`, before() { thisScript.myToast('脚本即将停止，正在上传数据'); } });\n\t\t\t\t\t// 停止脚本时关闭应用\n\t\t\t\t\tif (thisconf.stop_with_launched_app_exit) {\n\t\t\t\t\t\tthisScript.stopRelatedApp();\n\t\t\t\t\t}\n\t\t\t\t\tthisScript.stop();\n\t\t\t\t\tsleep(3000);\n\t\t\t\t}\n\t\t\t\treturn true;\n\t\t\t}\n\t\t\tif (thisScript.oper({\n\t\t\t\tid: 692,\n\t\t\t\tname: 'frist',\n\t\t\t\toperator: [{ desc: thisOperator[0].desc }]\n\t\t\t})) {\n\t\t\t\tthisScript.regionSwipe(thisOperator[0].oper[0], thisOperator[0].oper[1], [800, 1000], 1000);\n\t\t\t\tthisScript.regionClick([thisOperator[0].oper[2]]);\n\t\t\t\tthisScript.global.frist = false;\n\t\t\t\treturn true;\n\t\t\t}\n\t\t\tif (thisScript.oper({\n\t\t\t\tid: 692,\n\t\t\t\tname: 'frist',\n\t\t\t\toperator: [{ desc: thisOperator[3].desc }]\n\t\t\t})) {\n\t\t\t\tthisScript.regionSwipe(thisOperator[3].oper[0], thisOperator[3].oper[1], [800, 1000], 1000);\n\t\t\t\tthisScript.regionClick([thisOperator[3].oper[2]]);\n\t\t\t\tthisScript.global.frist = false;\n\t\t\t\treturn true;\n\t\t\t}\n\t\t\tif (thisScript.oper({\n\t\t\t\tid: 692,\n\t\t\t\tname: 'frist',\n\t\t\t\toperator: [thisOperator[1], thisOperator[6]]\n\t\t\t})) {\n\t\t\t\treturn true;\n\t\t\t}\n\t\t}\n\t\tif (thisScript.oper({\n\t\t\tid: 692,\n\t\t\tname: '特殊操作',\n\t\t\toperator: [thisOperator[4], thisOperator[5], thisOperator[7], thisOperator[8]]\n\t\t})) {\n\t\t\treturn true;\n\t\t}\n\t\treturn false;\n\t}\n}",
+  "resources": {
+    "准备界面_未准备": {
+      "type": "colors",
+      "points": [
+        [
+          1240,
+          702,
+          "#cead83"
+        ],
+        [
+          1182,
+          586,
+          "#f7e6c3"
+        ],
+        [
+          360,
+          699,
+          "#241818"
+        ],
+        [
+          32,
+          23,
+          "#dbb48b"
+        ],
+        [
+          1122,
+          698,
+          "#ddbb8f"
+        ]
+      ]
+    }
+  }
+}

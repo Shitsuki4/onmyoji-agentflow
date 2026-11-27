@@ -101,6 +101,8 @@ class Supervisor:
                                  str(game.get("timezone") or "Asia/Shanghai"), game.get("daily_reset_hour", 0))
         self.budget = ResourceBudget(store, self.ledger.account, self.ledger.timezone, game.get("budgets") or {},
                                      reset_hour=game.get("daily_reset_hour", 0))
+        from ..handoffs import Handoffs
+        self.handoffs = Handoffs(self)
 
     def _device_identity(self, instance: str) -> str:
         for item in self.cfg.get("instances", []):
@@ -149,14 +151,29 @@ class Supervisor:
 
     def _run_once(self, wf, instance: str, params: dict, mode: str = "run", max_actions=None, max_seconds=None,
                   observe: bool = False, initial_vars: dict | None = None,
-                  validate_params: bool = True) -> RunResult:
+                   validate_params: bool = True, first_run_approved: bool = False) -> RunResult:
         if not observe:
+            from ..programs import assert_current
+            assert_current(wf, wf.path.parent.parent if wf.path else self.ws.path)
             activity = workflow_activity(wf.raw)
             if activity is not None:
                 activity.assert_battle_open()
         params = wf.validate_params(params) if validate_params else params
         with self.execution(instance, f"workflow:{wf.name}:{mode}") as lease:
             lease.update(workflow=wf.name, mode=mode, params=params)
+            source = wf.raw.get("source") or {}
+            if not observe and isinstance(source, dict) and source.get("entry_id"):
+                digest = wf.digest()
+                approved = self.store.query("SELECT approved FROM program_activations WHERE instance=? AND digest=?",
+                                            (instance, digest))
+                if not approved:
+                    if not first_run_approved and not self._confirm(FIRST_RUN,
+                            f"{wf.name}：上游统一转换后的首次运行；来源 {source['entry_id']}；敏感操作仍逐项确认", instance):
+                        result = RunResult(wf.name, "failed", reason="用户未批准转换工作流的首次运行", failure_kind="confirm_denied")
+                        result.evidence["run_id"] = self.store.add_run(wf.name, instance, mode, result, digest)
+                        return result
+                    self.store.execute("INSERT OR IGNORE INTO program_activations(instance,digest,approved) VALUES (?,?,?)",
+                                       (instance, digest, time.time()))
             ctl = self.controller_factory(instance, observe)
             flag = self.stop_flags.setdefault(instance, threading.Event())
             charged = set()
@@ -186,9 +203,29 @@ class Supervisor:
                             should_stop=lambda: "immediate" if flag.is_set() else lease.stop_mode(), clock=self.clock,
                             on_event=lambda k, d: self._on_event(instance, k, d), initial_vars=initial_vars,
                             validate_params=validate_params, before_input=before_input)
+            oas_started_at = time.time()
             res = runner.run()
-        digest = wf.digest({"humanize": self.cfg.get("humanize"), "game": self.cfg.get("game")})
-        run_id = self.store.add_run(wf.name, instance, mode, res, digest)
+            if mode == "run" and not observe and res.oas_wakes:
+                from ..workflow.oas_schedule import WAKE_WORKFLOWS, wake_next_run
+                res.evidence["oas_wakes"] = [
+                    {"task": task, "workflow": WAKE_WORKFLOWS[task], "account": self.ledger.account,
+                     "observed_at": oas_started_at + elapsed,
+                     "next_run": wake_next_run(oas_started_at, oas_started_at + elapsed, delay, *server_params)}
+                    for task, (delay, elapsed, *server_params) in res.oas_wakes.items()
+                ]
+            if mode == "run" and not observe and res.status == "success" and res.oas_schedule:
+                from ..workflow.oas_schedule import next_run
+                finished_at = time.time()
+                reference_at, delay = finished_at, None
+                if res.oas_target is not None:
+                    delay, age = res.oas_target
+                    reference_at -= age
+                res.evidence["oas_schedule"] = {"task": res.oas_schedule, "account": self.ledger.account,
+                                                "finished_at": finished_at,
+                                                "next_run": next_run(reference_at, params, target_delay_seconds=delay,
+                                                                     calendar_at=finished_at)}
+            digest = wf.digest({"humanize": self.cfg.get("humanize"), "game": self.cfg.get("game")})
+            run_id = self.store.add_run(wf.name, instance, mode, res, digest)
         if res.last_frame is not None:
             folder = self.runs_dir / f"{run_id:06d}"
             folder.mkdir(parents=True, exist_ok=True)
@@ -272,6 +309,8 @@ class Supervisor:
 
     def _run(self, name, instance, params, repair):
         wf = self.load(name)
+        from ..programs import assert_current
+        assert_current(wf, self.ws.path)
         activity = workflow_activity(wf.raw)
         if activity is not None:
             activity.assert_battle_open()
@@ -280,8 +319,12 @@ class Supervisor:
         res = self._run_once(wf, instance, params)
         outcome = Outcome(res, attempts=[res.summary()])
         retries = 0
-        while res.status == "failed" and res.failure_kind not in ("confirm_denied", "prerequisite", "budget", "unknown_screen") and retries < int(
-                self.scfg.get("max_local_retries", 2)) and not self.stop_flags[instance].is_set():
+        call_active_var = wf.raw.get("navigation", {}).get("call_active_var")
+        lifecycle = wf.raw.get("scheme_lifecycle")
+        while (res.status == "failed" and not lifecycle and not (call_active_var and res.variables.get(call_active_var))
+                and res.failure_kind not in ("confirm_denied", "prerequisite", "budget", "unknown_screen",
+                                             "navigation_resume", "restart_uncertain") and retries < int(
+                self.scfg.get("max_local_retries", 2)) and not self.stop_flags[instance].is_set()):
             if getattr(self._runtime, "lease").stop_mode():
                 break
             retries += 1
@@ -323,11 +366,20 @@ class Supervisor:
             self.store.execute("UPDATE runs SET summary=? WHERE id=?", (
                 json.dumps(outcome.result.summary(), ensure_ascii=False), outcome.result.evidence["run_id"]))
         self.check_rollback(name)
+        handoff_id = None
+        if res.status == "failed":
+            handoff_id = self.handoffs.create(wf, instance, res)
+            res.evidence["handoff_id"] = handoff_id
+            if res.evidence.get("run_id"):
+                self.store.execute("UPDATE runs SET summary=? WHERE id=?", (
+                    json.dumps(res.summary(), ensure_ascii=False), res.evidence["run_id"]))
+            outcome.notes.append(f"已保存 agent 接管任务 #{handoff_id}，包含截图、状态、日志与源码版本")
         if res.status != "failed" or not repair:
             if res.status == "failed":
                 outcome.level = "human"
             return outcome
-        if res.failure_kind in ("confirm_denied", "device", "prerequisite", "budget"):
+        if (lifecycle or res.failure_kind in ("confirm_denied", "device", "prerequisite", "budget", "navigation_resume", "restart_uncertain")
+                or (call_active_var and res.variables.get(call_active_var))):
             outcome.level = "human"
             outcome.notes.append("需要你处理：" + res.reason)
             self.store.event("error", "supervisor", f"{name}@{instance} 需要人工处理：{res.reason}")
@@ -336,10 +388,12 @@ class Supervisor:
             note = self.diagnose_and_repair(wf, instance, res)
             outcome.level = note[0]
             outcome.notes.append(note[1])
-        except (LLMError, BudgetExceeded, WorkflowError, AgentflowError) as e:
+            self.handoffs.update(handoff_id, {"proposed": "waiting_user", "repaired": "repaired"}.get(note[0], "needs_agent"), note[1])
+        except Exception as e:
             outcome.level = "human"
             outcome.notes.append(f"自动修复没做成：{e}")
             self.store.event("error", "supervisor", f"{name}@{instance} 自动修复没做成：{e}")
+            self.handoffs.update(handoff_id, "needs_agent", str(e))
         return outcome
 
     # ------------------------------------------------------------------ diagnosis
@@ -443,6 +497,15 @@ class Supervisor:
             return True, report
         report["steps"].append(f"回放测试 {len(results)} 个全部通过")
         if instance is None:
+            if kind == "workflow":
+                covered = {case[2].get("state") for case in cases if case[2].get("state") is not None}
+                missing = [state["id"] for state in wf.states if state["id"] not in covered]
+                report["replay"].update(covered_states=sorted(covered), uncovered_states=missing,
+                    positive=sum(case[2].get("state") is not None for case in cases),
+                    negative=sum(case[2].get("state") is None for case in cases))
+                report.update(coverage="partial" if missing or not report["replay"]["negative"] else "recognition_only",
+                              verification="unverified")
+                report["steps"].append("仅验证静态识别；未批准实机输入，不能宣称执行闭环通过")
             return True, report
         # 3. observation mode (recognise only, no input)
         obs = self._run_once(wf, instance, wf.param_defaults(), mode="observe",
@@ -458,7 +521,7 @@ class Supervisor:
             report["failed_step"] = "用户没有同意试跑"
             return False, report
         trial = self._run_once(wf, instance, wf.param_defaults(), mode="trial",
-                               max_actions=int(self.scfg.get("trial_actions", 30)))
+                               max_actions=int(self.scfg.get("trial_actions", 30)), first_run_approved=True)
         report["trial"] = trial.summary()
         if trial.status == "failed":
             report["failed_step"] = "限次试跑"

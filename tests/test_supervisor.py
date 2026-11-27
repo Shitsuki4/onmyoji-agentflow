@@ -15,6 +15,7 @@ from onmyoji_agentflow.supervisor import ConfirmationBroker, Supervisor, Workspa
 from onmyoji_agentflow.supervisor.repair import apply_ops, classify
 from onmyoji_agentflow.supervisor.supervisor import remaining_params
 from onmyoji_agentflow.workflow.schema import load_workflow
+from onmyoji_agentflow.workflow.engine import RunResult
 
 pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="git required")
 
@@ -74,6 +75,145 @@ def test_recapture_samples_colours_from_frame():
 
 def _wf(ws):
     return load_workflow(ws.path / "workflows" / "orochi.yaml", [ws.path / "resources"])
+
+
+@pytest.mark.parametrize("mode,observe,persists", [("run", False, True), ("trial", False, False),
+                                                   ("observe", True, False)])
+def test_oas_success_schedules_only_committed_run(tmp_path, mode, observe, persists):
+    from onmyoji_agentflow.workflow.oas_schedule import PARAMS
+
+    sup, store, _, _ = make_sup(tmp_path, lambda: [blank()])
+    workflow = load_workflow({"format": 1, "name": "test_oas_stop", "params": PARAMS, "states": [
+        {"id": "returned", "when": {"expr": "True"},
+         "do": [{"stop": {"reason": "返回庭院", "oas_schedule": "Pets"}}]}]})
+    result = sup._run_once(workflow, "main", {}, mode=mode, observe=observe, max_seconds=10)
+    receipt = json.loads(store.recent_runs(mode=mode)[0]["summary"])["evidence"].get("oas_schedule")
+    assert (receipt is not None) is persists
+    if persists:
+        assert result.evidence["oas_schedule"] == receipt
+        assert receipt["task"] == "Pets"
+        assert 86399 <= receipt["next_run"] - receipt["finished_at"] <= 86400
+        assert Store(store.path).oas_due_times(receipt["account"]) == {workflow.name: receipt["next_run"]}
+    else:
+        assert store.oas_due_times(sup.ledger.account) == {}
+
+
+@pytest.mark.parametrize("seconds,jitter,expected", [(32400, 60, (27, 13, 1)),
+                                                       (86280, 0, (28, 23, 58)),
+                                                       (86280, 300, (28, 23, 50))])
+def test_oas_schedule_preserves_server_update_branches(monkeypatch, seconds, jitter, expected):
+    from datetime import datetime
+    from onmyoji_agentflow.workflow import oas_schedule
+
+    monkeypatch.setattr(oas_schedule, "randint", lambda low, high: high)
+    params = {"oas_success_seconds": 86400, "oas_server_update_seconds": seconds,
+              "oas_delay_days": 2, "oas_float_seconds": jitter}
+    finished = datetime(2026, 11, 26, 13, 0, 0, 500000)
+    scheduled = datetime.fromtimestamp(oas_schedule.next_run(finished.timestamp(), params))
+    assert (scheduled.day, scheduled.hour, scheduled.minute) == expected
+    assert scheduled.second == 0 and scheduled.microsecond == 0
+
+
+@pytest.mark.parametrize("delay,persists", [(300, True), (0, True), (-1, False)])
+def test_oas_target_schedule_uses_observation_time(tmp_path, delay, persists):
+    from onmyoji_agentflow.workflow.oas_schedule import PARAMS
+
+    sup, store, _, _ = make_sup(tmp_path, lambda: [blank()])
+    workflow = load_workflow({"format": 1, "name": "test_oas_target", "params": PARAMS,
+        "vars": {"target_delay": delay, "target_observed": -1}, "states": [
+            {"id": "observed", "when": {"expr": "target_observed == -1"},
+             "do": [{"set": {"target_observed": "elapsed_ms"}}, {"wait": 1000}]},
+            {"id": "returned", "when": {"expr": "target_observed >= 0"},
+             "do": [{"stop": {"reason": "返回庭院", "oas_schedule": {
+                 "task": "KekkaiUtilize", "delay_seconds_var": "target_delay", "observed_ms_var": "target_observed"}}}]},
+        ]})
+    result = sup._run_once(workflow, "main", {}, max_seconds=20)
+    due = store.oas_due_times(sup.ledger.account)
+    assert bool(due) is persists
+    if persists:
+        receipt = result.evidence["oas_schedule"]
+        stored_delay, age = result.oas_target
+        assert stored_delay == delay and age > 0
+        reference = receipt["finished_at"] - age
+        assert due == {workflow.name: receipt["next_run"]}
+        assert delay - 1 <= receipt["next_run"] - reference <= delay
+    else:
+        assert result.status == "failed"
+
+
+@pytest.mark.parametrize("mode,observe,cleanup_failed", [
+    ("run", False, False), ("run", False, True), ("trial", False, False), ("observe", True, False),
+])
+def test_oas_wake_persists_target_separately_from_origin(tmp_path, mode, observe, cleanup_failed):
+    from onmyoji_agentflow.workflow.oas_schedule import PARAMS, WAKE_WORKFLOWS
+
+    sup, store, _, _ = make_sup(tmp_path, lambda: [blank()])
+    finish = {"fail": "after the sighting"} if cleanup_failed else {
+        "stop": {"reason": "返回庭院", "oas_schedule": "Orochi"}}
+    workflow = load_workflow({"format": 1, "name": "origin", "vars": {"sighted": 0},
+        "params": {**PARAMS, "failure_seconds": {"default": 86400, "min": 0, "max": 3155760000}},
+        "states": [
+            {"id": "found", "when": {"expr": "sighted == 0"}, "do": [
+                {"oas_wake": {"task": "TrueOrochi", "failure_seconds_param": "failure_seconds"}},
+                {"set": {"sighted": 1}}]},
+            {"id": "finished", "when": {"expr": "sighted == 1"}, "do": [finish]},
+        ]})
+    result = sup._run_once(workflow, "main", {}, mode=mode, observe=observe, max_seconds=20)
+    due = store.oas_due_times(sup.ledger.account)
+    if mode != "run":
+        assert not due and "oas_wakes" not in result.evidence
+        return
+    wake, = result.evidence["oas_wakes"]
+    assert due[WAKE_WORKFLOWS["TrueOrochi"]] == wake["next_run"] == int(wake["observed_at"])
+    assert ("origin" in due) == (not cleanup_failed)
+
+
+def test_oas_wake_uses_target_server_clock(tmp_path):
+    from datetime import datetime, timedelta
+
+    from onmyoji_agentflow.workflow.oas_schedule import SERVER_TIMING, WAKE_WORKFLOWS
+
+    sup, store, _, _ = make_sup(tmp_path, lambda: [blank()])
+    binding = {name: f"target_{name}" for name in SERVER_TIMING}
+    params = {alias: {**SERVER_TIMING[name]} for name, alias in binding.items()}
+    params[binding["oas_server_update_seconds"]]["default"] = 25200
+    params["failure_seconds"] = {"default": 86400, "min": 0, "max": 3155760000}
+    workflow = load_workflow({"format": 1, "name": "origin", "params": params, "states": [
+        {"id": "finish", "when": {"expr": "True"}, "do": [
+            {"oas_wake": {"task": "MemoryScrolls", "failure_seconds_param": "failure_seconds",
+                          "server_params": binding}},
+            {"stop": "done"},
+        ]},
+    ]})
+    result = sup._run_once(workflow, "main", {}, mode="run", max_seconds=20)
+    wake, = result.evidence["oas_wakes"]
+    observed = datetime.fromtimestamp(wake["observed_at"])
+    expected = (observed.replace(hour=7, minute=0, second=0, microsecond=0) + timedelta(days=1)).timestamp()
+    assert store.oas_due_times(sup.ledger.account) == {WAKE_WORKFLOWS["MemoryScrolls"]: expected}
+
+
+@pytest.mark.parametrize("failure,active", [("stuck", "battle"), ("device", "battle"), ("navigation_resume", "")])
+def test_incomplete_navigation_callback_never_recovers_back_retries_or_asks_for_automatic_repair(tmp_path, monkeypatch, failure, active):
+    import threading
+    llm = FakeLLM({"action": "patch", "ops": []})
+    sup, _, ws, devices = make_sup(tmp_path, lambda: [blank()], llm=llm,
+                                  cfg_over={"max_local_retries": 2, "recover_back_on": [failure]})
+    wf = _wf(ws)
+    # Inject only a saved callback marker into this supervisor-level boundary
+    # test. Closed graph/body validation is covered by navigation call tests.
+    wf.raw["navigation"] = {"call_active_var": "native_active"}
+    sup.stop_flags["main"] = threading.Event()
+    calls = []
+    monkeypatch.setattr(sup, "load", lambda _: wf)
+    def once(*args, **kwargs):
+        calls.append(1)
+        return RunResult(wf.name, "failed", reason="interrupted callback", failure_kind=failure,
+                         variables={"native_active": active}, last_frame=blank())
+    monkeypatch.setattr(sup, "_run_once", once)
+    outcome = sup.run(wf.name)
+    assert outcome.level == "human" and len(calls) == 1
+    assert not devices and llm.calls == 0
+    assert len(outcome.attempts) == 1
 
 
 def test_failure_repair_validate_and_wait_for_user(tmp_path):
@@ -160,6 +300,21 @@ def test_unverified_proposal_requires_approval_even_when_kind_auto_merges(tmp_pa
     assert "未验证" in note
     assert ws.head("main") == before
     assert store.query("SELECT status FROM changes")[0]["status"] == "waiting_user"
+
+
+def test_workflow_replay_reports_partial_recognition_without_live_execution(tmp_path):
+    from onmyoji_agentflow.supervisor.replay import case_files
+    sup, store, ws, devices = make_sup(tmp_path, lambda: [])
+    wf = _wf(ws)
+    for relative, content in case_files("one", wf.name, frame_for(wf, "prepare"), "prepare").items():
+        path = ws.path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content) if isinstance(content, bytes) else path.write_text(content, encoding="utf-8")
+    ok, report = sup._validate_in(wf, wf.name, ws.path, "main", None, "workflow")
+    assert ok and report["verification"] == "unverified" and report["coverage"] == "partial"
+    assert report["replay"]["covered_states"] == ["prepare"]
+    assert report["replay"]["uncovered_states"] and report["replay"]["negative"] == 0
+    assert not devices and not store.query("SELECT * FROM runs")
 
 
 def test_bad_patch_is_rejected_and_main_untouched(tmp_path):

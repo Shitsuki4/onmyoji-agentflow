@@ -149,9 +149,10 @@ TOOLS = [
      "annotations": {"idempotentHint": True}},
     {"name": "marathon_start", "title": "启动日常计划",
      "description": "按计划预览或后台启动日活、周活、活动工作流；支持一轮后停、截止时间和小规模试跑。",
-     "inputSchema": _schema({"instance": _INSTANCE, "plan": {"type": "string"},
+     "inputSchema": _schema({"instance": _INSTANCE, "plan": {"type": ["string", "object"], "description": "计划路径或内联计划对象；items 支持 program: oas:Duel"},
                               "out": {"type": "string"}, "rounds": {"type": "integer", "minimum": 1},
-                              "hours": {"type": "number", "minimum": 0.01}, "preview": {"type": "boolean"}},
+                              "hours": {"type": "number", "minimum": 0.01}, "preview": {"type": "boolean"},
+                              "resume_job_id": {"type": "integer", "minimum": 1}},
                              ()), "annotations": {"idempotentHint": False}},
     {"name": "marathon_status", "title": "查看日常计划",
      "description": "查看日常计划运行状态、任务账本、预算和最近样本。",
@@ -195,6 +196,24 @@ TOOLS = [
          "validate_on": {"type": "string", "description": "验证时也在这个实例上跑观察模式和限次试跑"},
          "n": {"type": "integer", "minimum": 1, "maximum": 100, "default": 10}}),
      "annotations": {"openWorldHint": True}},
+    {"name": "upstream_programs", "title": "统一上游脚本转换",
+     "description": ("收录 OAS/ assttyys 全部任务与组件。list 查看队列，source 分页读取完整源码，compile 后台续传转换，"
+                     "propose 提交外部 agent 的完整 format:1 转换结果；只创建待审候选，不批准、不运行。"),
+     "inputSchema": _schema({
+         "action": {"type": "string", "enum": ["list", "source", "audit", "compile", "propose"], "default": "list"},
+         "id": {"type": "integer", "minimum": 1}, "source": {"type": "string", "enum": ["oas", "assttyys"]},
+         "status": {"type": "string"}, "path": {"type": "string"},
+         "offset": {"type": "integer", "minimum": 0}, "chars": {"type": "integer", "minimum": 1, "maximum": 40000},
+         "limit": {"type": "integer", "minimum": 0}, "retry": {"type": "boolean"},
+         "include_components": {"type": "boolean", "description": "转换所有功能组件，不只任务入口"},
+         "proposal": {"type": "object", "description": "{complete:true,unsupported:[],workflow:{...},notes:...}"}}),
+     "annotations": {"idempotentHint": False}},
+    {"name": "agent_handoffs", "title": "查看与处理故障接管",
+     "description": ("list 查看超时/卡死/异常的持久队列，show 读取截图路径、日志、工作流与源码版本，"
+                     "diagnose 让配置的 agent 诊断，propose 提交修复 ops。沿用审批门禁，计划保持暂停。"),
+     "inputSchema": _schema({"action": {"type": "string", "enum": ["list", "show", "diagnose", "propose"], "default": "list"},
+                             "id": {"type": "integer", "minimum": 1}, "proposal": {"type": "object"}}),
+     "annotations": {"idempotentHint": False}},
     {"name": "list_pending", "title": "待批准事项",
      "description": "列出等用户批准的敏感操作确认项（kind=confirmation）和已通过验证、等用户批准的改动（kind=change）。",
      "inputSchema": _schema(), "annotations": {"readOnlyHint": True}},
@@ -239,6 +258,8 @@ class AgentTools:
         self.lock = threading.RLock()
         self.jobs: dict[str, dict] = {}         # instance -> current / last job started from MCP
         self.sync_job: dict | None = None
+        self.program_job: dict | None = None
+        self.handoff_job: dict | None = None
         self.marathon_jobs: dict[str, dict] = {}
         self.panel_url = panel_url or "http://{host}:{port}/".format(**app.cfg["web"])
         self.by_name = {t["name"]: t for t in TOOLS}
@@ -353,10 +374,14 @@ class AgentTools:
         return _result({"workflows": out})
 
     def t_marathon_start(self, args, session):
+        if args.get("resume_job_id") is not None:
+            if args.get("plan") or args.get("preview") or args.get("instance"):
+                raise ValueError("恢复使用原计划和实例，不能同时传 plan/preview/instance")
+            return _result(self.app.plans.resume(args["resume_job_id"], rounds=args.get("rounds"), hours=args.get("hours")))
         instance = self._instance(args)
         if args.get("preview"):
             return _result(self.app.plans.preview(instance, args.get("plan")))
-        return _result(self.app.plans.start(instance, args.get("plan"), args.get("rounds", 1),
+        return _result(self.app.plans.start(instance, args.get("plan"), args.get("rounds"),
                                             args.get("hours"), args.get("out")))
 
     def t_marathon_status(self, args, session):
@@ -481,6 +506,7 @@ class AgentTools:
             "tasks": app.ledger.snapshot(),
             "devices": {name: app.supervisor.runtime_status(name) for name in app.instance_names()},
             "resources": app.store.resource_totals(app.ledger.account, app.ledger.periods()[0]),
+            "agent_handoffs": app.handoffs.list(n),
         }
         return _result(out)
 
@@ -591,6 +617,73 @@ class AgentTools:
         threading.Thread(target=work, daemon=True, name="mcp-sync").start()
         return _result({"message": "已开始同步，拉取和转换要几分钟。用 sync action=status 或 status 查看结果，"
                                    "要用户批准的改动会出现在 list_pending。", **job})
+
+    def t_upstream_programs(self, args, session):
+        action = args.get("action", "list")
+        programs = self.app.programs
+        if action == "list":
+            rows = programs.list(args.get("source"), args.get("status"))
+            offset, limit = args.get("offset", 0), args.get("limit", 30)
+            if type(offset) is not int or offset < 0 or type(limit) is not int or not 1 <= limit <= 100:
+                raise ToolError("list 使用非负 offset 和 1–100 的 limit")
+            end = min(len(rows), offset + limit)
+            return _result({"programs": rows[offset:end], "total": len(rows), "complete": end >= len(rows),
+                            "next_offset": end if end < len(rows) else None, "job": self.program_job})
+        if action == "source":
+            return _result(programs.source(args["id"], args.get("path"), args.get("offset", 0), args.get("chars", 12000)))
+        if action == "audit":
+            report = programs.audit(args.get("source"))
+            offset, limit = args.get("offset", 0), args.get("limit", 30)
+            if type(offset) is not int or offset < 0 or type(limit) is not int or not 1 <= limit <= 100:
+                raise ToolError("audit 使用非负 offset 和 1–100 的 limit")
+            rows = [{key: row[key] for key in ("job_id", "entry_id", "kind", "variant", "status",
+                    "coverage", "source_snapshot_complete", "gaps")} for row in report["entries"]]
+            end = min(len(rows), offset + limit)
+            return _result({"summary": report["summary"], "entries": rows[offset:end],
+                            "complete": end >= len(rows), "next_offset": end if end < len(rows) else None})
+        if action == "propose":
+            return _result(programs.propose(args["id"], args["proposal"]))
+        if action != "compile":
+            raise ToolError("未知的脚本转换操作")
+        with self.lock:
+            if self.program_job and self.program_job["status"] == "running":
+                raise ToolError("脚本转换已在进行，使用 list 查看进度")
+            job = self.program_job = {"status": "running", "started": time.time()}
+        def work():
+            try:
+                job.update(result=programs.compile(args.get("id"), args.get("limit"), args.get("retry", False),
+                    include_components=args.get("include_components", False), source=args.get("source")), status="finished")
+            except Exception as error:
+                job.update(status="error", error=str(error))
+            finally:
+                job["ended"] = time.time()
+        threading.Thread(target=work, daemon=True, name="program-compiler").start()
+        return _result({"message": "已开始处理转换队列；候选等待用户审核", **job})
+
+    def t_agent_handoffs(self, args, session):
+        action = args.get("action", "list")
+        if action == "list":
+            return _result({"handoffs": self.app.handoffs.list(), "job": self.handoff_job})
+        if action == "show":
+            return _result(self.app.handoffs.get(args["id"]))
+        if action not in ("diagnose", "propose"):
+            raise ToolError("未知的 agent 接管操作")
+        if action == "propose" and not args.get("proposal"):
+            raise ToolError("propose 需要修复提案 proposal")
+        with self.lock:
+            if self.handoff_job and self.handoff_job["status"] == "running":
+                raise ToolError("agent 正在处理接管任务")
+            job = self.handoff_job = {"id": args["id"], "status": "running", "started": time.time()}
+        def work():
+            try:
+                result = self.app.handoffs.diagnose(args["id"], args.get("proposal"))
+                job.update(status="finished", result=result)
+            except Exception as error:
+                job.update(status="error", error=str(error))
+            finally:
+                job["ended"] = time.time()
+        threading.Thread(target=work, daemon=True, name="agent-handoff").start()
+        return _result({"message": "agent 已开始诊断，计划保持暂停", **job})
 
     # -------------------------------------------------------------- approvals
     def t_list_pending(self, args, session):
@@ -782,6 +875,13 @@ def serve_stdio(server: MCPServer, inp=None, out=None, workers: int = 8) -> None
     write_lock = threading.Lock()
     pending: dict[str, dict] = {}
     counter = itertools.count(1)
+    schedule_stop = threading.Event()
+    schedule_thread = None
+    if (server.tools.app.cfg["upstream"].get("schedule") or {}).get("enabled"):
+        from .sync import schedule_loop
+        schedule_thread = threading.Thread(target=schedule_loop, args=(server.tools.app.sync, schedule_stop),
+                                           daemon=True, name="mcp-sync-schedule")
+        schedule_thread.start()
 
     def send(obj):
         data = json.dumps(obj, ensure_ascii=False, default=str).encode("utf-8") + b"\n"
@@ -840,6 +940,7 @@ def serve_stdio(server: MCPServer, inp=None, out=None, workers: int = 8) -> None
                 else:
                     pool.submit(run, m)
     finally:
+        schedule_stop.set()
         for slot in list(pending.values()):
             slot["closed"] = True
             slot["event"].set()
@@ -964,6 +1065,11 @@ def make_http_server(server: MCPServer, host: str = "127.0.0.1", port: int = 876
 
 def serve_http(server: MCPServer, host: str, port: int, token: str | None = None) -> None:
     httpd = make_http_server(server, host, port, token)
+    schedule_stop = threading.Event()
+    if (server.app.cfg["upstream"].get("schedule") or {}).get("enabled"):
+        from .sync import schedule_loop
+        threading.Thread(target=schedule_loop, args=(server.app.sync, schedule_stop),
+                         daemon=True, name="mcp-http-sync-schedule").start()
     real_port = httpd.server_address[1]
     shown = f"[{host.strip('[]')}]" if ":" in host else host
     print(f"MCP 服务已启动：http://{shown}:{real_port}/mcp  （只接受本机访问，Ctrl+C 退出）", file=sys.stderr)
@@ -972,4 +1078,5 @@ def serve_http(server: MCPServer, host: str, port: int, token: str | None = None
     except KeyboardInterrupt:
         pass
     finally:
+        schedule_stop.set()
         httpd.server_close()
