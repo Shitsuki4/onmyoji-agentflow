@@ -15,7 +15,7 @@ from .errors import AgentflowError, BudgetExceeded, LLMError, WorkflowError
 from .llm import parse_json_reply
 from .runtime import FileMutex
 from .supervisor.repair import sensitive_preserved
-from .workflow.schema import ACTION_KEYS, CONDITION_KEYS, SENSITIVE, load_workflow
+from .workflow.schema import ACTION_KEYS, CONDITION_KEYS, INPUT_ACTION_KEYS, SENSITIVE, load_workflow
 from .yamlio import dump_yaml, load_yaml
 
 PROMPT = """把提供的上游 Python / AutoJS 程序完整转换成本项目统一的 format: 1 YAML 状态机。
@@ -53,7 +53,6 @@ def _guard_problem(workflow):
     aliases = {"购买": r"购买|兑换|\bbuy\b|purchase", "抽卡": r"抽卡|召唤|summon",
                "花勾玉": r"花勾玉|消耗勾玉|spend.?jade", "出售": r"出售|\bsell\b",
                "分解": r"分解|dismantle|disassemble"}
-    inputs = {"click", "click_random", "click_found", "swipe", "back", "start_app", "select_foster", "select_foster_unit"}
     for state in workflow.get("states", []):
         text = json.dumps(state, ensure_ascii=False).lower().replace("_", " ")
         risks = {category for category, pattern in aliases.items() if re.search(pattern, text)}
@@ -63,9 +62,27 @@ def _guard_problem(workflow):
         for action in state.get("do", []):
             if action.get("confirm"):
                 guards.add(action["confirm"])
-            if set(action) & inputs and risks - guards:
+            if set(action) & INPUT_ACTION_KEYS and risks - guards:
                 return f"状态 {state['id']} 的输入缺少确认：{'、'.join(sorted(risks - guards))}"
     return None
+
+
+def _requires_positive_visual(condition):
+    """Prove a visual check is required on every path through the predicate.
+
+    Finding a visual leaf anywhere below `any` is insufficient: an expression
+    alternative can otherwise authorise a blind input. Negative evidence never
+    establishes a positive observation. Be conservative about constant branches.
+    """
+    if not isinstance(condition, dict):
+        return False
+    if set(condition) & {"text", "text_param", "colors", "mean_color", "find", "res", "image", "ocr", "ocr_single", "ocr_full"}:
+        return True
+    if "all" in condition:
+        return any(_requires_positive_visual(part) for part in condition["all"])
+    if "any" in condition:
+        return bool(condition["any"]) and all(_requires_positive_visual(part) for part in condition["any"])
+    return False
 
 
 class Programs:
@@ -147,13 +164,18 @@ class Programs:
             return {"id": job_id, "status": "superseded", "message": "转换期间上游已更新，旧结果不再激活", "change_id": None}
         return {"id": job_id, "status": status, "message": note, "change_id": change_id}
 
-    def compile(self, job_id=None, limit=None, retry=False, root=None, base=None):
+    def compile(self, job_id=None, limit=None, retry=False, root=None, base=None,
+                include_components=False, source=None):
         if limit is not None and (type(limit) is not int or limit < 0):
             raise ValueError("limit 必须是不小于 0 的整数或 null")
         with FileMutex(self.home / "locks" / "program-compiler.lock"):
             # Only this lock owner can be compiling. A prior process may have exited mid-job.
             self.store.execute("UPDATE program_jobs SET status='pending' WHERE status='compiling'")
             rows = self.list()
+            if source:
+                if source not in ("assttyys", "oas"):
+                    raise ValueError("source 必须是 assttyys 或 oas")
+                rows = [row for row in rows if row["source"] == source]
             if job_id is not None:
                 rows = [row for row in rows if row["id"] == job_id]
                 if not rows:
@@ -167,7 +189,8 @@ class Programs:
                     continue
                 if row["status"] in ("pending", "waiting_agent", "budget") or (
                         retry and row["status"] in ("failed", "blocked", "rejected")) or (
-                        (job_id is not None or row["entry_id"] in pins) and row["status"] == "component"):
+                        (include_components or job_id is not None or row["entry_id"] in pins)
+                        and row["status"] == "component"):
                     selected.append(row)
             if limit is not None:
                 selected = selected[:limit]
@@ -186,12 +209,19 @@ class Programs:
                         candidate = roots[pinned]
                     try:
                         from .convert.recipes import known_recipe
+                        from .convert.components import known_component
                         recipe = known_recipe(entry, candidate)
+                        if recipe is None:
+                            recipe = known_component(entry, candidate)
                         if recipe is not None:
                             results.append(self.propose(row["id"], recipe, root=candidate, base=pinned,
                                                        refs=self._resource_refs(entry)))
                         elif self.llm is None:
-                            results.append(self._set(row["id"], "waiting_agent", "没有匹配已审计转换且未启用模型，等待 agent 转换"))
+                            from .convert.coverage import inspect_entry
+                            inspection = inspect_entry(entry, candidate)
+                            gaps = inspection["gaps"]
+                            results.append(self._set(row["id"], "waiting_agent",
+                                "未完整转换；" + "；".join(gaps) + "；等待 agent 逐项实现"))
                         else:
                             results.append(self._compile_one(row, entry, candidate, pinned))
                     except Exception as error:
@@ -199,6 +229,82 @@ class Programs:
                     if results[-1]["status"] == "budget":
                         break
             return results
+
+    def audit(self, source=None):
+        """Read every active entry; never activate candidates or acquire a device."""
+        from collections import Counter
+        from .convert.coverage import inspect_entry, source_obligations, manifest_status
+        from .convert.recipes import known_recipe
+        from .convert.components import known_component
+        rows = self.list(source=source)
+        reports = []
+        with tempfile.TemporaryDirectory(prefix="oaf-program-audit-") as temporary:
+            roots = {}
+            for row in rows:
+                job = self._job(row["id"])
+                base = job["base_commit"]
+                if base not in roots:
+                    roots[base] = self.ws.checkout_tmp(base, Path(temporary) / base)
+                root = roots[base]
+                entry = json.loads(job["entry"])
+                report = inspect_entry(entry, root)
+                inventory = source_obligations(entry, root)
+                recipe = None
+                try:
+                    recipe = known_recipe(entry, root) or known_component(entry, root)
+                except (ValueError, KeyError, IndexError, OSError) as error:
+                    report["gaps"].append(f"已有转换无法重建：{error}")
+                boundary = (recipe or {}).get("coverage") or (
+                    "scoped" if recipe and entry.get("variant") else "bounded_component" if recipe else "none")
+                proposal_available = False
+                candidate, candidate_commit = None, None
+                if row.get("change_id") and row.get("change_status") in ("waiting_user", "proposed", "merged"):
+                    change = self.store.query("SELECT branch,commit_id FROM changes WHERE id=?", (row["change_id"],))[0]
+                    try:
+                        candidate_commit = change["commit_id"] or self.ws.git("rev-parse", change["branch"])
+                        blob = self.ws.read_bytes(f"workflows/{entry['workflow']}.yaml", candidate_commit)
+                        raw = load_yaml(blob) if blob else {}
+                    except Exception as error:
+                        raw = {}
+                        report["gaps"].append("候选内容不可读：" + type(error).__name__)
+                    metadata = raw.get("source") if isinstance(raw, dict) else None
+                    metadata = metadata if isinstance(metadata, dict) else {}
+                    if metadata.get("entry_id") == entry["id"] and metadata.get("fingerprint") == entry["fingerprint"]:
+                        proposal_available = True
+                        candidate = raw
+                        if boundary == "none":
+                            boundary = "scoped" if entry.get("variant") else entry["kind"]
+                    else:
+                        report["gaps"].append("候选源码身份或指纹不匹配")
+                semantic = manifest_status(entry, inventory, candidate or {}, review_root=root)
+                if semantic["semantic_complete"]:
+                    report["gaps"] = [gap for gap in report["gaps"] if gap not in report["semantic_gaps"]]
+                # Availability and self-declared completeness cannot discharge
+                # source obligations, even for fingerprint-pinned recipes.
+                for gap in semantic["gaps"]:
+                    if gap not in report["gaps"]:
+                        report["gaps"].append(gap)
+                available = recipe is not None or proposal_available
+                coverage = ("scoped" if entry.get("variant") else entry["kind"]) if semantic["semantic_complete"] else (
+                    "draft" if available else "none")
+                reports.append({"job_id": row["id"], "status": row["status"],
+                                "change_id": row.get("change_id"), **report,
+                                "translation_available": available, "translation_boundary": boundary,
+                                "coverage": coverage, "semantic_complete": semantic["semantic_complete"],
+                                "semantic_coverage": semantic, "candidate_commit": candidate_commit,
+                                "live_verified": False})
+        counts = Counter(report["source"] + ":" + report["kind"] for report in reports)
+        return {"summary": {"entries": len(reports), "counts": dict(counts),
+                    "status": dict(Counter(report["status"] for report in reports)),
+                    "available": dict(Counter(report["coverage"] for report in reports)),
+                    "semantic": dict(Counter(report["semantic_coverage"]["status"] for report in reports)),
+                    "original_tasks": sum(report["kind"] == "task" and not report["variant"] for report in reports),
+                    "original_tasks_converted": sum(report["semantic_complete"] for report in reports
+                        if report["kind"] == "task" and not report["variant"]),
+                    "all_original_tasks_converted": bool(reports) and any(report["kind"] == "task"
+                        and not report["variant"] for report in reports) and all(report["semantic_complete"]
+                        for report in reports if report["kind"] == "task" and not report["variant"]),
+                    "device_inputs": 0}, "entries": reports}
 
     @staticmethod
     def _resource_refs(entry):
@@ -352,6 +458,8 @@ class Programs:
                 return {"id": job_id, "status": "blocked", "change_id": supersede,
                         "message": note + "；原候选保持待审批"}
             return self._set(job_id, "blocked", note)
+        if entry.get("errors") or entry.get("missing_funcs"):
+            return blocked("源程序解析或依赖不完整：" + str(entry.get("errors") or entry.get("missing_funcs")))
         if root is None:
             with FileMutex(self.home / "locks" / "program-compiler.lock"):
                 with tempfile.TemporaryDirectory(prefix="oaf-program-proposal-") as temporary:
@@ -365,6 +473,12 @@ class Programs:
         if not isinstance(raw, dict):
             return blocked("转换结果缺少 workflow")
         raw = json.loads(json.dumps(raw))
+        submitted_workflow = json.loads(json.dumps(raw))
+        supplied_manifest = data.get("coverage_manifest", raw.get("coverage_manifest"))
+        if ("coverage_manifest" in data and "coverage_manifest" in raw
+                and data["coverage_manifest"] != raw["coverage_manifest"]):
+            return blocked("转换结果提供了互不匹配的覆盖清单")
+        raw.pop("coverage_manifest", None)
         if raw.get("include_states"):
             return blocked("统一转换应返回完整状态，不能引用未审计的外部状态")
         if any(ref not in (refs or []) for ref in raw.get("resources", [])):
@@ -392,20 +506,23 @@ class Programs:
         if problem:
             return blocked(problem)
         workflow = load_workflow(raw, [Path(root) / "resources"])
-        def visual(condition):
-            return bool(set(condition) & {"text", "text_param", "colors", "find", "res", "image", "ocr"}) or any(
-                visual(part) for key in ("all", "any") for part in condition.get(key, []))
         for state in workflow.states:
-            if (any(set(action) & {"click", "click_random", "click_found", "swipe", "back", "start_app"}
-                    for action in state.get("do", [])) and not visual(state["when"])):
+            if (any(set(action) & (INPUT_ACTION_KEYS | {"scan_tasks", "navigate"})
+                    for action in state.get("do", [])) and not _requires_positive_visual(state["when"])):
                 return blocked(f"状态 {state['id']} 的输入缺少正向画面识别条件")
-        if not any(set(a) & {"click", "click_found", "click_random", "swipe", "back", "scan_tasks", "select_foster"}
+        if not any(set(a) & {"click", "click_found", "click_random", "swipe", "back", "scan_tasks", "select_foster", "navigate"}
                    for state in workflow.states for a in state.get("do", [])):
             return blocked("无执行逻辑的占位工作流不能算转换完成")
         path = Path(root) / "workflows" / (entry["workflow"] + ".yaml")
         before = load_workflow(path, [Path(root) / "resources"]) if path.is_file() else None
         if before and not sensitive_preserved(before, workflow):
             return blocked("上游更新转换删除了已有安全确认")
+        from .convert.coverage import source_obligations, bind_manifest, manifest_status
+        inventory = source_obligations(entry, root)
+        try:
+            raw["coverage_manifest"] = bind_manifest(entry, inventory, raw, supplied_manifest, submitted_workflow)
+        except (ValueError, TypeError, KeyError) as error:
+            return blocked("源义务覆盖清单无效：" + str(error))
         if supersede is not None:
             previous = self.store.query("SELECT branch FROM changes WHERE id=?", (supersede,))[0]
             old_content = self.ws.read_bytes(f"workflows/{entry['workflow']}.yaml", previous["branch"])
@@ -419,6 +536,7 @@ class Programs:
         cid = self.store.execute("""INSERT INTO changes(created,workflow,kind,branch,commit_id,status,note)
             VALUES (?,?,?,?,?,?,?)""", (time.time(), entry["workflow"], "workflow", branch, commit, "proposed", note)).lastrowid
         ok, report = self.sup.validate_branch(before, branch, None, "workflow", name=entry["workflow"])
+        report["semantic_coverage"] = manifest_status(entry, inventory, raw, review_root=root)
         self.store.execute("UPDATE changes SET validation=?,status=? WHERE id=?",
             (json.dumps(report, ensure_ascii=False), "waiting_user" if ok else "rejected", cid))
         status = "waiting_user" if ok else "rejected"

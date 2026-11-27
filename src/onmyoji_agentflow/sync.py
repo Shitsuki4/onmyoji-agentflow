@@ -381,6 +381,10 @@ def _resource_names_used(raw: dict) -> set[str]:
         for k in ("res", "find", "image", "ocr"):
             if isinstance(c.get(k), str):
                 names.add(c[k])
+        for key in ("find_near", "find_column"):
+            match = c.get(key)
+            if isinstance(match, dict):
+                names.update(match[field] for field in ("target", "reference") if isinstance(match.get(field), str))
         for k in ("all", "any"):
             for sub in c.get(k) or []:
                 cond(sub)
@@ -395,6 +399,44 @@ def _resource_names_used(raw: dict) -> set[str]:
                         names.add(a[k])
     # resources defined inside the workflow itself do not come from a shared resource file
     return names - set(raw.get("inline_resources") or {})
+
+
+def _repair_context(name, raw, validation, resource_changes, current_resources, limit=30000):
+    """Keep the repair prompt valid JSON and include only complete YAML states."""
+    context = {"workflow": name, "validation": validation, "resource_diff": resource_changes,
+               "resources_now": current_resources, "workflow_yaml": dump_yaml(raw)}
+
+    def encode():
+        return json.dumps(context, ensure_ascii=False, default=str)
+
+    payload = encode()
+    if len(payload) <= limit:
+        return payload
+    related = {resource for change in resource_changes.values() for names in change.values() for resource in names}
+    context["resources_now"] = {name: spec for name, spec in current_resources.items()
+                                if name in related or name == "error"}
+    payload = encode()
+    if len(payload) <= limit:
+        return payload
+    states = raw.get("states") or []
+    excerpt = {"format": raw.get("format", 1), "name": name, "states": []}
+    context["workflow_excerpt"] = True
+    context["workflow_yaml"] = dump_yaml(excerpt)
+    payload = encode()
+    if len(payload) > limit:
+        return None
+    selected = {}
+    order = sorted(range(len(states)), key=lambda i: not bool(_resource_names_used({"states": [states[i]]}) & related))
+    for i in order:
+        selected[i] = states[i]
+        excerpt["states"] = [selected[index] for index in sorted(selected)]
+        context["workflow_yaml"] = dump_yaml(excerpt)
+        candidate = encode()
+        if len(candidate) <= limit:
+            payload = candidate
+        else:
+            del selected[i]
+    return payload if selected else None
 
 
 def effective_digest(root: Path, name: str) -> str:
@@ -854,9 +896,10 @@ class SyncManager:
                            for k, v in allres.items() if k in used}
             except (WorkflowError, OSError) as e:
                 current = {"error": str(e)}
-            text = {"workflow": name, "validation": rep, "resource_diff": res_diff,
-                    "resources_now": current, "workflow_yaml": dump_yaml(raw)[:12000]}
-            content = [{"type": "text", "text": json.dumps(text, ensure_ascii=False, default=str)[:30000]}]
+            payload = _repair_context(name, raw, rep, res_diff, current)
+            if payload is None:
+                return "human", f"{name} 的修复上下文超出长度上限，详见同步报告", None
+            content = [{"type": "text", "text": payload}]
             if frame is not None:
                 content.append({"type": "image_url", "image_url": {"url": image_to_data_url(frame)}})
             try:

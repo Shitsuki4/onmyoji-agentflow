@@ -98,6 +98,23 @@ def run_plan(app, clock, folder, items, **extra):
     return runner
 
 
+def test_oas_task_waits_for_persisted_next_run(tmp_path, monkeypatch):
+    app, calls = app_fixture(tmp_path, monkeypatch)
+    clock = Clock()
+    workflow = "oas_pets_natively_staged"
+    next_run = clock() + 60
+    result = RunResult(workflow, "success", oas_schedule="Pets",
+                       evidence={"oas_schedule": {"account": "default", "task": "Pets",
+                                                 "finished_at": clock(), "next_run": next_run}})
+    app.store.add_run(workflow, "main", "run", result, "replay")
+    item = {"id": "pets", "workflow": workflow}
+    run_plan(app, clock, tmp_path / "early", [item])
+    assert calls == []
+    clock.t = next_run
+    run_plan(app, clock, tmp_path / "due", [item])
+    assert calls == [workflow]
+
+
 def test_completed_step_survives_new_runner_and_another_plan(tmp_path, monkeypatch):
     app, calls = app_fixture(tmp_path, monkeypatch)
     clock = Clock()
@@ -217,6 +234,24 @@ def test_goal_proven_complete_by_scan_unblocks_dependency_without_replaying_batt
         {"id": "battles", "workflow": "orochi", "goal": "battle_15", "once_per_period": True},
         {"id": "reward", "workflow": "daily_quests", "after": ["battles"]}])
     assert calls == ["daily_quests"]
+
+
+@pytest.mark.parametrize("scope,advance", [("daily", 86400), ("weekly", 7*86400)])
+@pytest.mark.parametrize("instant", ["2020-01-03T23:59", "2035-06-01T23:59"])
+def test_goal_progress_uses_the_plan_clock_for_day_and_week_boundaries(tmp_path, monkeypatch, scope, advance, instant):
+    app, calls = app_fixture(tmp_path, monkeypatch)
+    clock = Clock()
+    clock.t = stamp(instant)
+    day, week = app.ledger.periods(dt.datetime.fromtimestamp(clock.t, dt.timezone.utc))
+    app.store.upsert_task(app.ledger.account, day if scope == "daily" else week, scope,
+                         "battle_15", 15, 15, verified=True, evidence={"screenshot": "synthetic"}, observed_at=clock.t)
+    item = {"workflow": "orochi", "goal": "battle_15", "scope": scope}
+    runner = Marathon(app, "main", load_plan({"task_aware": False, "items": [item]}), tmp_path / "run", clock=clock)
+    assert runner._goal_remaining(item) == 0
+    assert runner.item_params(item) == (None, "游戏目标已经达到")
+    clock.t += advance
+    assert runner._goal_remaining(item) is None
+    assert not calls
 
 
 def test_expired_plan_deadline_never_starts_initial_task_scan(tmp_path, monkeypatch):

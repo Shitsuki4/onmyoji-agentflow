@@ -203,9 +203,29 @@ class Supervisor:
                             should_stop=lambda: "immediate" if flag.is_set() else lease.stop_mode(), clock=self.clock,
                             on_event=lambda k, d: self._on_event(instance, k, d), initial_vars=initial_vars,
                             validate_params=validate_params, before_input=before_input)
+            oas_started_at = time.time()
             res = runner.run()
-        digest = wf.digest({"humanize": self.cfg.get("humanize"), "game": self.cfg.get("game")})
-        run_id = self.store.add_run(wf.name, instance, mode, res, digest)
+            if mode == "run" and not observe and res.oas_wakes:
+                from ..workflow.oas_schedule import WAKE_WORKFLOWS, wake_next_run
+                res.evidence["oas_wakes"] = [
+                    {"task": task, "workflow": WAKE_WORKFLOWS[task], "account": self.ledger.account,
+                     "observed_at": oas_started_at + elapsed,
+                     "next_run": wake_next_run(oas_started_at, oas_started_at + elapsed, delay, *server_params)}
+                    for task, (delay, elapsed, *server_params) in res.oas_wakes.items()
+                ]
+            if mode == "run" and not observe and res.status == "success" and res.oas_schedule:
+                from ..workflow.oas_schedule import next_run
+                finished_at = time.time()
+                reference_at, delay = finished_at, None
+                if res.oas_target is not None:
+                    delay, age = res.oas_target
+                    reference_at -= age
+                res.evidence["oas_schedule"] = {"task": res.oas_schedule, "account": self.ledger.account,
+                                                "finished_at": finished_at,
+                                                "next_run": next_run(reference_at, params, target_delay_seconds=delay,
+                                                                     calendar_at=finished_at)}
+            digest = wf.digest({"humanize": self.cfg.get("humanize"), "game": self.cfg.get("game")})
+            run_id = self.store.add_run(wf.name, instance, mode, res, digest)
         if res.last_frame is not None:
             folder = self.runs_dir / f"{run_id:06d}"
             folder.mkdir(parents=True, exist_ok=True)
@@ -299,8 +319,12 @@ class Supervisor:
         res = self._run_once(wf, instance, params)
         outcome = Outcome(res, attempts=[res.summary()])
         retries = 0
-        while res.status == "failed" and res.failure_kind not in ("confirm_denied", "prerequisite", "budget", "unknown_screen") and retries < int(
-                self.scfg.get("max_local_retries", 2)) and not self.stop_flags[instance].is_set():
+        call_active_var = wf.raw.get("navigation", {}).get("call_active_var")
+        lifecycle = wf.raw.get("scheme_lifecycle")
+        while (res.status == "failed" and not lifecycle and not (call_active_var and res.variables.get(call_active_var))
+                and res.failure_kind not in ("confirm_denied", "prerequisite", "budget", "unknown_screen",
+                                             "navigation_resume", "restart_uncertain") and retries < int(
+                self.scfg.get("max_local_retries", 2)) and not self.stop_flags[instance].is_set()):
             if getattr(self._runtime, "lease").stop_mode():
                 break
             retries += 1
@@ -354,7 +378,8 @@ class Supervisor:
             if res.status == "failed":
                 outcome.level = "human"
             return outcome
-        if res.failure_kind in ("confirm_denied", "device", "prerequisite", "budget"):
+        if (lifecycle or res.failure_kind in ("confirm_denied", "device", "prerequisite", "budget", "navigation_resume", "restart_uncertain")
+                or (call_active_var and res.variables.get(call_active_var))):
             outcome.level = "human"
             outcome.notes.append("需要你处理：" + res.reason)
             self.store.event("error", "supervisor", f"{name}@{instance} 需要人工处理：{res.reason}")

@@ -251,6 +251,10 @@ class Marathon:
             return None, "本周期次数已经核验完成"
         if state.get("next_at", 0) > self.clock():
             return None, f"等待持久间隔：{state['next_at']}"
+        if self.ledger:
+            oas_due = self.app.store.oas_due_times(self.account).get(item["workflow"], 0)
+            if oas_due > self.clock():
+                return None, f"等待 OAS 下次运行时间：{oas_due}"
         for name in item.get("after", []):
             dependency = next(it for it in self.plan["items"] if it.get("id") == name)
             if not self._done_for_period(dependency):
@@ -291,8 +295,7 @@ class Marathon:
                     return None, "档案中的地域/委派实例已完成或正在进行"
                 params.update(choice)
         if item.get("goal") and self.ledger:
-            rows = self.ledger.snapshot(item.get("scope", "daily"))
-            rows = [row for row in rows if self.clock() - row["updated"] < 900]
+            rows = self._recent_goal_rows(item.get("scope", "daily"))
             remaining = remaining_task(rows, item["goal"])
             if remaining is None:
                 return None, "未读取到近期游戏任务进度，保留资源"
@@ -471,9 +474,15 @@ class Marathon:
             self.stop(f"任务扫描未通过：{scan['reason']}")
         return scan["ok"] and not self._should_stop()
 
+    def _recent_goal_rows(self, scope):
+        if not self.ledger:
+            return []
+        now = self.clock()
+        rows = self.ledger.snapshot(scope, now=_dt.datetime.fromtimestamp(now, _dt.timezone.utc))
+        return [row for row in rows if now - row["updated"] < 900]
+
     def _goal_remaining(self, item):
-        rows = self.ledger.snapshot(item.get("scope", "daily")) if self.ledger else []
-        return remaining_task([row for row in rows if self.clock() - row["updated"] < 900], item["goal"])
+        return remaining_task(self._recent_goal_rows(item.get("scope", "daily")), item["goal"])
 
     def _run_item(self, index, item):
         batches = int(self.plan.get("max_batches_per_task", 10)) if item.get("goal") else 1
@@ -549,15 +558,16 @@ class Marathon:
                 if self.max_rounds is not None and self.rounds >= self.max_rounds:
                     self.stop(f"跑满 {self.max_rounds} 轮")
                     break
-                due = [(i, it) for i, it in enumerate(self.plan["items"])
-                       if not self._done_for_period(it) and self.clock() >= self.next_ok.get(i, 0)
-                       and not (self.plan.get("task_aware") and it["workflow"] == "task_scan")]
+                oas_due = self.app.store.oas_due_times(self.account) if self.ledger else {}
+                schedule = [(i, it, max(self.next_ok.get(i, 0), oas_due.get(it["workflow"], 0)))
+                            for i, it in enumerate(self.plan["items"]) if not self._done_for_period(it)
+                            and not (self.plan.get("task_aware") and it["workflow"] == "task_scan")]
+                due = [(i, it) for i, it, next_run in schedule if self.clock() >= next_run]
                 if not due:
                     if not self.plan.get("continuous", False):
                         self.stop_reason = "本轮可执行目标已处理，冷却项与未验证项保留待办"
                         break
-                    pending = [self.next_ok.get(i, self.clock() + 600) for i, it in enumerate(self.plan["items"])
-                               if not self._done_for_period(it)]
+                    pending = [next_run for _, _, next_run in schedule]
                     if not pending and any(it.get("once_per_period") for it in self.plan["items"]):
                         self.stop("本周期已完成的任务都已核对，自动停止")
                         break

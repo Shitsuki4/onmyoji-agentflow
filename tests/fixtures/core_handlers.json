@@ -1,0 +1,743 @@
+{
+  "source": "assttyys_autojs",
+  "license": "MIT",
+  "copyright": "Copyright (c) 2019 Chaos",
+  "license_text": "MIT License\n\nCopyright (c) 2019 Chaos\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n",
+  "purpose": "Inert exact source and native resource fixtures; never imported or executed",
+  "sources": {
+    "0": "import { Script } from '@/system/script';\nimport { IFuncOrigin } from '@/interface/IFunc';\nexport class Func000 implements IFuncOrigin {\n\tid = 0;\n\tname = '结束判断';\n\tdesc = '配置停止或切换方案的条件';\n\tconfig = [{\n\t\tdesc: '长时间未执行功能停止脚本',\n\t\tconfig: [{\n\t\t\tname: 'jspd_enabled_longtime_nodo',\n\t\t\tdesc: '是否启用',\n\t\t\ttype: 'switch',\n\t\t\tdefault: true,\n\t\t}, {\n\t\t\tname: 'jspd_times_longtime_nodo',\n\t\t\tdesc: '多少分钟后停止脚本',\n\t\t\ttype: 'integer',\n\t\t\tdefault: 10,\n\t\t}]\n\t}, {\n\t\tdesc: '运行时间判断',\n\t\tconfig: [{\n\t\t\tname: 'jspd_enabled_zjsj',\n\t\t\tdesc: '是否启用',\n\t\t\ttype: 'switch',\n\t\t\tdefault: false,\n\t\t}, {\n\t\t\tname: 'jspd_times_zjsj',\n\t\t\tdesc: '执行时间(min)',\n\t\t\ttype: 'integer',\n\t\t\tdefault: 30,\n\t\t}, {\n\t\t\tname: 'jspd_txpl_zjsj',\n\t\t\tdesc: '提醒频率(s)',\n\t\t\ttype: 'integer',\n\t\t\tdefault: 60\n\t\t}]\n\t}, {\n\t\tdesc: '准备功能次数判断',\n\t\tconfig: [{\n\t\t\tname: 'jspd_enabled_1',\n\t\t\tdesc: '是否启用',\n\t\t\ttype: 'switch',\n\t\t\tdefault: false,\n\t\t}, {\n\t\t\tname: 'jspd_times_1',\n\t\t\tdesc: '执行次数',\n\t\t\ttype: 'integer',\n\t\t\tdefault: 20,\n\t\t}]\n\t}, {\n\t\tdesc: '退出结算次数判断',\n\t\tconfig: [{\n\t\t\tname: 'jspd_enabled_2',\n\t\t\tdesc: '是否启用',\n\t\t\ttype: 'switch',\n\t\t\tdefault: false,\n\t\t}, {\n\t\t\tname: 'jspd_times_2',\n\t\t\tdesc: '执行次数',\n\t\t\ttype: 'integer',\n\t\t\tdefault: 20,\n\t\t}]\n\t}, {\n\t\tdesc: '循环次数判断,停止脚本',\n\t\tconfig: [{\n\t\t\tname: 'loop_enabled',\n\t\t\tdesc: '是否启用',\n\t\t\ttype: 'switch',\n\t\t\tdefault: false,\n\t\t}, {\n\t\t\tname: 'loop_times',\n\t\t\tdesc: '执行次数',\n\t\t\ttype: 'integer',\n\t\t\tdefault: 20,\n\t\t}]\n\t}, {\n\t\tdesc: '脚本停止后结束应用，需配置关联应用，本功能需root',\n\t\tconfig: [{\n\t\t\tname: 'stop_with_launched_app_exit',\n\t\t\tdesc: '是否启用',\n\t\t\ttype: 'switch',\n\t\t\tdefault: false,\n\t\t}]\n\t}, {\n\t\tdesc: '结束后操作',\n\t\tconfig: [{\n\t\t\tname: 'after_operation',\n\t\t\tdesc: '结束后的操作',\n\t\t\ttype: 'list',\n\t\t\tdata: ['停止脚本', '切换方案', '随机等待'],\n\t\t\tdefault: '停止脚本',\n\t\t}, {\n\t\t\tname: 'next_scheme',\n\t\t\tdesc: '下一个方案（切换方案时生效）',\n\t\t\ttype: 'scheme',\n\t\t\tdefault: '通用准备退出',\n\t\t}, {\n\t\t\tname: 'after_operation_sleep',\n\t\t\tdesc: '随机等待时间（x,y 为区间，单位秒，随机等待时生效）',\n\t\t\ttype: 'text',\n\t\t\tdefault: '10,20'\n\t\t}]\n\t}, {\n\t\tdesc: '临时暂停',\n\t\tconfig: [{\n\t\t\tname: 'pause_enabled',\n\t\t\tdesc: '是否启用',\n\t\t\ttype: 'switch',\n\t\t\tdefault: false,\n\t\t}, {\n\t\t\tname: 'define_run_time',\n\t\t\ttype: 'text',\n\t\t\tdesc: '运行时间，单位分钟，逗号分隔，启动时取区间随机数作为运行时间，休息完成后重新获取随机数',\n\t\t\tdefault: '10,30',\n\t\t}, {\n\t\t\tname: 'define_pause_time',\n\t\t\ttype: 'text',\n\t\t\tdesc: '暂停休息时间，单位分钟，逗号分隔，启动时取区间随机数作为休息时间，休息完成后重新获取随机数',\n\t\t\tdefault: '2,7',\n\t\t}]\n\t}];\n\toperatorFunc(thisScript: Script, _thisOperator): boolean {\n\t\tconst thisconf = thisScript.scheme.config['0'];\n\n\t\t// 长时间未执行任何功能后停止脚本\n\t\tif (thisconf.jspd_enabled_longtime_nodo) {\n\t\t\tconst now = new Date();\n\t\t\tif (now.getTime() - thisScript.currentDate.getTime() > +thisconf.jspd_times_longtime_nodo * 60000) {\n\t\t\t\tthisScript.myToast(`因长时间(${cvtTime((now.getTime() - thisScript.currentDate.getTime()) / 1000)})未执行任何操作，脚本停止`);\n\t\t\t\tstopOrReRun();\n\t\t\t\treturn true;\n\t\t\t}\n\t\t}\n\n\t\tif (thisconf.jspd_enabled_zjsj) { // 执行时间\n\t\t\tlet currentNotifyDate = thisScript.global.currentNotifyDate;\n\t\t\tif (!currentNotifyDate) {\n\t\t\t\tthisScript.myToast(`脚本将于${cvtTime(+thisconf.jspd_times_zjsj * 60)}后停止`);\n\t\t\t\tcurrentNotifyDate = new Date();\n\t\t\t\tthisScript.global.currentNotifyDate = currentNotifyDate;\n\t\t\t}\n\t\t\tconst now = new Date();\n\t\t\tif (now.getTime() - currentNotifyDate.getTime() > +thisconf.jspd_txpl_zjsj * 1000) {\n\t\t\t\tconst leftSec = (+thisconf.jspd_times_zjsj * 60000 + thisScript.runDate.getTime() - now.getTime()) / 1000;\n\t\t\t\tthisScript.global.currentNotifyDate = new Date();\n\t\t\t\tthisScript.myToast(`脚本将于${cvtTime(leftSec)}后停止`);\n\t\t\t}\n\t\t\tif (thisScript.runDate.getTime() + +thisconf.jspd_times_zjsj * 60000 < now.getTime()) {\n\t\t\t\tstopOrReRun();\n\t\t\t\treturn true;\n\t\t\t}\n\t\t}\n\n\t\tif (thisconf.jspd_enabled_1) {\n\t\t\tif (thisScript.runTimes['1'] >= (thisconf.jspd_times_1 as number)) {\n\t\t\t\tthisScript.myToast(`准备功能执行${thisScript.runTimes['1']}次后停止脚本`);\n\t\t\t\tstopOrReRun();\n\t\t\t\treturn true;\n\t\t\t}\n\t\t\tif (!thisScript.global.currentRunTimes) {\n\t\t\t\tthisScript.global.currentRunTimes = {};\n\t\t\t}\n\t\t\tif (thisScript.runTimes['1'] !== thisScript.global.currentRunTimes['1']) {\n\t\t\t\tthisScript.global.currentRunTimes['1'] = thisScript.runTimes['1'];\n\t\t\t\tthisScript.myToast(`准备功能已执行${thisScript.runTimes['1']}次, 继续执行${+thisconf.jspd_times_1 - thisScript.runTimes['1']}次后结束`);\n\t\t\t}\n\t\t}\n\t\tif (thisconf.jspd_enabled_2) {\n\t\t\tif (thisScript.runTimes['2'] >= (thisconf.jspd_times_2 as number)) {\n\t\t\t\tthisScript.myToast(`退出结算功能执行${thisScript.runTimes['2']}次后停止脚本`);\n\t\t\t\tstopOrReRun();\n\t\t\t\treturn true;\n\t\t\t}\n\t\t\tif (!thisScript.global.currentRunTimes) {\n\t\t\t\tthisScript.global.currentRunTimes = {};\n\t\t\t}\n\t\t\tif (thisScript.runTimes['2'] !== thisScript.global.currentRunTimes['2']) {\n\t\t\t\tthisScript.global.currentRunTimes['2'] = thisScript.runTimes['2'];\n\t\t\t\tthisScript.myToast(`退出结算已执行${thisScript.runTimes['2']}次, 继续执行${+thisconf.jspd_times_2 - thisScript.runTimes['2']}次后结束`);\n\t\t\t}\n\t\t}\n\t\tif (thisconf.loop_enabled) {\n\t\t\tif (thisScript.global.loop_add) {\n\t\t\t\tconst filtered = thisScript.schemeHistory.map(item => item.schemeName)\n\t\t\t\tconst last = filtered[filtered.length - 1];\n\t\t\t\tlet count = 0;\n\t\t\t\tfor (const item of filtered) {\n\t\t\t\t\tif (item === last) count++;\n\t\t\t\t}\n\t\t\t\tif (count > (thisconf.loop_times as number)) {\n\t\t\t\t\tthisScript.myToast(`循环${thisconf.loop_times}次后停止脚本`);\n\t\t\t\t\tthisScript.doPush(thisScript, { text: `[${thisScript.schemeHistory.map(item => item.schemeName).join('、')}]已停止，请查看。`, before() { thisScript.myToast('脚本即将停止，正在上传数据'); } });\n\t\t\t\t\tthisScript.superGlobal.next_scheme_name = '返回庭院';\n\t\t\t\t\tthisScript.rerun('关闭BUFF')\n\t\t\t\t\treturn true;\n\t\t\t\t}\n\t\t\t\tthisScript.myToast(`已循环完成${--count}次, 继续执行${thisconf.loop_times as number - count}次后结束`);\n\t\t\t\tthisScript.global.loop_add = false;\n\t\t\t}\n\t\t}\n\t\tif (thisconf.pause_enabled) {\n\t\t\t// define_run_time,define_pause_time\n\t\t\tif (thisScript.global.running === undefined) {\n\t\t\t\tthisScript.global.running = true;\n\t\t\t\tconst pairRunning = String(thisconf.define_run_time).split(',');\n\t\t\t\tconst pairPause = String(thisconf.define_pause_time).split(',');\n\t\t\t\tthisScript.global.define_run_time = Math.floor(random(+pairRunning[0] * 1000 * 60, +pairRunning[1] * 1000 * 60));\n\t\t\t\tthisScript.global.define_pause_time = Math.floor(random(+pairPause[0] * 1000 * 60, +pairPause[1] * 1000 * 60));\n\t\t\t\tthisScript.global.runningTime = new Date().getTime() + thisScript.global.define_run_time;\n\t\t\t\tthisScript.global.pauseTime = thisScript.global.runningTime + thisScript.global.define_pause_time;\n\t\t\t}\n\t\t\tif (thisScript.global.running) {\n\t\t\t\tif (new Date().getTime() >= thisScript.global.runningTime) {\n\t\t\t\t\tthisScript.global.running = false;\n\t\t\t\t\tthisScript.myToast('脚本暂停');\n\t\t\t\t\treturn true;\n\t\t\t\t}\n\t\t\t\tif (!thisScript.global.notifyTime) {\n\t\t\t\t\tthisScript.global.notifyTime = new Date().getTime();\n\t\t\t\t}\n\t\t\t\tif (new Date().getTime() - thisScript.global.notifyTime > 10000) {\n\t\t\t\t\tthisScript.global.notifyTime = new Date().getTime();\n\t\t\t\t\tthisScript.myToast(`将于${cvtTime((thisScript.global.runningTime - new Date().getTime()) / 1000)}后暂停${cvtTime(thisScript.global.define_pause_time / 1000)}`);\n\t\t\t\t}\n\t\t\t} else {\n\t\t\t\tif (new Date().getTime() >= thisScript.global.pauseTime) {\n\t\t\t\t\tthisScript.global.running = undefined;\n\t\t\t\t\treturn true;\n\t\t\t\t}\n\t\t\t\tif (new Date().getTime() - thisScript.global.notifyTime > 10000) {\n\t\t\t\t\tthisScript.global.notifyTime = new Date().getTime();\n\t\t\t\t\tthisScript.myToast(`将于${cvtTime((thisScript.global.pauseTime - new Date().getTime()) / 1000)}后恢复执行`);\n\t\t\t\t}\n\t\t\t\tsleep(Math.max(thisScript.global.define_pause_time / 10, 5000));\n\t\t\t\treturn true;\n\t\t\t}\n\t\t}\n\n\t\tfunction stopOrReRun() {\n\t\t\t// 新逻辑\n\t\t\tif (thisconf.after_operation === '切换方案') {\n\t\t\t\tthisScript.rerun(thisconf.next_scheme);\n\t\t\t\tsleep(3000);\n\t\t\t} else if (thisconf.after_operation === '停止脚本') {\n\t\t\t\tthisScript.doPush(thisScript, { text: `[${thisScript.schemeHistory.map(item => item.schemeName).join('、')}]已停止，请查看。`, before() { thisScript.myToast('脚本即将停止，正在上传数据'); } });\n\t\t\t\t// 停止脚本时关闭应用\n\t\t\t\tif (thisconf.stop_with_launched_app_exit) {\n\t\t\t\t\tthisScript.stopRelatedApp();\n\t\t\t\t}\n\t\t\t\tthisScript.stop();\n\t\t\t\tsleep(3000);\n\t\t\t} else if (thisconf.after_operation === '随机等待') {\n\t\t\t\t// 偷个懒，先用sleep暂停\n\t\t\t\tconst [min, max] = String(thisconf.after_operation_sleep).split(',').map(item => (+item) * 1000);\n\t\t\t\tconst toSleep = random(min, max);\n\t\t\t\tthisScript.myToast(`等待${toSleep}ms`);\n\t\t\t\tsleep(toSleep);\n\t\t\t\tthisScript.rerun();\n\t\t\t\tsleep(3000);\n\t\t\t}\n\t\t}\n\n\t\tfunction cvtTime(s) {\n\t\t\tif (s > 3600) {\n\t\t\t\treturn ((s / 3600).toFixed(2)) + '小时';\n\t\t\t} else if (s > 60) {\n\t\t\t\treturn ((s / 60).toFixed(2)) + '分钟';\n\t\t\t} else {\n\t\t\t\treturn ((s).toFixed(2)) + '秒';\n\t\t\t}\n\t\t}\n\t}\n}\n\nexport default new Func000();\n",
+    "2": "import { IFuncOrigin, IFuncOperatorOrigin, IFuncOperator } from '@/interface/IFunc';\nimport { Script } from '@/system/script';\n\n// const normal = -1; //定义常量\nconst left = 0;\nconst center = 1;\nconst right = 2;\n\nexport class Func002 implements IFuncOrigin {\n\tid = 2;\n\tname = '退出结算';\n\tdesc = '';\n\tconfig = [{\n\t\tdesc: '配置',\n\t\tconfig: [{\n\t\t\tname: 'rechallenge',\n\t\t\tdesc: '失败点击重新挑战',\n\t\t\ttype: 'switch',\n\t\t\tdefault: false,\n\t\t}, {\n\t\t\tname: 'no_sushi_switch_enabled',\n\t\t\tdesc: '当体力不足时切换方案',\n\t\t\ttype: 'switch',\n\t\t\tdefault: false,\n\t\t}, {\n\t\t\tname: 'next_scheme',\n\t\t\tdesc: '下一个方案',\n\t\t\ttype: 'scheme',\n\t\t\tdefault: '关闭BUFF',\n\t\t}, {\n\t\t\tname: 'fail',\n\t\t\tdesc: '失败后切换方案',\n\t\t\ttype: 'switch',\n\t\t\tdefault: false,\n\t\t}]\n\t}];\n\toperator: IFuncOperatorOrigin[] = [{\n\t\t// 调整优先级，提高识别贪吃鬼的级别\n\t\t// 0 左上角的贪吃鬼图标\n\t\tdesc: '退出结算_左上角贪吃鬼',\n\t\toperStepRandom: [\n\t\t\t[\n\t\t\t\t[center, 1280, 720, 15, 139, 83, 309, 1000, 25], // 最后一个参数，表示执行这个的概率(已废弃)\n\t\t\t\t[center, 1280, 720, 12, 391, 93, 548, 1000, 25],\n\t\t\t\t[center, 1280, 720, 1202, 140, 1267, 630, 1000, 50],\n\t\t\t]\n\t\t],\n\t}, {\n\t\t// 1 左上角贪吃鬼，mumu截图\n\t\tdesc: '退出结算_左上角贪吃鬼_mumu',\n\t\toperStepRandom: [\n\t\t\t[\n\t\t\t\t[center, 1280, 720, 15, 139, 83, 309, 1000, 25], // 最后一个参数，表示执行这个的概率(已废弃)\n\t\t\t\t[center, 1280, 720, 12, 391, 93, 548, 1000, 25],\n\t\t\t\t[center, 1280, 720, 1202, 140, 1267, 630, 1000, 50],\n\t\t\t]\n\t\t],\n\t}, {\n\t\t// 2 已打开的达摩，取点比较高\n\t\tdesc: '退出结算_已打开的达摩_1',\n\t\toperStepRandom: [\n\t\t\t[\n\t\t\t\t[center, 1280, 720, 15, 139, 83, 309, 1000, 25], // 最后一个参数，表示执行这个的概率(已废弃)\n\t\t\t\t[center, 1280, 720, 12, 391, 93, 548, 1000, 25],\n\t\t\t\t[center, 1280, 720, 1202, 140, 1267, 630, 1000, 50],\n\t\t\t]\n\t\t],\n\t\tretest: 300\n\t}, { // 3 已打开的达摩, 优先级最高\n\t\tdesc: '退出结算_已打开的达摩_2',\n\t\toperStepRandom: [\n\t\t\t[\n\t\t\t\t[center, 1280, 720, 15, 139, 83, 309, 1000, 25], // 最后一个参数，表示执行这个的概率(已废弃)\n\t\t\t\t[center, 1280, 720, 12, 391, 93, 548, 1000, 25],\n\t\t\t\t[center, 1280, 720, 1202, 140, 1267, 630, 1000, 50],\n\t\t\t]\n\t\t],\n\t\tretest: 300\n\t}, {\n\t\t// 4 已打开的达摩 体服更新后的UI\n\t\tdesc: '退出结算_已打开的达摩_3',\n\t\toperStepRandom: [\n\t\t\t[\n\t\t\t\t[center, 1280, 720, 15, 139, 83, 309, 1000, 25], // 最后一个参数，表示执行这个的概率(已废弃)\n\t\t\t\t[center, 1280, 720, 12, 391, 93, 548, 1000, 25],\n\t\t\t\t[center, 1280, 720, 1202, 140, 1267, 630, 1000, 50],\n\t\t\t]\n\t\t],\n\t\tretest: 300\n\t}, {\n\t\t// 5 邀请好友确认\n\t\tdesc: '退出结算_取消确认框_未勾',\n\t\toper: [\n\t\t\t[center, 1280, 720, 550, 347, 730, 376, 300],\n\t\t\t[center, 1280, 720, 680, 411, 838, 452, 500],\n\t\t],\n\t\tnotForCnt: true, // 点击确认不统计退出结算的次数\n\t}, {\n\t\t// 6 单人-胜利太鼓\n\t\tdesc: '退出结算_单人_胜利太鼓',\n\t\toperStepRandom: [\n\t\t\t[\n\t\t\t\t[center, 1280, 720, 165, 60, 1070, 604, 400, 1],\n\t\t\t\t[center, 1280, 720, 165, 60, 1263, 530, 400, 1],\n\t\t\t]\n\t\t],\n\t}, {\n\t\t// 7 组队-胜利太鼓,斗技-胜利太鼓 - 适配\n\t\tdesc: '退出结算_斗技_胜利太鼓',\n\t\toper: [\n\t\t\t[center, 1280, 720, 705, 601, 1026, 700, 400],\n\t\t],\n\t}, {\n\t\t// 8 组队-胜利太鼓,斗技-胜利太鼓\n\t\tdesc: '退出结算_组队_胜利太鼓',\n\t\toperStepRandom: [\n\t\t\t[\n\t\t\t\t[center, 1280, 720, 124, 60, 1188, 363, 400, 5],\n\t\t\t\t[center, 1280, 720, 90, 380, 380, 580, 400, 5],\n\t\t\t\t[center, 1280, 720, 888, 359, 1204, 492, 400, 5],\n\t\t\t]\n\t\t],\n\t}, {\n\t\t// 9 单人-失败太鼓\n\t\tdesc: '退出结算_单人_失败太鼓',\n\t\toperStepRandom: [\n\t\t\t[\n\t\t\t\t[left, 1280, 720, 69, 171, 170, 320, 2000, 2],\n\t\t\t\t[right, 1280, 720, 1104, 72, 1200, 528, 2000, 5],\n\t\t\t]\n\t\t],\n\t}, {\n\t\t// 10 组队-失败太鼓\n\t\tdesc: '退出结算_组队_失败太鼓',\n\t\toperStepRandom: [\n\t\t\t[\n\t\t\t\t[left, 1280, 720, 69, 171, 170, 320, 2000, 2],\n\t\t\t\t[right, 1280, 720, 1104, 72, 1200, 528, 2000, 5],\n\t\t\t]\n\t\t],\n\t}, {\n\t\t// 11 左上角的统计图标\n\t\tdesc: '退出结算_左上角统计图标',\n\t\toperStepRandom: [\n\t\t\t[\n\t\t\t\t[right, 1280, 720, 1217, 106, 1272, 700, 400, 5],\n\t\t\t\t[left, 1280, 720, 600, 672, 1216, 712, 400, 5],\n\t\t\t]\n\t\t],\n\t}, {\n\t\t// 12 秘闻的胜利，太鼓位置很高\n\t\tdesc: '退出结算_秘闻_胜利太鼓',\n\t\toper: [\n\t\t\t[center, 1280, 720, 96, 53, 1177, 210, 1000],\n\t\t],\n\t\tretest: 300,\n\t}, {\n\t\t// 13 御魂溢出点确认\n\t\tdesc: '退出结算_御魂溢出确认',\n\t\toper: [\n\t\t\t[center, 1280, 720, 686, 398, 799, 445, 300],\n\t\t],\n\t\tnotForCnt: true,\n\t}, {\n\t\t// 14 打开后的达摩，所有点都被结算挡住了，使用经验，金币buff，和第二个奖励金框作为特征,第一个奖励可能为紫蛇皮,兼容常规一行6个奖励,以及逢魔演武一行8个的情况\n\t\t// 有的寮买不起经验金币buff,目前想不到解决办法\n\t\tdesc: '退出结算_经验金币buff_掉落物金框',\n\t\toperStepRandom: [\n\t\t\t[ // 缩小点击范围\n\t\t\t\t[left, 1280, 720, 59, 32, 106, 662, 1000, 10], // 最后一个参数貌似表示点击时长下限,上限为+50\n\t\t\t\t[right, 1280, 720, 1192, 49, 1261, 654, 1000, 10],\n\t\t\t]\n\t\t]\n\t}, {\n\t\t// 15 经验金币妖怪，胜利太鼓\n\t\tdesc: '退出结算_经验金币妖怪_胜利太鼓',\n\t\toper: [\n\t\t\t[center, 1280, 720, 535, 674, 743, 709, 1000],\n\t\t]\n\t}, { // 16 契灵结契失败\n\t\tdesc: [\n\t\t\t1280, 720,\n\t\t\t[\n\t\t\t\t[center, 512, 297, 0xbbbbbb],\n\t\t\t\t[center, 610, 277, 0xbbbbbb],\n\t\t\t\t[center, 684, 295, 0xb0b0b0],\n\t\t\t\t[center, 785, 296, 0xc0c0c0],\n\t\t\t\t[center, 520, 339, 0x9f9f9f],\n\t\t\t\t[center, 797, 328, 0xc1c1c1],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 404, 609, 578, 644, 1000]\t//\t放弃结契 总不能有人想选再次结契吧\n\t\t]\n\t}, { // 17 自选120关闭\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[center, 532, 136, 0xfbe9a8],\n\t\t\t\t[center, 602, 120, 0xf4d676],\n\t\t\t\t[right, 793, 129, 0xf6db88],\n\t\t\t\t[right, 919, 123, 0xf6da7f],\n\t\t\t\t[right, 1016, 205, 0xfef6d7],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 1113, 130, 1147, 165, 1000],\n\t\t]\n\t}, {\n\t\t// 18 结界卡超上限提示\n\t\tdesc: '结界卡超上限提示',\n\t\toper: [\n\t\t\t[center, 1280, 720, 544, 348, 570, 373, 500],\n\t\t\t[center, 1280, 720, 436, 405, 606, 459, 200],\n\t\t]\n\t}, { // 19 体力不足\n\t\tdesc: '退出结算_体力不足'\n\t}, {\n\t\t// 20 单人-失败太鼓,重新挑战\n\t\tdesc: '退出结算_单人_失败太鼓',\n\t\toper: [\n\t\t\t[center, 1280, 720, 813, 465, 909, 570, 500],\n\t\t],\n\t\tretest: 800,\n\t}, {\n\t\t// 21 邀请好友确认\n\t\tdesc: '退出结算_取消确认框',\n\t\toper: [\n\t\t\t[center, 1280, 720, 680, 411, 838, 452, 500],\n\t\t],\n\t\tnotForCnt: true, // 点击确认不统计退出结算的次数\n\t}, {\n\t\t// 22 退出结算_再次挑战_取消确认框_未勾\n\t\tdesc: '退出结算_再次挑战_取消确认框_未勾',\n\t\toper: [\n\t\t\t[center, 1280, 720, 544, 347, 570, 374, 300],\n\t\t\t[center, 1280, 720, 680, 411, 838, 452, 500],\n\t\t],\n\t\tnotForCnt: true, // 点击确认不统计退出结算的次数\n\t}, {\n\t\t// 23 阴阳师/英杰技能升级提示\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[center, 413, 394, 0x8e6a40],\n\t\t\t\t[center, 869, 393, 0x8f6b41],\n\t\t\t\t[center, 652, 275, 0x483424],\n\t\t\t\t[center, 802, 312, 0xcab49b],\n\t\t\t\t[center, 421, 262, 0x38291d],\n\t\t\t\t[center, 835, 387, 0xaf947c],\n\t\t\t\t[center, 397, 299, 0x817976],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 225, 486, 1082, 679, 1000],\n\t\t]\n\t}, {\n\t\t// 24 缓存过多点击确认按钮\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[center, 332, 142, 0x644435],\n\t\t\t\t[center, 946, 142, 0x654435],\n\t\t\t\t[center, 441, 492, 0xdf6851],\n\t\t\t\t[center, 756, 497, 0xf3b25e],\n\t\t\t\t[center, 919, 484, 0xcbb59c],\n\t\t\t\t[center, 944, 165, 0xcbb59c],\n\t\t\t\t[center, 354, 499, 0xcbb59c],\n\t\t\t\t[center, 573, 570, 0x6d4a38],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 727, 484, 859, 535, 1000],\n\t\t]\n\t}, { // 25 斗技退出失败\n\t\tdesc: [\n\t\t\t1280, 720,\n\t\t\t[\n\t\t\t\t[center, 470, 77, 0x544e60],\n\t\t\t\t[center, 452, 120, 0x595063],\n\t\t\t\t[center, 495, 120, 0x575062],\n\t\t\t\t[center, 736, 102, 0xc3bdaf],\n\t\t\t\t[center, 918, 112, 0xada596],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 830, 638, 1044, 701, 1000],\n\t\t]\n\t}, { // 26 斗技退出失败 阴阳师皮肤遮挡\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[center, 470, 77, 0x544e60],\n\t\t\t\t[center, 452, 120, 0x595063],\n\t\t\t\t[center, 495, 120, 0x575062],\n\t\t\t\t[center, 570, 29, 0x91846b],\n\t\t\t\t[center, 371, 15, 0x5e4935],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 830, 638, 1044, 701, 1000],\n\t\t]\n\t}, { // 27  左下统计图标\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[center, 78, 643, 0x3c2b20],\n\t\t\t\t[center, 72, 655, 0xae8b5f],\n\t\t\t\t[center, 89, 652, 0xb69363],\n\t\t\t\t[center, 78, 675, 0x36261a],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 1112, 113, 1238, 595, 1000],\n\t\t]\n\t}, {\n\t\t// 28 喂猫喂狗奖励\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[center, 327, 191, 0x5c4026],\n\t\t\t\t[center, 499, 191, 0xa38051],\n\t\t\t\t[right, 965, 188, 0x654323],\n\t\t\t\t[right, 933, 212, 0x3e3935],\n\t\t\t\t[right, 940, 272, 0xb0a1a0],\n\t\t\t]\n\t\t],\n\n\t\toper: [\n\t\t\t[center, 1280, 720, 1112, 113, 1238, 595, 1000],\n\t\t]\n\t}, { // 29 小白提示框\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[center, 483, 195, 0x464342],\n\t\t\t\t[right, 808, 201, 0x423e3d],\n\t\t\t\t[left, 296, 383, 0xcb2e43],\n\t\t\t\t[right, 905, 406, 0x624a3a],\n\t\t\t\t[center, 427, 528, 0x645346],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 528, 606, 699, 660, 1000],\n\t\t],\n\t\tnotForCnt: true, // 点击确认不统计退出结算的次数\n\t}, { // 30 关联手机\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[right, 997, 451, 0xe7cfb1],\n\t\t\t\t[right, 1058, 491, 0xdec2a3],\n\t\t\t\t[right, 1020, 536, 0xd7b17b],\n\t\t\t\t[right, 876, 204, 0xe8e0d4],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 968, 463, 1036, 522, 1000],\n\t\t],\n\t\tnotForCnt: true,\n\t}, { // 31 关联手机确认框\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[center, 480, 488, 0xdf6851],\n\t\t\t\t[center, 565, 515, 0xdf6851],\n\t\t\t\t[right, 710, 488, 0xf3b25e],\n\t\t\t\t[right, 692, 393, 0xf3b25e],\n\t\t\t\t[right, 834, 429, 0xf3b25e],\n\t\t\t\t[right, 802, 520, 0xf4b35d],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 475, 483, 579, 523, 1000],\n\t\t],\n\t\tnotForCnt: true,\n\t}, { // 32 自动接受邀请_确认弹窗\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[center, 615, 224, 0x6b4939],\n\t\t\t\t[right, 857, 224, 0x6a4838],\n\t\t\t\t[center, 587, 296, 0xa83005],\n\t\t\t\t[center, 587, 364, 0x725f4d],\n\t\t\t\t[center, 572, 455, 0xe16a52],\n\t\t\t\t[right, 738, 454, 0xf4b660],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 578, 356, 600, 381, 1000],\n\t\t\t[center, 1280, 720, 688, 409, 836, 455, 1000],\n\t\t],\n\t\tnotForCnt: true,\n\t}, { // 33 断线期间结束\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[center, 473, 221, 0x6b4939],\n\t\t\t\t[right, 833, 221, 0x664536],\n\t\t\t\t[right, 793, 493, 0x6b4939],\n\t\t\t\t[center, 469, 493, 0x6b4939],\n\t\t\t\t[center, 590, 408, 0xf4b25d],\n\t\t\t\t[right, 686, 436, 0xf4b25d],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 592, 401, 692, 444, 1000],\n\t\t],\n\t\tnotForCnt: true,\n\t}, { // 34 寮樱花树木提升\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[center, 489, 582, 0xedd2c2],\n\t\t\t\t[center, 476, 610, 0xb7a296],\n\t\t\t\t[right, 779, 580, 0xf1e3d7],\n\t\t\t\t[right, 826, 569, 0xb8a59a],\n\t\t\t\t[right, 781, 109, 0x8e684a],\n\t\t\t\t[right, 794, 110, 0xe4cb91],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 779, 95, 808, 124, 1000],\n\t\t],\n\t\tnotForCnt: true,\n\t}, { // 35 结算保底页面  //字体存白容易误触,加了聊天框弹出的点防止误触\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[center, 597, 693, 0xfefefe],\n\t\t\t\t[right, 657, 693, 0xefeff0],\n\t\t\t\t[right, 686, 692, 0xf7f8f8],\n\t\t\t\t[right, 713, 697, 0xf5f5f6],\n\t\t\t\t[center, 569, 691, 0xeeeef0],\n\t\t\t\t[right, 1055, 2, 0x4c3a2b],\n\t\t\t\t[right, 1055, 40, 0x4c3a2b],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 77, 668, 256, 706, 1000],\n\t\t]\n\t}, { // 36 姑获鸟皮肤确定弹窗(羡煞旁人)\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[center, 636, 221, 0xcec3b5],\n\t\t\t\t[center, 482, 367, 0xd6cdbd],\n\t\t\t\t[right, 803, 366, 0xd6cdbd],\n\t\t\t\t[center, 597, 472, 0xf4b25d],\n\t\t\t\t[center, 631, 320, 0xd6cdbd],\n\t\t\t\t[center, 630, 532, 0xb84f3f],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 595, 454, 685, 494, 1000],\n\t\t]\n\t}, { // 37 通用获得奖励弹窗\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[center, 387, 328, 0xd9c5b0],\n\t\t\t\t[center, 504, 293, 0xd9c5b0],\n\t\t\t\t[right, 687, 292, 0xd9c5b0],\n\t\t\t\t[right, 893, 303, 0xd9c5b0],\n\t\t\t\t[center, 490, 260, 0x3e2b23],\n\t\t\t\t[right, 830, 259, 0x402d23],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 1042, 176, 1187, 585, 1000],\n\t\t],\n\t\tnotForCnt: true,\n\t}, { // 38 新的获得奖励弹窗，能显示到三排半\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[center, 387, 328, 0xd9c5b0],\n\t\t\t\t[center, 504, 293, 0xd9c5b0],\n\t\t\t\t[right, 687, 292, 0xd9c5b0],\n\t\t\t\t[right, 893, 303, 0xd9c5b0],\n\t\t\t\t[center, 481, 167, 0x412e24],\n\t\t\t\t[right, 841, 166, 0x432f25],\n\t\t\t\t[center, 555, 155, 0xf1d984],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 1042, 176, 1187, 585, 1000],\n\t\t],\n\t\tnotForCnt: true,\n\t}, { // 39 雪御前boss\n\t\tdesc: [1280, 720, [\n\t\t\t[center, 1220, 38, 0xe8d3d0],\n\t\t\t[center, 1212, 31, 0xe9d4d1],\n\t\t\t[center, 1229, 33, 0xe7d3ce],\n\t\t\t[center, 1221, 26, 0xa66090],\n\t\t\t[center, 1222, 54, 0xad5796],\n\t\t]],\n\t\toper: [[center, 1280, 720, 1215, 32, 1230, 50, 1000]],\n\t\tnotForCnt: true,\n\t}, { // 40 逢魔获得奖励弹窗（竖卷轴，金色轴杆+米黄纸面）\n\t\tdesc: [1280, 720, [\n\t\t\t[center, 387, 328, 0xd9c5ae],\n\t\t\t[right, 893, 303, 0xd9c5ae],\n\t\t\t[center, 420, 482, 0xd9c5ae],\n\t\t\t[center, 372, 300, 0xf3c683],\n\t\t\t[right, 905, 300, 0xf3c683],\n\t\t\t[center, 500, 239, 0xc1a361],\n\t\t\t[right, 700, 482, 0xc9ab74],\n\t\t\t[center, 638, 508, 0x413228],\n\t\t]],\n\t\toper: [[center, 1280, 720, 1042, 176, 1187, 585, 1000]],\n\t\tnotForCnt: true,\n\t}]\n\n\toperatorFunc(thisScript: Script, thisOperator: IFuncOperator[]): boolean {\n\t\tconst thisconf = thisScript.scheme.config['2'];\n\t\tif (thisconf && thisconf.rechallenge && thisScript.oper({\n\t\t\tid: 2,\n\t\t\tname: '退出结算_重新挑战',\n\t\t\toperator: [thisOperator[20], thisOperator[22],]\n\t\t})) {\n\t\t\treturn true;\n\t\t}\n\t\tif (thisScript.oper({\n\t\t\tid: 2,\n\t\t\tname: '体力不足',\n\t\t\toperator: [thisOperator[19]]\n\t\t})) {\n\t\t\tif (thisconf && thisconf.no_sushi_switch_enabled) {\n\t\t\t\tthisScript.rerun(thisconf.next_scheme);\n\t\t\t\tsleep(3000);\n\t\t\t\treturn;\n\t\t\t} else if (!thisconf.no_sushi_switch_enabled) {\n\t\t\t\tthisScript.doPush(thisScript, { text: '体力不够已停止，请查看。', before() { thisScript.myToast('脚本即将停止，正在上传数据'); } });\n\t\t\t\tthisScript.stop();\n\t\t\t\tsleep(3000);\n\t\t\t\treturn;\n\t\t\t}\n\t\t}\n\t\tif (thisconf.fail && thisScript.oper({\n\t\t\tid: 2,\n\t\t\tname: '退出结算_失败停止',\n\t\t\toperator: [thisOperator[9], thisOperator[10]]\n\t\t})) {\n\t\t\tthisScript.doPush(thisScript, { text: '战斗失败，已停止，请查看。', before() { thisScript.myToast('脚本即将停止，正在上传数据'); } });\n\t\t\tthisScript.rerun(thisconf.next_scheme);\n\t\t\tsleep(3000);\n\t\t\treturn true\n\t\t}\n\t\treturn thisScript.oper({\n\t\t\tid: 2,\n\t\t\tname: '退出结算',\n\t\t\toperator: [\n\t\t\t\tthisOperator[32],\n\t\t\t\tthisOperator[0], thisOperator[1], thisOperator[2], thisOperator[3],\n\t\t\t\tthisOperator[4], thisOperator[5], thisOperator[6], thisOperator[7],\n\t\t\t\tthisOperator[8], thisOperator[9], thisOperator[25], thisOperator[10], thisOperator[21],\n\t\t\t\tthisOperator[12], thisOperator[13], thisOperator[14], thisOperator[15],\n\t\t\t\tthisOperator[16], thisOperator[17], thisOperator[18], // 22要放18前面\n\t\t\t\tthisOperator[11], thisOperator[23], thisOperator[24],\n\t\t\t\tthisOperator[26], thisOperator[27], thisOperator[28], thisOperator[29],\n\t\t\t\tthisOperator[30], thisOperator[31], thisOperator[33], thisOperator[34],\n\t\t\t\tthisOperator[35], thisOperator[36], thisOperator[37], thisOperator[38],\n\t\t\t\tthisOperator[39], thisOperator[40],\n\t\t\t]\n\t\t});\n\t}\n}\n\nexport default new Func002();\n",
+    "3": "import { Script } from '@/system/script';\nimport { IFuncOrigin, IFuncOperator, IFuncOperatorOrigin } from '@/interface/IFunc';\n\n// const normal = -1; //定义常量\n// const left = 0;\nconst center = 1;\nconst right = 2;\n\nexport class Func003 implements IFuncOrigin {\n\tid = 3;\n\tname = '悬赏协作';\n\tconfig = [{\n\t\tdesc: '',\n\t\tconfig: [{\n\t\t\tname: 'type',\n\t\t\tdesc: '操作',\n\t\t\ttype: 'list',\n\t\t\tdata: ['关闭', '接受', '拒绝'],\n\t\t\tdefault: '关闭',\n\t\t}, {\n\t\t\tname: 'switch',\n\t\t\tdesc: '仅接受勾协',\n\t\t\ttype: 'switch',\n\t\t\tdefault: false,\n\t\t}]\n\t}, {\n\t\tdesc: '邀约协作（活动）',\n\t\tconfig: [{\n\t\t\tname: 'yytype',\n\t\t\tdesc: '操作',\n\t\t\ttype: 'list',\n\t\t\tdata: ['关闭', '接受', '拒绝'],\n\t\t\tdefault: '关闭'\n\t\t}]\n\t}];\n\toperator: IFuncOperatorOrigin[] = [{\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[center, 533, 64, 0xe7c383],\n\t\t\t\t[right, 810, 89, 0xd1bfb9],\n\t\t\t\t[right, 684, 440, 0xd1c5b0],\n\t\t\t\t[center, 540, 555, 0xd7c8b1],\n\t\t\t\t[center, 517, 118, 0xbfa992],\n\t\t\t\t[right, 889, 488, 0x73eba6],\n\t\t\t\t[right, 874, 585, 0xf67246],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 790, 71, 834, 111, 1000], // 关闭\n\t\t\t[center, 1280, 720, 848, 475, 902, 526, 1000], // 接受\n\t\t\t[center, 1280, 720, 846, 568, 898, 616, 1000], // 拒绝\n\t\t]\n\t}, {\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[center, 519, 139, 0xb29375],\n\t\t\t\t[center, 727, 171, 0xb29375],\n\t\t\t\t[center, 855, 518, 0xdc6958],\n\t\t\t\t[center, 849, 422, 0x53ae5b],\n\t\t\t\t[center, 572, 473, 0x9d7838],\n\t\t\t\t[center, 618, 482, 0xdba83a],\n\t\t\t\t[center, 668, 510, 0x7746a8],\n\t\t\t\t[center, 694, 490, 0xef492e]\n\t\t\t]\n\t\t]\n\t}, { // 2 判断_阴阳寮成就页 这些乱七八糟的弹窗统一找个地方放吧，烦死了，暂时先放着:)\n\t\tdesc:\n\t\t\t[\n\t\t\t\t1280, 720,\n\t\t\t\t[\n\t\t\t\t\t[right, 1055, 230, 0x997242],\n\t\t\t\t\t[right, 1072, 462, 0xecd7b9],\n\t\t\t\t\t[center, 347, 490, 0xb8a281],\n\t\t\t\t\t[center, 357, 240, 0xf5ebd5],\n\t\t\t\t\t[center, 830, 150, 0xefe4d0],\n\t\t\t\t\t[center, 697, 172, 0x805054],\n\t\t\t\t\t[center, 827, 230, 0xb58a55],\n\t\t\t\t]\n\t\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 357, 535, 1045, 662, 1200]\t//\t点击空白处\n\t\t]\n\t}, { // 3 呱太弹窗\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[center, 568, 225, 0xb7b052],\n\t\t\t\t[center, 733, 228, 0x4d4da2],\n\t\t\t\t[center, 756, 236, 0xc0c45e],\n\t\t\t\t[center, 879, 323, 0x690707],\n\t\t\t\t[center, 690, 422, 0xd3ae72]\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 517, 521, 841, 689, 1000],\n\t\t\t[center, 1280, 720, 509, 650, 912, 716, 1000]\n\t\t]\n\t}, { // 4 其他设备登录(被顶掉)\n\t\tdesc: [\n\t\t\t1280, 720,\n\t\t\t[\n\t\t\t\t[center, 437, 258, 0x624333],\n\t\t\t\t[center, 841, 257, 0x664535],\n\t\t\t\t[center, 457, 289, 0xcbb59c],\n\t\t\t\t[center, 819, 428, 0xcbb59c],\n\t\t\t\t[center, 484, 329, 0x584f45],\n\t\t\t\t[center, 733, 322, 0x2b2723],\n\t\t\t\t[center, 581, 379, 0x963a2d],\n\t\t\t\t[center, 700, 428, 0x973c2e],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 584, 382, 700, 429, 1000],\n\t\t]\n\t}, { // 5 邀约协作\n\t\tdesc: [\n\t\t\t1280, 720,\n\t\t\t[\n\t\t\t\t[center, 420, 202, 0xd9bd97],\n\t\t\t\t[center, 434, 158, 0xbc8a4d],\n\t\t\t\t[center, 571, 149, 0xd7c3a6],\n\t\t\t\t[center, 791, 146, 0xffeca2],\n\t\t\t\t[center, 778, 120, 0x8c4a3a],\n\t\t\t\t[center, 854, 438, 0x57b260],\n\t\t\t\t[center, 857, 529, 0xdd705f],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 762, 118, 796, 151, 1000], // 关闭\n\t\t\t[center, 1280, 720, 836, 410, 880, 457, 1000], // 接受\n\t\t\t[center, 1280, 720, 834, 510, 880, 556, 1000], // 拒绝\n\t\t]\n\t}];\n\n\t/**\n\t *\n\t * @param {*} thisScript script.js 这样可以拿到里面的对象用来做点击等操作\n\t * @param {*} thisOperator 转换过适合当前分辨率的operator\n\t */\n\toperatorFunc(thisScript: Script, thisOperator: IFuncOperator[]): boolean {\n\t\tconst thisconf = thisScript.scheme.config['3']; // 获取配置\n\t\tif (thisScript.oper({\n\t\t\tid: 3,\n\t\t\tname: '清除垃圾弹窗',\n\t\t\toperator: [thisOperator[2], thisOperator[3]]\n\t\t})) {\n\t\t\treturn true;\n\t\t}\n\t\tif (thisScript.oper({\n\t\t\tid: 3,\n\t\t\tname: '意外情况,停止脚本',\n\t\t\toperator: [thisOperator[4]]\n\t\t})) {\n\t\t\tthisScript.doPush(thisScript, { text: '意外情况已停止，请查看。', before() { thisScript.myToast('脚本即将停止，正在上传数据'); } });\n\t\t\tthisScript.stop();\n\t\t\tsleep(3000);\n\t\t\treturn true;\n\t\t}\n\t\tif (thisconf.switch && thisconf.type === '接受' && thisScript.oper({\n\t\t\tid: 3,\n\t\t\tname: '悬赏协作',\n\t\t\toperator: [{\n\t\t\t\tdesc: [thisOperator[0].desc[0] as [number, number, number, number]]\n\t\t\t}]\n\t\t})) {\n\t\t\tif (thisScript.findMultiColor('勾协判定')) {\n\t\t\t\tthisScript.oper({\n\t\t\t\t\tid: 3,\n\t\t\t\t\tname: '悬赏协作_' + thisconf.type + '_勾协',\n\t\t\t\t\toperator: [{\n\t\t\t\t\t\toper: [thisOperator[0].oper[1]]\n\t\t\t\t\t}]\n\t\t\t\t})\n\t\t\t\tthisScript.doPush(thisScript, { text: '接受到勾协，请确认是否影响到主体方案', before() { thisScript.myToast('正在上传数据'); } });\n\t\t\t\treturn true;\n\t\t\t} else if (thisScript.oper({\n\t\t\t\tname: '悬赏协作_' + thisconf.type + '_非勾协关闭',\n\t\t\t\toperator: [{\n\t\t\t\t\tdesc: thisOperator[0].desc,\n\t\t\t\t\toper: [thisOperator[0].oper[0]]\n\t\t\t\t}]\n\t\t\t}, 0)) {\n\t\t\t\treturn true;\n\t\t\t}\n\t\t} else {\n\t\t\treturn thisScript.oper({\n\t\t\t\tid: 3,\n\t\t\t\tname: '悬赏协作_' + thisconf.type,\n\t\t\t\toperator: [{\n\t\t\t\t\tdesc: thisOperator[0].desc,\n\t\t\t\t\toper: [thisOperator[0].oper[{\n\t\t\t\t\t\t'关闭': 0,\n\t\t\t\t\t\t'接受': 1,\n\t\t\t\t\t\t'拒绝': 2\n\t\t\t\t\t}[thisconf.type as string]]]\n\t\t\t\t}]\n\t\t\t}) || thisScript.oper({\n\t\t\t\tid: 3,\n\t\t\t\tname: '邀约协作_' + (thisconf.yytype || '关闭'),\n\t\t\t\toperator: [{\n\t\t\t\t\tdesc: thisOperator[5].desc,\n\t\t\t\t\toper: [thisOperator[5].oper[{\n\t\t\t\t\t\t'关闭': 0,\n\t\t\t\t\t\t'接受': 1,\n\t\t\t\t\t\t'拒绝': 2\n\t\t\t\t\t}[(thisconf.yytype || '关闭') as string]]]\n\t\t\t\t}]\n\t\t\t});\n\t\t}\n\t}\n}\n\n\nexport default new Func003();\n"
+  },
+  "resources": {
+    "结界卡超上限提示": {
+      "type": "colors",
+      "points": [
+        [
+          443,
+          223,
+          "#704c3b"
+        ],
+        [
+          839,
+          227,
+          "#4c3023"
+        ],
+        [
+          551,
+          361,
+          "#402f11"
+        ],
+        [
+          456,
+          418,
+          "#df6851"
+        ],
+        [
+          686,
+          440,
+          "#f3b25e"
+        ],
+        [
+          849,
+          387,
+          "#cbb59c"
+        ],
+        [
+          853,
+          306,
+          "#cbb59c"
+        ],
+        [
+          462,
+          297,
+          "#cbb59c"
+        ],
+        [
+          848,
+          268,
+          "#cbb59c"
+        ],
+        [
+          454,
+          495,
+          "#6c4937"
+        ],
+        [
+          650,
+          285,
+          "#cbb59c"
+        ]
+      ]
+    },
+    "退出结算_体力不足": {
+      "type": "colors",
+      "points": [
+        [
+          586,
+          471,
+          "#f7b263"
+        ],
+        [
+          590,
+          362,
+          "#fa8f38"
+        ],
+        [
+          670,
+          366,
+          "#272420"
+        ],
+        [
+          645,
+          214,
+          "#f8f3e0"
+        ]
+      ]
+    },
+    "退出结算_再次挑战_取消确认框_未勾": {
+      "type": "colors",
+      "points": [
+        [
+          460,
+          258,
+          "#cbb59c"
+        ],
+        [
+          799,
+          268,
+          "#cbb59c"
+        ],
+        [
+          467,
+          429,
+          "#df6851"
+        ],
+        [
+          700,
+          431,
+          "#f3b25e"
+        ],
+        [
+          641,
+          429,
+          "#cbb59c"
+        ],
+        [
+          560,
+          356,
+          "#3f2e10"
+        ],
+        [
+          541,
+          278,
+          "#cbb59c"
+        ],
+        [
+          744,
+          280,
+          "#cbb59c"
+        ]
+      ]
+    },
+    "退出结算_单人_失败太鼓": {
+      "type": "colors",
+      "points": [
+        [
+          465,
+          151,
+          "#514a5c"
+        ],
+        [
+          447,
+          189,
+          "#60566b"
+        ],
+        [
+          496,
+          192,
+          "#5b5165"
+        ],
+        [
+          466,
+          175,
+          "#b7a78e"
+        ],
+        [
+          502,
+          154,
+          "#ae9982"
+        ],
+        [
+          418,
+          210,
+          "#b6a388"
+        ]
+      ]
+    },
+    "退出结算_单人_胜利太鼓": {
+      "type": "colors",
+      "points": [
+        [
+          481,
+          159,
+          "#841b12"
+        ],
+        [
+          458,
+          207,
+          "#a11c10"
+        ],
+        [
+          512,
+          205,
+          "#a11b10"
+        ],
+        [
+          515,
+          168,
+          "#c7b39e"
+        ],
+        [
+          447,
+          169,
+          "#c6b5a0"
+        ],
+        [
+          484,
+          222,
+          "#d3c4ae"
+        ],
+        [
+          510,
+          249,
+          "#d4c4ab"
+        ]
+      ]
+    },
+    "退出结算_取消确认框": {
+      "type": "colors",
+      "points": [
+        [
+          460,
+          258,
+          "#cbb59e"
+        ],
+        [
+          799,
+          268,
+          "#cbb59e"
+        ],
+        [
+          467,
+          429,
+          "#df6851"
+        ],
+        [
+          700,
+          431,
+          "#f4b25f"
+        ],
+        [
+          641,
+          429,
+          "#cbb59e"
+        ]
+      ]
+    },
+    "退出结算_取消确认框_未勾": {
+      "type": "colors",
+      "points": [
+        [
+          460,
+          258,
+          "#cbb59e"
+        ],
+        [
+          799,
+          268,
+          "#cbb59e"
+        ],
+        [
+          457,
+          433,
+          "#df6851"
+        ],
+        [
+          693,
+          430,
+          "#f3b25e"
+        ],
+        [
+          641,
+          429,
+          "#cbb59e"
+        ],
+        [
+          560,
+          356,
+          "#725f4d"
+        ]
+      ]
+    },
+    "退出结算_左上角统计图标": {
+      "type": "colors",
+      "points": [
+        [
+          71,
+          65,
+          "#ac8a5a"
+        ],
+        [
+          80,
+          59,
+          "#3c2a21"
+        ],
+        [
+          88,
+          67,
+          "#a8835a"
+        ],
+        [
+          77,
+          82,
+          "#3a2a22"
+        ]
+      ]
+    },
+    "退出结算_左上角贪吃鬼": {
+      "type": "colors",
+      "points": [
+        [
+          50,
+          66,
+          "#693430"
+        ],
+        [
+          62,
+          65,
+          "#f5f5f5"
+        ],
+        [
+          112,
+          58,
+          "#312012"
+        ],
+        [
+          74,
+          90,
+          "#927150"
+        ]
+      ]
+    },
+    "退出结算_左上角贪吃鬼_mumu": {
+      "type": "colors",
+      "points": [
+        [
+          50,
+          66,
+          "#693430"
+        ],
+        [
+          62,
+          65,
+          "#f5f5f5"
+        ],
+        [
+          112,
+          58,
+          "#3b2721"
+        ],
+        [
+          74,
+          90,
+          "#927150"
+        ]
+      ]
+    },
+    "退出结算_已打开的达摩_1": {
+      "type": "colors",
+      "points": [
+        [
+          482,
+          611,
+          "#3c82ca"
+        ],
+        [
+          487,
+          620,
+          "#3b84c6"
+        ],
+        [
+          588,
+          619,
+          "#300204"
+        ],
+        [
+          712,
+          621,
+          "#340204"
+        ],
+        [
+          557,
+          418,
+          "#da961f"
+        ]
+      ]
+    },
+    "退出结算_已打开的达摩_2": {
+      "type": "colors",
+      "points": [
+        [
+          482,
+          611,
+          "#3c82ca"
+        ],
+        [
+          487,
+          620,
+          "#3b84c6"
+        ],
+        [
+          588,
+          619,
+          "#300204"
+        ],
+        [
+          712,
+          621,
+          "#340204"
+        ]
+      ]
+    },
+    "退出结算_已打开的达摩_3": {
+      "type": "colors",
+      "points": [
+        [
+          438,
+          614,
+          "#3f84c9"
+        ],
+        [
+          588,
+          622,
+          "#340204"
+        ],
+        [
+          722,
+          618,
+          "#380204"
+        ],
+        [
+          533,
+          605,
+          "#712a0c"
+        ],
+        [
+          471,
+          612,
+          "#3b83c9"
+        ]
+      ]
+    },
+    "退出结算_御魂溢出确认": {
+      "type": "colors",
+      "points": [
+        [
+          448,
+          221,
+          "#684736"
+        ],
+        [
+          829,
+          222,
+          "#654434"
+        ],
+        [
+          705,
+          248,
+          "#cbb59c"
+        ],
+        [
+          504,
+          408,
+          "#df6851"
+        ],
+        [
+          762,
+          415,
+          "#f3b25e"
+        ],
+        [
+          771,
+          352,
+          "#cbb59c"
+        ],
+        [
+          519,
+          340,
+          "#cbb59c"
+        ],
+        [
+          604,
+          411,
+          "#cbb59c"
+        ],
+        [
+          684,
+          438,
+          "#f7bc63"
+        ],
+        [
+          698,
+          446,
+          "#f1b562"
+        ],
+        [
+          596,
+          493,
+          "#6c4a38"
+        ]
+      ]
+    },
+    "退出结算_斗技_胜利太鼓": {
+      "type": "colors",
+      "points": [
+        [
+          482,
+          104,
+          "#851b11"
+        ],
+        [
+          480,
+          132,
+          "#cfc0aa"
+        ],
+        [
+          514,
+          109,
+          "#c7b5a1"
+        ],
+        [
+          429,
+          171,
+          "#d6c9b1"
+        ],
+        [
+          510,
+          148,
+          "#ab1c10"
+        ]
+      ]
+    },
+    "退出结算_秘闻_胜利太鼓": {
+      "type": "colors",
+      "points": [
+        [
+          816,
+          101,
+          "#d1b887"
+        ],
+        [
+          512,
+          117,
+          "#9e1c10"
+        ],
+        [
+          455,
+          122,
+          "#9f1c10"
+        ],
+        [
+          477,
+          81,
+          "#7c1910"
+        ],
+        [
+          481,
+          102,
+          "#cebeac"
+        ],
+        [
+          541,
+          139,
+          "#d0bfa7"
+        ]
+      ]
+    },
+    "退出结算_组队_失败太鼓": {
+      "type": "colors",
+      "points": [
+        [
+          466,
+          93,
+          "#514c5d"
+        ],
+        [
+          448,
+          135,
+          "#5d5469"
+        ],
+        [
+          497,
+          140,
+          "#5a5365"
+        ],
+        [
+          470,
+          123,
+          "#b8a88f"
+        ],
+        [
+          415,
+          151,
+          "#b8a589"
+        ]
+      ]
+    },
+    "退出结算_组队_胜利太鼓": {
+      "type": "colors",
+      "points": [
+        [
+          482,
+          104,
+          "#851b11"
+        ],
+        [
+          456,
+          148,
+          "#9e1c10"
+        ],
+        [
+          503,
+          147,
+          "#9d1c10"
+        ],
+        [
+          480,
+          132,
+          "#cfc0aa"
+        ],
+        [
+          514,
+          109,
+          "#c7b5a1"
+        ],
+        [
+          429,
+          171,
+          "#d6c9b1"
+        ]
+      ]
+    },
+    "退出结算_经验金币buff_掉落物金框": {
+      "type": "colors",
+      "points": [
+        [
+          187,
+          652,
+          "#92b7e4"
+        ],
+        [
+          186,
+          667,
+          "#f6e42b"
+        ],
+        [
+          315,
+          658,
+          "#f1eed2"
+        ],
+        [
+          339,
+          666,
+          "#f7e82e"
+        ],
+        [
+          429,
+          104,
+          "#fe9843"
+        ],
+        [
+          449,
+          210,
+          "#ffa840"
+        ]
+      ]
+    },
+    "退出结算_经验金币妖怪_胜利太鼓": {
+      "type": "colors",
+      "points": [
+        [
+          435,
+          68,
+          "#831a10"
+        ],
+        [
+          364,
+          67,
+          "#c94130"
+        ],
+        [
+          297,
+          44,
+          "#c83d2e"
+        ],
+        [
+          754,
+          81,
+          "#dfca9b"
+        ],
+        [
+          68,
+          197,
+          "#8abdce"
+        ],
+        [
+          140,
+          215,
+          "#7a5445"
+        ],
+        [
+          139,
+          238,
+          "#2b0910"
+        ]
+      ]
+    },
+    "勾协判定": {
+      "type": "find_colors",
+      "groups": [
+        [
+          [
+            696,
+            488,
+            "#ef4c34"
+          ],
+          [
+            699,
+            489,
+            "#f5502b"
+          ],
+          [
+            699,
+            493,
+            "#e92c12"
+          ],
+          [
+            696,
+            493,
+            "#e9331a"
+          ]
+        ]
+      ],
+      "region": [
+        648,
+        456,
+        720,
+        528
+      ],
+      "similarity": 98
+    }
+  }
+}

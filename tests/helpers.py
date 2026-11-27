@@ -48,7 +48,8 @@ def _text_for(cond: dict) -> str:
     if words:
         return words
     pat = cond.get("pattern", "")
-    return {r"刷新\d{1,2}[:：]\d{2}": "刷新04:59"}.get(pat, pat)
+    return {r"刷新\d{1,2}[:：]\d{2}": "刷新04:59",
+            r"第\s*\d+\s*签": "第208签"}.get(pat, pat)
 
 
 def paint_condition(img: np.ndarray, cond: dict, resources: dict, texts: list | None = None) -> None:

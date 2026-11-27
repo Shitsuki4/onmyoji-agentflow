@@ -1,0 +1,28 @@
+# Optional draft calibration, never applied to the active resource workspace.
+# Source image remains an alternative. The generated candidate still requires
+# normal workflow review and first-run approval. No account screenshot is bundled.
+format: 1
+pages:
+  page_main:
+    original_check_sha256: e76c59b19cc84b94235bf85a475e04e4ff032ea6bf82bcb53ffa4f109553f8a7
+    evidence:
+      kind: saved-live-frame
+      sha256: 67dd9379a00eede01f72c2329e8f3e2723d9260d45d9cf55a193c59e30a3051b
+      resolution: [1280, 720]
+      observed_at: '2026-11-21T06:35:30+08:00'
+    negative_evidence:
+      kind: saved-live-frame
+      sha256: 4bf5846df86c1d7209e21154043871419b2fd6aa51b10550421b065969263c8f
+      resolution: [1280, 720]
+    note: 樱花庭院原始模板未命中。双区域标签识别须排除町中和已知遮挡弹窗。
+    additional:
+      all:
+        - {text: 式神录, region: [1080, 640, 110, 55]}
+        - {text: 阴阳寮, region: [515, 640, 120, 55]}
+        - not:
+            any:
+              - {res: 'GameUi::I_CHECK_TOWN'}
+              - {text: 每日一签, region: [450, 150, 380, 250]}
+              - {text: 累计奖励, region: [440, 470, 390, 100]}
+              - {text: 获得奖励, region: [400, 120, 480, 250]}
+              - {text: 退出游戏, region: [330, 300, 360, 100]}

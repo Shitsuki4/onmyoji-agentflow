@@ -73,7 +73,7 @@ def test_convert_assttyys_minimal(tmp_path):
         "  '界面A': { desc: [1280, 720, [[left, 1, 2, 0x112233], [left, 3, 4, 0xffffff]]] },\n};\n", encoding="utf-8")
     (c / "multiFindColors.ts").write_text(
         "export const multiFindColors: IMultiFindColors = {\n"
-        "  '找色B': { region: [0, 1280, 720, 10, 20, 300, 400], desc: [[[0, 5, 5, 0x010203], [0, 6, 6, 0x040506]]] },\n};\n",
+        "  '找色B': { similar: 98, region: [0, 1280, 720, 10, 20, 300, 400], desc: [[[0, 5, 5, 0x010203], [0, 6, 6, 0x040506]]] },\n};\n",
         encoding="utf-8")
     (c / "funcList" / "F001.ts").write_text(
         "export class Func001 implements IFuncOrigin {\n id = 1;\n name = '测试';\n desc = 'd';\n"
@@ -86,6 +86,7 @@ def test_convert_assttyys_minimal(tmp_path):
     colors = yaml.safe_load((tmp_path / "out" / "colors.yaml").read_text(encoding="utf-8"))["resources"]
     assert colors["界面A"]["points"] == [[1, 2, "#112233"], [3, 4, "#ffffff"]]
     assert colors["找色B"]["region"] == [10, 20, 300, 400]
+    assert colors["找色B"]["similarity"] == 98
     f = yaml.safe_load((tmp_path / "out" / "funcs" / "001.yaml").read_text(encoding="utf-8"))
     assert f["operators"][0]["detect"] == "界面A" and f["operators"][0]["oper"][0]["rect"] == [1, 2, 3, 4]
 
@@ -192,5 +193,5 @@ def test_realm_raid_no_barrier_prompt_on_real_frame():
     b = [x for x in wf.blockers if x["id"] == "no_guild"][0]
     img = cv2.imread(str(Path(__file__).parent / "data" / "frames" / "realm_raid_no_guild_barrier.jpg"))
     assert compare_colors(img, b["when"]["colors"], 93)
-    other = cv2.imread(str(Path(__file__).parent / "data" / "frames" / "explore_map_mainline.jpg"))
+    other = cv2.imread(str(Path(__file__).parent / "data" / "frames" / "explore_map_mainline.png"))
     assert not compare_colors(other, b["when"]["colors"], 93)

@@ -57,3 +57,8 @@ class ReplayDevice(Device):
 
     def start_app(self, package):
         self.inputs.append(("start_app", package))
+
+    def restart_app(self, package):
+        self.inputs.append(("restart_app", package))
+        if self.advance_on_input:
+            self._advance()

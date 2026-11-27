@@ -1,0 +1,86 @@
+{
+  "license": "MIT License\n\nCopyright (c) 2019 Chaos\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n",
+  "source": "import { IFuncOrigin, IFuncOperatorOrigin, IFuncOperator } from '@/interface/IFunc';\nimport { Script } from '@/system/script';\n// const normal = -1; //定义常量\nconst left = 0;\nconst center = 1;\nconst right = 2;\n\nexport class Func034 implements IFuncOrigin {\n\tid = 34;\n\tname = '秘闻_挑战';\n\tdesc = '每周竞速或百战挑战';\n\tconfig = [{\n\t\tdesc: '竞速分组一',\n\t\tconfig: [{\n\t\t\tname: 'weekMode_A',\n\t\t\tdesc: '竞速模式',\n\t\t\ttype: 'lists',\n\t\t\tdata: ['红叶', '雨女', '镰鼬', '妖刀', '河童', '荒川', '姑获鸟', '山兔', '小鹿男', '青行灯'],\n\t\t\tdefault: [],\n\t\t}, {\n\t\t\tname: 'preset_pair_A',\n\t\t\tdesc: '预设分组',\n\t\t\ttype: 'text',\n\t\t\tdefault: '0,0',\n\t\t}]\n\t}, {\n\t\tdesc: '竞速分组二',\n\t\tconfig: [{\n\t\t\tname: 'weekMode_B',\n\t\t\tdesc: '竞速模式',\n\t\t\ttype: 'lists',\n\t\t\tdata: ['红叶', '雨女', '镰鼬', '妖刀', '河童', '荒川', '姑获鸟', '山兔', '小鹿男', '青行灯'],\n\t\t\tdefault: [],\n\t\t}, {\n\t\t\tname: 'preset_pair_B',\n\t\t\tdesc: '预设分组',\n\t\t\ttype: 'text',\n\t\t\tdefault: '0,0',\n\t\t}]\n\t}, {\n\t\tdesc: '竞速分组三',\n\t\tconfig: [{\n\t\t\tname: 'weekMode_C',\n\t\t\tdesc: '竞速模式',\n\t\t\ttype: 'lists',\n\t\t\tdata: ['红叶', '雨女', '镰鼬', '妖刀', '河童', '荒川', '姑获鸟', '山兔', '小鹿男', '青行灯'],\n\t\t\tdefault: [],\n\t\t}, {\n\t\t\tname: 'preset_pair_C',\n\t\t\tdesc: '预设分组',\n\t\t\ttype: 'text',\n\t\t\tdefault: '0,0',\n\t\t}]\n\t}, {\n\t\tdesc: '竞速分组四',\n\t\tconfig: [{\n\t\t\tname: 'weekMode_D',\n\t\t\tdesc: '竞速模式',\n\t\t\ttype: 'lists',\n\t\t\tdata: ['红叶', '雨女', '镰鼬', '妖刀', '河童', '荒川', '姑获鸟', '山兔', '小鹿男', '青行灯'],\n\t\t\tdefault: [],\n\t\t}, {\n\t\t\tname: 'preset_pair_D',\n\t\t\tdesc: '预设分组',\n\t\t\ttype: 'text',\n\t\t\tdefault: '0,0',\n\t\t}]\n\t}];\n\toperator: IFuncOperatorOrigin[] = [{ // 0 镰鼬百战\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[right, 1194, 606, 0xe3d7c0],\n\t\t\t\t[right, 1130, 606, 0xd9d0b8],\n\t\t\t\t[right, 1168, 583, 0x0c0e0f],\n\t\t\t\t[left, 88, 150, 0x4f2822],\n\t\t\t\t[right, 1225, 468, 0xe5d4b3]\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[right, 1280, 720, 1120, 555, 1206, 646, 1000]\n\t\t]\n\t}, { // 1 妖刀姬竞速\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[left, 78, 575, 0x3d4d6e],\n\t\t\t\t[left, 41, 52, 0xc2cbde],\n\t\t\t\t[left, 250, 47, 0x583716],\n\t\t\t\t[right, 1162, 640, 0xe2dac1],\n\t\t\t\t[right, 1038, 586, 0xcaaa7c]\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[right, 1280, 720, 1120, 555, 1206, 646, 1000]\n\t\t]\n\t}, { // 2 小路男竞速\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[center, 829, 249, 0xd7beae],\n\t\t\t\t[right, 1055, 187, 0x13192d],\n\t\t\t\t[right, 1092, 273, 0x20223c],\n\t\t\t\t[center, 867, 587, 0x383035],\n\t\t\t\t[left, 111, 463, 0x31425d]\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[right, 1280, 720, 1120, 555, 1206, 646, 1000]\n\t\t]\n\t}, { // 3 青行灯竞速\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[right, 1050, 152, 0x0c0d15],\n\t\t\t\t[center, 912, 206, 0x414241],\n\t\t\t\t[center, 901, 186, 0x916a34],\n\t\t\t\t[center, 864, 217, 0xffffff],\n\t\t\t\t[center, 758, 284, 0x323a52],\n\t\t\t\t[center, 925, 442, 0x5799a0]\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[right, 1280, 720, 1120, 555, 1206, 646, 1000]\n\t\t]\n\t}, { // 4 探索地图进入秘闻\n\t\tdesc: '探索地图界面',\n\t\toper: [\n\t\t\t[center, 1280, 720, 544, 636, 602, 701, 1000],\n\t\t]\n\t}, { // 5 每周挑战秘闻弹窗，暗\n\t\tdesc: [\n\t\t\t1280, 720,\n\t\t\t[\n\t\t\t\t[left, 110, 42, 0x44423d],\n\t\t\t\t[left, 211, 38, 0x44423e],\n\t\t\t\t[left, 31, 634, 0x211719],\n\t\t\t\t[right, 1255, 706, 0x2b2326],\n\t\t\t\t[right, 1264, 364, 0x110b0b],\n\t\t\t\t[center, 886, 24, 0x4b290d]\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 1020, 112, 1230, 371, 1000]\n\t\t]\n\t}, { // 6 每周挑战秘闻选择并进入\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[left, 50, 598, 0x2c2e3c],\n\t\t\t\t[left, 26, 149, 0x101014],\n\t\t\t\t[center, 465, 641, 0x857d6c],\n\t\t\t\t[right, 1258, 576, 0x3c2830],\n\t\t\t\t[left, 45, 47, 0xf6e6a7],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 134, 150, 450, 246, 500],\n\t\t\t[center, 1280, 720, 1142, 598, 1239, 688, 500],\n\t\t]\n\t}, { // 7 秘闻挑战开启提示\n\t\tdesc: '秘闻挑战开启',\n\t\toper: [\n\t\t\t[left, 1280, 720, 452, 605, 870, 683, 2000],\n\t\t]\n\t}, { // 8 红叶\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[right, 804, 361, 0xf9f7f6],\n\t\t\t\t[right, 797, 436, 0xedeae8],\n\t\t\t\t[right, 980, 431, 0xf4f2f0],\n\t\t\t\t[right, 903, 157, 0x817e8c],\n\t\t\t\t[right, 875, 379, 0x9f240f],\n\t\t\t]\n\t\t],\n\t},];\n\toperatorFunc(thisScript: Script, thisOperator: IFuncOperator[]): boolean {\n\t\tconst thisconf = thisScript.scheme.config['34'];\n\t\tif (!thisScript.global.miWenChange) {\n\t\t\tlet i = 8;\n\t\t\tfor (; i < 9; i++) {\n\t\t\t\tif (thisScript.oper({\n\t\t\t\t\tid: 34,\n\t\t\t\t\tname: '秘闻_识别竞速',\n\t\t\t\t\toperator: [thisOperator[i]]\n\t\t\t\t})) {\n\t\t\t\t\tbreak;\n\t\t\t\t}\n\t\t\t}\n\t\t\tconst weekMode = ['红叶', '雨女', '镰鼬', '妖刀', '河童', '荒川', '姑获鸟', '山兔', '小鹿男', '青行灯'];\n\t\t\tif (i != 9) {\n\t\t\t\tlog(thisconf.weekMode_A)\n\t\t\t\tif ((thisconf.weekMode_A as string[]).includes(weekMode[i - 8])) {\n\t\t\t\t\tchange(thisconf.preset_pair_A as string);\n\t\t\t\t} else if ((thisconf.weekMode_B as string[]).includes(weekMode[i - 8])) {\n\t\t\t\t\tchange(thisconf.preset_pair_B as string);\n\t\t\t\t} else if ((thisconf.weekMode_C as string[]).includes(weekMode[i - 8])) {\n\t\t\t\t\tchange(thisconf.preset_pair_C as string);\n\t\t\t\t} else if ((thisconf.weekMode_D as string[]).includes(weekMode[i - 8])) {\n\t\t\t\t\tchange(thisconf.preset_pair_D as string);\n\t\t\t\t}\n\t\t\t\treturn true;\n\t\t\t}\n\t\t}\n\t\tif (thisScript.oper({\n\t\t\tname: '秘闻_杂项',\n\t\t\toperator: thisOperator.slice(0, 8)\n\t\t})) {\n\t\t\treturn true;\n\t\t}\n\t\treturn false;\n\t\tfunction change(presetStr) {\n\t\t\t// 读取参数位置\n\t\t\tconst [p, q] = presetStr.split(/[,，]/);\n\t\t\tthisScript.global.miWenChange = true;\n\t\t\tthisScript.global.preset_once_groupNum = parseInt(p?.trim(), 10);\n\t\t\tthisScript.global.preset_once_defaultNum = parseInt(q?.trim(), 10);\n\t\t\tthisScript.global.preset_once_team_groupNum = parseInt(p?.trim(), 10);\n\t\t\tthisScript.global.preset_once_team_defaultNum = parseInt(q?.trim(), 10);\n\t\t\tif (thisScript.global.preset_once_groupNum > 0) {\n\t\t\t\tthisScript.global.shangyushe = true;\n\t\t\t\tthisScript.global.change_shikigami_state = 'flushed';\n\t\t\t\tthisScript.global.change_shikigami_flag = true;\n\t\t\t\tlog(thisScript.global.preset_once_groupNum)\n\t\t\t} else {\n\t\t\t\tthisScript.global.shangyushe = false;\n\t\t\t\tthisScript.global.change_shikigami_state = 'finish';\n\t\t\t}\n\t\t}\n\t}\n}",
+  "resources": {
+    "探索地图界面": {
+      "type": "colors",
+      "points": [
+        [
+          36,
+          36,
+          "#f7e3a5"
+        ],
+        [
+          117,
+          26,
+          "#f7efb5"
+        ],
+        [
+          1164,
+          25,
+          "#d6b289"
+        ],
+        [
+          1223,
+          23,
+          "#d6ad86"
+        ],
+        [
+          508,
+          35,
+          "#731c10"
+        ]
+      ]
+    },
+    "秘闻挑战开启": {
+      "type": "colors",
+      "points": [
+        [
+          379,
+          112,
+          "#f2edca"
+        ],
+        [
+          372,
+          131,
+          "#e4cd9c"
+        ],
+        [
+          371,
+          183,
+          "#c9a763"
+        ],
+        [
+          531,
+          130,
+          "#e3caa1"
+        ],
+        [
+          526,
+          180,
+          "#d3a863"
+        ],
+        [
+          803,
+          150,
+          "#dbba80"
+        ],
+        [
+          658,
+          156,
+          "#dcba77"
+        ],
+        [
+          894,
+          186,
+          "#cda863"
+        ],
+        [
+          797,
+          177,
+          "#d3a965"
+        ]
+      ]
+    }
+  }
+}

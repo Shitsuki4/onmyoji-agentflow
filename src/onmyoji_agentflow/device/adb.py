@@ -22,6 +22,7 @@ from ..log import logger
 from .base import Device
 
 ONMYOJI_PACKAGE = "com.netease.onmyoji"
+ONMYOJI_PACKAGE_PATTERN = r"com\.netease\.onmyoji(?:\.[A-Za-z_]\w*)*"
 
 
 def find_adb(explicit: str | None = None, mumu_root: str | None = None) -> str:
@@ -126,11 +127,42 @@ class AdbDevice(Device):
         package = resolve_package(self.shell("pm", "list", "packages", package), package)
         self._run(["shell", "monkey", "-p", package, "-c", "android.intent.category.LAUNCHER", "1"])
 
+    def restart_app(self, package: str) -> None:
+        if not re.fullmatch(ONMYOJI_PACKAGE_PATTERN, package, flags=re.ASCII):
+            raise DeviceError("重启只允许阴阳师 Android 包名")
+        focus = self.current_app()
+        foreground = self._foreground_game(focus, package)
+        if foreground is None:
+            raise DeviceError("阴阳师安装包与当前前台窗口不符，未执行重启")
+        package = foreground
+        installed = {line.strip() for line in self.shell("pm", "list", "packages", package).splitlines()}
+        if "package:" + package not in installed:
+            raise DeviceError("当前阴阳师包未出现在安装列表，未执行重启")
+        if self.current_app() != focus:
+            raise DeviceError("核对安装包期间前台窗口已变化，未执行重启")
+        self._run(["shell", "am", "force-stop", package])
+        output = self._run(["shell", "monkey", "-p", package, "-c", "android.intent.category.LAUNCHER",
+                            "--pct-syskeys", "0", "1"])
+        if "Events injected: 1" not in output:
+            raise DeviceError("游戏已停止，ADB 未确认重新启动")
+
+    def app_in_foreground(self, package: str) -> bool:
+        return self._foreground_game(self.current_app(), package) is not None
+
+    @staticmethod
+    def _foreground_game(focus: str, package: str) -> str | None:
+        match = re.search(r"(?<![\w.])(" + ONMYOJI_PACKAGE_PATTERN + r")/", focus, flags=re.ASCII)
+        if match and (package == ONMYOJI_PACKAGE or package == match[1]):
+            return match[1]
+        return None
+
     def current_app(self) -> str:
-        out = self.shell("dumpsys", "window", "windows")
-        for line in out.splitlines():
-            if "mCurrentFocus" in line or "mFocusedApp" in line:
-                return line.strip()
+        # MuMu's Android window subcommand omits display focus records.
+        lines = self.shell("dumpsys", "window").splitlines()
+        for key in ("mCurrentFocus", "mFocusedApp"):
+            for line in lines:
+                if key in line:
+                    return line.strip()
         return ""
 
 

@@ -200,11 +200,12 @@ TOOLS = [
      "description": ("收录 OAS/ assttyys 全部任务与组件。list 查看队列，source 分页读取完整源码，compile 后台续传转换，"
                      "propose 提交外部 agent 的完整 format:1 转换结果；只创建待审候选，不批准、不运行。"),
      "inputSchema": _schema({
-         "action": {"type": "string", "enum": ["list", "source", "compile", "propose"], "default": "list"},
+         "action": {"type": "string", "enum": ["list", "source", "audit", "compile", "propose"], "default": "list"},
          "id": {"type": "integer", "minimum": 1}, "source": {"type": "string", "enum": ["oas", "assttyys"]},
          "status": {"type": "string"}, "path": {"type": "string"},
          "offset": {"type": "integer", "minimum": 0}, "chars": {"type": "integer", "minimum": 1, "maximum": 40000},
          "limit": {"type": "integer", "minimum": 0}, "retry": {"type": "boolean"},
+         "include_components": {"type": "boolean", "description": "转换所有功能组件，不只任务入口"},
          "proposal": {"type": "object", "description": "{complete:true,unsupported:[],workflow:{...},notes:...}"}}),
      "annotations": {"idempotentHint": False}},
     {"name": "agent_handoffs", "title": "查看与处理故障接管",
@@ -630,6 +631,16 @@ class AgentTools:
                             "next_offset": end if end < len(rows) else None, "job": self.program_job})
         if action == "source":
             return _result(programs.source(args["id"], args.get("path"), args.get("offset", 0), args.get("chars", 12000)))
+        if action == "audit":
+            report = programs.audit(args.get("source"))
+            offset, limit = args.get("offset", 0), args.get("limit", 30)
+            if type(offset) is not int or offset < 0 or type(limit) is not int or not 1 <= limit <= 100:
+                raise ToolError("audit 使用非负 offset 和 1–100 的 limit")
+            rows = [{key: row[key] for key in ("job_id", "entry_id", "kind", "variant", "status",
+                    "coverage", "source_snapshot_complete", "gaps")} for row in report["entries"]]
+            end = min(len(rows), offset + limit)
+            return _result({"summary": report["summary"], "entries": rows[offset:end],
+                            "complete": end >= len(rows), "next_offset": end if end < len(rows) else None})
         if action == "propose":
             return _result(programs.propose(args["id"], args["proposal"]))
         if action != "compile":
@@ -640,7 +651,8 @@ class AgentTools:
             job = self.program_job = {"status": "running", "started": time.time()}
         def work():
             try:
-                job.update(result=programs.compile(args.get("id"), args.get("limit"), args.get("retry", False)), status="finished")
+                job.update(result=programs.compile(args.get("id"), args.get("limit"), args.get("retry", False),
+                    include_components=args.get("include_components", False), source=args.get("source")), status="finished")
             except Exception as error:
                 job.update(status="error", error=str(error))
             finally:

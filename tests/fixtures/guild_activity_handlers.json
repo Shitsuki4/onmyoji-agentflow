@@ -1,0 +1,47 @@
+{
+  "source_601": "import { IFuncOrigin, IFuncOperatorOrigin, IFuncOperator } from '@/interface/IFunc';\nimport { Script } from '@/system/script';\n\n// const normal = -1; //定义常量\nconst left = 0;\nconst center = 1;\nconst right = 2;\n\nexport class Func601 implements IFuncOrigin {\n\tid = 601;\n\tname = '狩猎战';\n\toperator: IFuncOperatorOrigin[] = [{ // 0 麒麟界面_未挑战\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[left, 112, 594, 0x664b30],\n\t\t\t\t[left, 139, 590, 0x5b452c],\n\t\t\t\t[left, 175, 603, 0x966f47],\n\t\t\t\t[right, 1178, 593, 0xe5dac3],\n\t\t\t\t[right, 1178, 657, 0xe0d5be],\n\t\t\t\t[right, 1187, 626, 0x482d20],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 1139, 584, 1228, 666, 1000],\n\t\t]\n\t}, { // 1 狩猎战_已挑战\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[left, 112, 594, 0x664b30],\n\t\t\t\t[left, 139, 590, 0x5b452c],\n\t\t\t\t[left, 175, 603, 0x966f47],\n\t\t\t\t[right, 1178, 587, 0xdadada],\n\t\t\t\t[right, 1175, 662, 0xd5d5d5],\n\t\t\t\t[right, 1148, 627, 0xd3d3d3],\n\t\t\t\t[right, 1193, 610, 0xd7d7d7],\n\t\t\t\t[right, 1147, 675, 0x292929],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 18, 19, 64, 56, 1000],\n\t\t]\n\t}];\n\toperatorFunc(thisScript: Script, thisOperator: IFuncOperator[]): boolean {\n\t\tif (thisScript.oper({\n\t\t\tname: '麒麟界面_未挑战',\n\t\t\toperator: [thisOperator[0]]\n\t\t})) {\n\t\t\treturn true;\n\t\t}\n\t\tif (thisScript.oper({\n\t\t\tname: '狩猎战_已挑战',\n\t\t\toperator: [thisOperator[1]]\n\t\t})) {\n\t\t\tthisScript.rerun('返回庭院');\n\t\t\treturn true;\n\t\t}\n\t\treturn false;\n\t}\n}",
+  "source_604": "import {\n\tIFuncOrigin,\n\tIFuncOperatorOrigin,\n\tIFuncOperator,\n} from '@/interface/IFunc';\nimport { Script } from '@/system/script';\n\n// const normal = -1; //定义常量\nconst left = 0;\nconst center = 1;\nconst right = 2;\n\nexport class Func604 implements IFuncOrigin {\n\tid = 604;\n\tname = '首领退治';\n\toperator: IFuncOperatorOrigin[] = [{ // 0 检测_是否为首领退治集结页\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[left, 108, 26, 0xd7c5a2],\n\t\t\t\t[left, 47, 28, 0xd7c5a2],\n\t\t\t\t[right, 1039, 648, 0xd3c3bd],\n\t\t\t\t[center, 872, 606, 0x493a38],\n\t\t\t\t[center, 727, 611, 0xdfc7ac],\n\t\t\t\t[right, 1172, 568, 0xd6bda3],\n\t\t\t\t[right, 1217, 662, 0xebc47b],\n\t\t\t],\n\t\t],\n\t\toper: [\n\t\t\t[right, 1280, 720, 1157, 577, 1232, 646, 1200], // 点击挑战\n\t\t],\n\t}, { // 1 寮信息界面返回\n\t\tdesc: '寮信息界面',\n\t\toper: [\n\t\t\t[left, 1280, 720, 25, 10, 75, 54, 1000],     //  寮活动 返回区域\n\t\t]\n\t},];\n\toperatorFunc(thisScript: Script, thisOperator: IFuncOperator[]): boolean {\n\t\tif (thisScript.oper({\n\t\t\tname: '检测_首领退治',\n\t\t\toperator: [thisOperator[0]]\n\t\t})) {\n\t\t\treturn true;\n\t\t}\n\t\tif (thisScript.oper({\n\t\t\tname: '检测_阴阳寮页',\n\t\t\toperator: [thisOperator[1]]\n\t\t})) {\n\t\t\tconst next_scheme = '返回庭院';\n\t\t\tthisScript.rerun(next_scheme);\n\t\t\tsleep(1000);\n\t\t\treturn true;\n\t\t}\n\t\treturn false;\n\t}\n}\n",
+  "source_606": "import { IFuncOrigin, IFuncOperatorOrigin, IFuncOperator } from '@/interface/IFunc';\nimport { Script } from '@/system/script';\n\n// const normal = -1; //定义常量\nconst left = 0;\nconst center = 1;\nconst right = 2;\n\nexport class Func606 implements IFuncOrigin {\n\tid = 606;\n\tname = '阴门之门';\n\toperator: IFuncOperatorOrigin[] = [{\t// 0 检测_是否为首领退治集结页\n\t\tdesc:\n\t\t\t[\n\t\t\t\t1280, 720,\n\t\t\t\t[\n\t\t\t\t\t[right, 1106, 632, 0x180a28],\n\t\t\t\t\t[right, 1126, 625, 0x180a28],\n\t\t\t\t\t[right, 1161, 618, 0x84a5bd],\n\t\t\t\t\t[right, 1262, 650, 0x698bad],\n\t\t\t\t\t[left, 67, 38, 0xb1824d],\n\t\t\t\t\t[center, 713, 25, 0xe3d698],\n\t\t\t\t]\n\t\t\t],\n\t\toper: [\n\t\t\t[right, 1280, 720, 1058, 601, 1268, 687, 1200],  // 点击挑战\n\t\t]\n\t}, { //  1 检测_阴门挑战弹窗界面\n\t\tdesc:\n\t\t\t[\n\t\t\t\t1280, 720,\n\t\t\t\t[\n\t\t\t\t\t[left, 125, 56, 0x493624],\n\t\t\t\t\t[right, 1124, 56, 0x493624],\n\t\t\t\t\t[right, 1208, 76, 0x632942],\n\t\t\t\t\t[right, 1194, 397, 0x180a28],\n\t\t\t\t\t[right, 1137, 634, 0xc1b7ac],\n\t\t\t\t\t[center, 330, 615, 0xf4b25f],\n\t\t\t\t\t[center, 454, 630, 0xf4b25f],\n\t\t\t\t\t[left, 130, 646, 0x9a8f83],\n\t\t\t\t]\n\t\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 342, 596, 443, 638, 1200] //  点击挑战\n\t\t]\n\t}, { //  2 检测_是否为36轮挑战弹窗\n\t\tdesc:\n\t\t\t[\n\t\t\t\t1280, 720,\n\t\t\t\t[\n\t\t\t\t\t[center, 866, 245, 0xcbb59e],\n\t\t\t\t\t[center, 414, 244, 0xcbb49a],\n\t\t\t\t\t[center, 411, 474, 0xcbb49a],\n\t\t\t\t\t[center, 865, 469, 0xcbb59e],\n\t\t\t\t\t[center, 461, 420, 0xdf6851],\n\t\t\t\t\t[center, 698, 425, 0xf4b25f],\n\t\t\t\t]\n\t\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 699, 415, 816, 447, 1200]   //  点击确认\n\t\t]\n\t}, { // 3 检测_已完成挑战弹窗\n\t\tdesc:\n\t\t\t[\n\t\t\t\t1280, 720,\n\t\t\t\t[\n\t\t\t\t\t[left, 125, 56, 0x493624],\n\t\t\t\t\t[right, 1124, 56, 0x493624],\n\t\t\t\t\t[right, 1208, 76, 0x632942],\n\t\t\t\t\t[right, 1194, 397, 0x180a28],\n\t\t\t\t\t[right, 1137, 634, 0xc1b7ac],\n\t\t\t\t\t[left, 130, 646, 0x9a8f83],\n\t\t\t\t\t[center, 342, 621, 0xc7bdb2],\n\t\t\t\t\t[center, 432, 617, 0xc7bdb2],\n\t\t\t\t]\n\t\t\t],\n\t\toper: [\n\t\t\t[right, 1280, 720, 1168, 62, 1198, 88, 1200]  //  点击_关闭按钮\n\t\t]\n\t}, { // 4 阴界之门_寮神社未下滑位置\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[left, 191, 450, 0xc2ae92],\n\t\t\t\t[left, 222, 501, 0xcc93e4],\n\t\t\t\t[left, 245, 510, 0xe0c5e6],\n\t\t\t\t[left, 282, 514, 0xdfc5e6],\n\t\t\t\t[left, 260, 545, 0xe78ac6],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 176, 441, 351, 553, 1000],\n\t\t]\n\t}, { // 5 阴界之门_寮神社已下滑位置\n\t\tdesc: [1280, 720,\n\t\t\t[\n\t\t\t\t[left, 220, 307, 0xcd94e5],\n\t\t\t\t[left, 245, 315, 0xe0c5e6],\n\t\t\t\t[left, 281, 321, 0xdfc4e5],\n\t\t\t\t[left, 238, 355, 0x99599b],\n\t\t\t\t[left, 272, 334, 0xedd4ef],\n\t\t\t]\n\t\t],\n\t\toper: [\n\t\t\t[center, 1280, 720, 187, 244, 330, 358, 1000],\n\t\t]\n\t}];\n\toperatorFunc(thisScript: Script, thisOperator: IFuncOperator[]): boolean {\n\t\tif (thisScript.oper({\n\t\t\tname: '检测_阴门挑战弹窗界面',\n\t\t\toperator: [thisOperator[0], thisOperator[1], thisOperator[4], thisOperator[5]]\n\t\t})) {\n\t\t\treturn true;\n\t\t}\n\n\t\tif (thisScript.oper({\n\t\t\tname: '检测_是否为36轮挑战弹窗',\n\t\t\toperator: [thisOperator[2]]\n\t\t})) {\n\t\t\treturn true;\n\t\t}\n\n\t\tif (thisScript.oper({\n\t\t\tname: '检测_已完成挑战弹窗',\n\t\t\toperator: [thisOperator[3]]\n\t\t})) {\n\t\t\tthisScript.rerun('返回庭院');\n\t\t\treturn true;\n\t\t}\n\t\treturn false;\n\t}\n}",
+  "colors": {
+    "寮信息界面": {
+      "type": "colors",
+      "points": [
+        [
+          733,
+          38,
+          "#593716"
+        ],
+        [
+          1212,
+          171,
+          "#cc7c49"
+        ],
+        [
+          1218,
+          279,
+          "#81533d"
+        ],
+        [
+          1213,
+          415,
+          "#744a36"
+        ],
+        [
+          1216,
+          536,
+          "#764b37"
+        ],
+        [
+          979,
+          663,
+          "#29140e"
+        ],
+        [
+          1090,
+          663,
+          "#bbb190"
+        ]
+      ]
+    }
+  }
+}

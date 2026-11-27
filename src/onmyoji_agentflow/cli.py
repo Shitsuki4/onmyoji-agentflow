@@ -519,9 +519,17 @@ def cmd_programs(args):
     app = _app(args)
     if args.action == "list":
         result = app.programs.list(args.source, args.status)
+    elif args.action == "audit":
+        result = app.programs.audit(args.source)
+        if args.output:
+            path = Path(args.output).resolve()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+            result = {**result["summary"], "report": str(path)}
     elif args.action == "compile":
         limit = args.limit if args.limit is not None else app.cfg["upstream"]["translate"].get("max_per_sync")
-        result = app.programs.compile(args.id, limit, args.retry)
+        result = app.programs.compile(args.id, limit, args.retry,
+                                      include_components=args.include_components, source=args.source)
     else:
         if args.id is None:
             raise ValueError("需要 --id 指定脚本转换任务")
@@ -569,7 +577,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.set_defaults(func=cmd_devices)
     sub.add_parser("list", help="列出工作流").set_defaults(func=cmd_list)
     s = sub.add_parser("programs", help="上游脚本目录、完整源码、可续传转换与提案（不会自动批准）")
-    s.add_argument("action", choices=["list", "source", "compile", "propose"], nargs="?", default="list")
+    s.add_argument("action", choices=["list", "source", "audit", "compile", "propose"], nargs="?", default="list")
     s.add_argument("--id", type=int, help="programs list 中的脚本转换任务编号")
     s.add_argument("--source", choices=["oas", "assttyys"])
     s.add_argument("--status")
@@ -578,6 +586,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--chars", type=int, default=12000)
     s.add_argument("--limit", type=int, help="本批最多转换数，不填按配置（null 表示不限）")
     s.add_argument("--retry", action="store_true", help="显式重试失败、过大或不完整的转换")
+    s.add_argument("--include-components", action="store_true", help="全量转换时也处理所有功能组件")
+    s.add_argument("--output", help="audit 的完整 JSON 报告路径；标准输出只显示统计")
     s.add_argument("--proposal", help="agent 完整转换结果 JSON 文件；只产生待审提案")
     s.add_argument("--replace-pending", action="store_true", help="修订未批准的候选；旧草稿作废，新草稿重新等待审批")
     s.set_defaults(func=cmd_programs)

@@ -4,7 +4,7 @@
 format: 1
 name: exploration
 title: 探索（个人）
-desc: 在探索地图里优先打首领，其次打小怪（无差别），没怪时划动地图，划满次数后退出重进。由 assttyys 方案「个人探索」的 014 翻译；「打经验」「打掉落」模式没有做。
+desc: 探索时优先挑战首领，小怪可按经验或掉落筛选。找不到目标时滑动地图，达到上限后退出重进。
 resources: [assttyys/colors.yaml]
 inline_resources:
   chapter_xy:
@@ -34,7 +34,29 @@ params:
     default: 4
     min: 1
     max: 30
-    desc: 没怪时最多划几次再退出（assttyys 默认 4）
+    desc: 没怪时最多滑动次数
+  challenge_type:
+    default: 无差别
+    choices: [无差别, 打经验, 打掉落]
+    desc: 小怪挑战类型
+  swipe_speed:
+    default: 慢
+    choices: [快, 中, 慢]
+    desc: 探索地图滑动速度
+  chapter_selection:
+    default: 最新
+    choices: [最新, 坐标]
+    desc: 章节选择方式
+  chapter_x:
+    default: 1156
+    min: 10
+    max: 1269
+    desc: 指定章节的横坐标
+  chapter_y:
+    default: 501
+    min: 10
+    max: 709
+    desc: 指定章节的纵坐标
 vars:
   rounds: 0
   boss: 0
@@ -43,6 +65,8 @@ vars:
   pending: 0
   started: 0
   tab_clicks: 0
+  label_retries: 0
+  exit_requested: 0
 limits:
   timeout_s: 14400
   unknown_timeout_s: 60
@@ -196,7 +220,6 @@ states:
     res: 退出结算_单人_失败太鼓
   do:
   - set:
-      rounds: rounds + boss
       boss: 0
       losses: losses + 1
     first: true
@@ -255,31 +278,55 @@ states:
     first: true
   - wait: 1000
   max_repeat: 3600
+- id: confirm_leave_map
+  desc: 确认退出探索地图
+  from: 'assttyys 014 #0 oper[4]，实机退出弹窗'
+  when:
+    all:
+    - expr: exit_requested == 1
+    - all:
+      - colors: [[400, 300, '#cbb59c'], [850, 315, '#cbb59c'], [450, 416, '#f3b25e'], [821, 416, '#f3b25e']]
+      - text: 确认退出探索
+        region: [475, 285, 320, 70]
+  do:
+  - click: [702, 388, 846, 421]
+    delay: 1000
+    recheck: true
+  - set: &id013
+      swipes: 0
+      label_retries: 0
+      exit_requested: 0
+  max_repeat: 3
+- id: wait_leave_map
+  desc: 已点返回，等待退出探索弹窗
+  when:
+    all:
+    - expr: exit_requested == 1
+    - &id002
+      colors: [[29, 672, '#615a77'], [54, 60, '#dec38c'], [124, 26, '#f7eeb5'], [1163, 22, '#d7b288'], [1223, 21, '#d4ae84']]
+  do:
+  - wait: 350
+  max_repeat: 5
 - id: rounds_done_leave
   desc: 轮数已打满，还在章节地图里：点左上角返回并确认退出
   from: 'assttyys 014 #0 oper[3]/[4]'
   when:
     all:
-    - &id002
-      colors: [[29, 672, '#615a77'], [54, 60, '#dec38c'], [124, 26, '#f7eeb5'], [1163, 22, '#d7b288'], [1223, 21, '#d4ae84']]
+    - *id002
     - expr: rounds >= max_rounds
-  do:
-  - &id004
-    click: [32, 20, 69, 51]
-    delay: 1000
-  - &id005
-    click: [702, 388, 846, 421]
+  do: &id010
+  - click: [32, 20, 69, 51]
     delay: 1000
   - set:
-      swipes: 0
+      exit_requested: 1
   max_repeat: 4
 - id: rounds_done
   desc: 轮数已打满，已回到章节界面或探索大地图，结束
   when:
     all:
     - any:
-      - colors: &id006 [[995, 580, '#5e3e2f'], [1081, 581, '#583826'], [1041, 601, '#e1d5c0'], [1047, 659, '#e6dac5'], [1003, 676, '#3b2118'], [1076, 672, '#351f18']]
-      - colors: &id007 [[898, 583, '#523428'], [942, 589, '#e4dac3'], [978, 625, '#e1d6c0'], [1133, 659, '#e2d7c1'], [1132, 596, '#e7dbc4']]
+      - colors: &id011 [[995, 580, '#5e3e2f'], [1081, 581, '#583826'], [1041, 601, '#e1d5c0'], [1047, 659, '#e6dac5'], [1003, 676, '#3b2118'], [1076, 672, '#351f18']]
+      - colors: &id012 [[898, 583, '#523428'], [942, 589, '#e4dac3'], [978, 625, '#e1d6c0'], [1133, 659, '#e2d7c1'], [1132, 596, '#e7dbc4']]
       - res: 探索地图界面
     - expr: rounds >= max_rounds
   do:
@@ -291,14 +338,15 @@ states:
   desc: 首领出现，点首领
   from: 'assttyys 014 #2'
   when:
-    colors: [[512, 344, '#ffffde'], [558, 338, '#fffff9'], [619, 340, '#fffff0'], [675, 344, '#fffff4'], [750, 348, '#ffffe0']]
+    colors: &id003 [[512, 344, '#ffffde'], [558, 338, '#fffff9'], [619, 340, '#fffff0'], [675, 344, '#fffff4'], [750, 348, '#ffffe0']]
   do:
   - wait: 1000
   - click: [613, 248, 668, 297]
     delay: 1000
   - set:
       boss: 1
-      swipes: 0
+      swipes: max_swipes
+      label_retries: 0
   max_repeat: 4
   progress: true
 - id: challenge_boss
@@ -307,14 +355,18 @@ states:
   when:
     all:
     - *id002
-    - find: 探索_挑战BOSS
+    - &id004
+      find: 探索_挑战BOSS
   do:
-  - click_found: true
-    offset: &id003 [0, 0, 42, 51]
+  - &id005
+    click_found: true
+    offset: [0, 0, 42, 51]
     delay: 1000
   - set:
       boss: 1
-      swipes: 0
+      swipes: max_swipes
+      label_retries: 0
+  retest_ms: 500
   max_repeat: 4
   progress: true
 - id: challenge
@@ -322,47 +374,158 @@ states:
   from: assttyys 014 探索_挑战
   when:
     all:
+    - expr: challenge_type == '无差别'
     - *id002
+    - not:
+        colors: *id003
+    - not: *id004
     - find: 探索_挑战
   do:
-  - click_found: true
-    offset: *id003
-    delay: 1000
+  - *id005
   - set:
-      swipes: 0
+      label_retries: 0
+  retest_ms: 500
   max_repeat: 4
   progress: true
+- id: challenge_打经验
+  desc: 挑战离经验标识最近的小怪
+  from: assttyys 014 探索_经验标识
+  when:
+    all:
+    - &id006
+      expr: challenge_type == '打经验'
+    - *id002
+    - not:
+        colors: *id003
+    - not: *id004
+    - find_near:
+        target: 探索_挑战
+        reference: 探索_经验标识
+        max_below: 16
+        max_distance: 339.35999999999996
+  do:
+  - *id005
+  - set:
+      label_retries: 0
+  retest_ms: 500
+  max_repeat: 4
+  progress: true
+- id: wait_label_打经验
+  desc: 等待经验标识出现
+  from: assttyys 014 探索_经验标识 keepScreen
+  when:
+    all:
+    - *id006
+    - *id002
+    - expr: label_retries < 4
+    - not:
+        find: 探索_经验标识
+  do:
+  - wait: 400
+  - inc: label_retries
+  max_repeat: 4
+- id: challenge_打掉落
+  desc: 挑战离掉落标识最近的小怪
+  from: assttyys 014 探索_掉落标识
+  when:
+    all:
+    - &id007
+      expr: challenge_type == '打掉落'
+    - *id002
+    - not:
+        colors: *id003
+    - not: *id004
+    - find_near:
+        target: 探索_挑战
+        reference: 探索_掉落标识
+        max_below: 16
+        max_distance: 339.35999999999996
+  do:
+  - *id005
+  - set:
+      label_retries: 0
+  retest_ms: 500
+  max_repeat: 4
+  progress: true
+- id: wait_label_打掉落
+  desc: 等待掉落标识出现
+  from: assttyys 014 探索_掉落标识 keepScreen
+  when:
+    all:
+    - *id007
+    - *id002
+    - expr: label_retries < 4
+    - not:
+        find: 探索_掉落标识
+  do:
+  - wait: 400
+  - inc: label_retries
+  max_repeat: 4
 - id: swipe_map
-  desc: 当前屏幕没有挑战图标，向左划地图
+  desc: 当前屏幕没有符合条件的挑战图标，向左划地图
   from: assttyys 014 regionBezierSwipe
   when:
     all:
     - *id002
-    - expr: swipes < max_swipes
+    - expr: swipes < max_swipes and swipe_speed == '慢'
   do:
   - swipe:
-      from: [1121, 117, 1224, 209]
-      to: [46, 215, 162, 525]
+      from: &id008 [1121, 117, 1224, 209]
+      to: &id009 [46, 215, 162, 525]
     duration_ms: [800, 1200]
     delay: 200
   - inc: swipes
+  - set:
+      label_retries: 0
+  max_repeat: 40
+- id: swipe_map_fast
+  desc: 当前屏幕没有符合条件的挑战图标，向左划地图
+  from: assttyys 014 regionBezierSwipe
+  when:
+    all:
+    - *id002
+    - expr: swipes < max_swipes and swipe_speed == '快'
+  do:
+  - swipe:
+      from: *id008
+      to: *id009
+    duration_ms: [200, 400]
+    delay: 200
+  - inc: swipes
+  - set:
+      label_retries: 0
+  max_repeat: 40
+- id: swipe_map_medium
+  desc: 当前屏幕没有符合条件的挑战图标，向左划地图
+  from: assttyys 014 regionBezierSwipe
+  when:
+    all:
+    - *id002
+    - expr: swipes < max_swipes and swipe_speed == '中'
+  do:
+  - swipe:
+      from: *id008
+      to: *id009
+    duration_ms: [500, 700]
+    delay: 200
+  - inc: swipes
+  - set:
+      label_retries: 0
   max_repeat: 40
 - id: leave_map
   desc: 划了 max_swipes 次还没怪，点左上角返回并确认退出
   from: 'assttyys 014 #0 oper[3]/[4]'
   when: *id002
-  do:
-  - *id004
-  - *id005
-  - set:
-      swipes: 0
+  do: *id010
   max_repeat: 3
 - id: chest
   desc: 章节界面有宝箱，先领宝箱
-  from: 'assttyys 014 #4 + 探索_宝箱'
+  from: 'assttyys 014 #3/#4 + 探索_宝箱'
   when:
     all:
-    - colors: *id006
+    - any:
+      - colors: *id011
+      - colors: *id012
     - find: 探索_宝箱
   do:
   - click_found: true
@@ -373,19 +536,21 @@ states:
   desc: 章节界面（普通），点探索进入
   from: 'assttyys 014 #4'
   when:
-    colors: *id006
+    colors: *id011
   do:
   - click: [995, 590, 1086, 668]
     delay: 1000
+  - set: *id013
   max_repeat: 5
 - id: enter_hard
   desc: 章节界面（困难），点探索进入
   from: 'assttyys 014 #3'
   when:
-    colors: *id007
+    colors: *id012
   do:
   - click: [1090, 588, 1178, 663]
     delay: 1000
+  - set: *id013
   max_repeat: 5
 - id: misc_5
   desc: 探索界面杂项弹窗
@@ -394,6 +559,8 @@ states:
     colors: [[58, 657, '#ffffff'], [76, 682, '#efaa9c'], [136, 717, '#3c1115'], [27, 668, '#9b9599']]
   do:
   - click: [45, 650, 88, 693]
+    delay: 1000
+  - click: [1153, 64, 1189, 89]
     delay: 1000
   max_repeat: 5
 - id: misc_6
@@ -404,6 +571,22 @@ states:
   do:
   - click: [44, 323, 137, 342]
     delay: 1000
+  max_repeat: 5
+- id: chapter_configured
+  desc: 探索大地图，点击配置中的章节坐标
+  from: 'assttyys 014 #1 xy'
+  when:
+    all:
+    - expr: chapter_selection == '坐标'
+    - res: 探索地图界面
+  do:
+  - click:
+      x_param: chapter_x
+      y_param: chapter_y
+    delay: 1000
+    recheck: true
+  - set:
+      tab_clicks: 0
   max_repeat: 5
 - id: chapter_last
   desc: 探索大地图，点「主线」列表里最下面（最新）的一章
@@ -470,4 +653,22 @@ states:
   - click_found: true
     offset: [-12, -8, 12, 8]
     delay: 2500
+  max_repeat: 3
+- id: nav_courtyard_sakura
+  desc: 在樱花庭院，点「探索」灯笼进探索大地图
+  from: assttyys 029，新版实机庭院
+  when:
+    all:
+    - expr: rounds < max_rounds
+    - text: 加成
+      region: [345, 15, 80, 80]
+    - text: 召唤
+      region: [1000, 145, 150, 130]
+    - text: 探索
+      region: [590, 120, 170, 135]
+  do:
+  - click_found: true
+    offset: [-12, -8, 12, 8]
+    delay: 2500
+    recheck: true
   max_repeat: 3

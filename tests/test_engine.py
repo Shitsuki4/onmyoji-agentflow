@@ -137,10 +137,15 @@ def test_loop_detection():
 
 
 def test_observe_mode_never_touches():
+    from test_handler_runner import MillisecondClock
+
     wf = load_workflow(WF_DIR / "orochi.yaml")
     ctl, dev = ctl_for([frame_for(wf, "challenge_0")], observe=True, advance_on_input=False)
-    res = Runner(wf, ctl, clock=FakeClock(), max_seconds=20).run()
+    clock = MillisecondClock()
+    ctl.sleep = clock.sleep
+    res = Runner(wf, ctl, clock=clock, max_seconds=20).run()
     assert res.status == "observed" and dev.inputs == [] and res.recognized_ticks > 5
+    assert 20000 <= clock.ms <= 20250
 
 
 def test_trial_action_limit():
@@ -225,19 +230,20 @@ def test_exploration_swipes_then_leaves():
     ctl, dev = ctl_for([frame_for(wf, "leave_map")] * 20, advance_on_input=False)
     res = Runner(wf, ctl, params={"max_rounds": 1, "max_swipes": 3}, clock=FakeClock(), max_actions=5).run()
     kinds = [i[0] for i in dev.inputs]
-    assert kinds[:3] == ["swipe", "swipe", "swipe"] and kinds[3] == "tap"
+    assert kinds == ["swipe", "swipe", "swipe", "tap"]
 
 
 
 DATA = Path(__file__).parent / "data" / "frames"
 
 
-def test_exploration_picks_last_mainline_chapter_on_real_frame():
+@pytest.mark.parametrize("name", ["explore_map_mainline.jpg", "explore_map_mainline.png"])
+def test_exploration_picks_last_mainline_chapter_on_real_frame(name):
     """MuMu 12 1280x720 screenshot of the new big exploration map, 「主线」 tab open with chapters 26/27/28.
     The newest (lowest) chapter is clicked, not the old fixed 1156,501."""
     import cv2
     wf = load_workflow(WF_DIR / "exploration.yaml")
-    img = cv2.imread(str(DATA / "explore_map_mainline.jpg"))
+    img = cv2.imread(str(DATA / name))
     ctl, dev = ctl_for([img], advance_on_input=False)
     res = Runner(wf, ctl, params={"max_rounds": 1}, clock=FakeClock(), max_actions=1).run()
     assert [s for _, s in res.history][:1] == ["chapter_last"], res.summary()
@@ -245,6 +251,118 @@ def test_exploration_picks_last_mainline_chapter_on_real_frame():
     assert taps, dev.inputs
     x, y = taps[0][1], taps[0][2]
     assert 1095 <= x <= 1150 and 455 <= y <= 490, taps[0]  # 第二十八章 row (chapter title around 1121,471)
+
+
+def _paint_at(img, wf, resource, x, y):
+    group = wf.resources[resource]["groups"][0]
+    paint_points(img, group, x - group[0][0], y - group[0][1])
+
+
+@pytest.mark.parametrize(("mode", "expected"), [
+    ("无差别", (300, 380)), ("打经验", (800, 380)), ("打掉落", (300, 380)),
+])
+def test_exploration_challenge_modes_select_matching_targets(mode, expected):
+    wf = load_workflow(WF_DIR / "exploration.yaml")
+    img = frame_for(wf, "leave_map")
+    _paint_at(img, wf, "探索_挑战", 300, 380)
+    _paint_at(img, wf, "探索_挑战", 800, 380)
+    _paint_at(img, wf, "探索_经验标识", 800, 450)
+    _paint_at(img, wf, "探索_掉落标识", 300, 450)
+    ctl, dev = ctl_for([img])
+    Runner(wf, ctl, params={"challenge_type": mode}, clock=FakeClock(), max_actions=1).run()
+    assert len(dev.inputs) == 1
+    kind, x, y = dev.inputs[0]
+    assert kind == "tap"
+    assert expected[0] <= x <= expected[0] + 42 and expected[1] <= y <= expected[1] + 51
+
+
+@pytest.mark.parametrize(("target_x", "target_y", "allowed"), [
+    (600, 436, True), (600, 437, False), (939, 420, True), (940, 420, False),
+])
+def test_exploration_target_distance_and_height_limits(target_x, target_y, allowed):
+    wf = load_workflow(WF_DIR / "exploration.yaml")
+    img = frame_for(wf, "leave_map")
+    _paint_at(img, wf, "探索_挑战", target_x, target_y)
+    _paint_at(img, wf, "探索_经验标识", 600, 420)
+    ctl, dev = ctl_for([img])
+    Runner(wf, ctl, params={"challenge_type": "打经验"}, clock=FakeClock(), max_actions=1).run()
+    assert len(dev.inputs) == 1
+    assert dev.inputs[0][0] == ("tap" if allowed else "swipe")
+
+
+def test_exploration_filtered_target_yields_to_boss():
+    wf = load_workflow(WF_DIR / "exploration.yaml")
+    img = frame_for(wf, "leave_map")
+    _paint_at(img, wf, "探索_挑战", 300, 380)
+    _paint_at(img, wf, "探索_经验标识", 300, 460)
+    _paint_at(img, wf, "探索_挑战BOSS", 850, 310)
+    ctl, dev = ctl_for([img])
+    res = Runner(wf, ctl, params={"challenge_type": "打经验"}, clock=FakeClock(), max_actions=1).run()
+    assert res.history[0][1] == "challenge_boss"
+    assert len(dev.inputs) == 1 and 850 <= dev.inputs[0][1] <= 892
+
+
+def test_exploration_waits_for_label_and_rechecks_before_clicking():
+    wf = load_workflow(WF_DIR / "exploration.yaml")
+    missing = frame_for(wf, "leave_map")
+    _paint_at(missing, wf, "探索_挑战", 300, 380)
+    ready = missing.copy()
+    _paint_at(ready, wf, "探索_经验标识", 300, 460)
+    ctl, dev = ctl_for([missing, ready, missing], advance_on_input=False)
+    waits = []
+
+    def on_event(kind, data):
+        if kind == "state":
+            waits.append(data["state"])
+
+    Runner(wf, ctl, params={"challenge_type": "打经验"}, clock=FakeClock(step=.02), on_event=on_event,
+           should_stop=lambda: len(waits) == 2).run()
+    assert waits == ["wait_label_打经验", "wait_label_打经验"]
+    assert not dev.inputs
+
+
+def test_exploration_boss_appearing_during_retest_takes_precedence():
+    wf = load_workflow(WF_DIR / "exploration.yaml")
+    before = frame_for(wf, "leave_map")
+    _paint_at(before, wf, "探索_挑战", 300, 380)
+    after = before.copy()
+    _paint_at(after, wf, "探索_挑战BOSS", 850, 310)
+    ctl, dev = ctl_for([before, after], advance_on_input=False)
+    result = Runner(wf, ctl, clock=FakeClock(), max_actions=1).run()
+    assert result.history[0][1] == "challenge_boss"
+    assert len(dev.inputs) == 1 and 850 <= dev.inputs[0][1] <= 892
+
+
+@pytest.mark.parametrize(("speed", "low", "high"), [("快", 200, 400), ("中", 500, 700), ("慢", 800, 1200)])
+def test_exploration_swipe_speeds(speed, low, high):
+    wf = load_workflow(WF_DIR / "exploration.yaml")
+    ctl, dev = ctl_for([frame_for(wf, "leave_map")])
+    Runner(wf, ctl, params={"swipe_speed": speed, "max_swipes": 1}, clock=FakeClock(), max_actions=1).run()
+    assert len(dev.inputs) == 1 and dev.inputs[0][0] == "swipe"
+    assert low <= ctl.ops[0]["duration_ms"] <= high
+
+
+def test_exploration_prefers_configured_coordinates_when_selected():
+    wf = load_workflow(WF_DIR / "exploration.yaml")
+    ctl, dev = ctl_for([frame_for(wf, "chapter_last")])
+    result = Runner(wf, ctl, params={"chapter_selection": "坐标", "chapter_x": 1100, "chapter_y": 360},
+                    clock=FakeClock(), max_actions=1).run()
+    assert result.history[0][1] == "chapter_configured"
+    assert len(dev.inputs) == 1 and ctl.ops[0]["rect"] == [1090, 350, 1110, 370]
+    with pytest.raises(WorkflowError, match="chapter_x"):
+        wf.validate_params({"chapter_x": 1})
+
+
+@pytest.mark.parametrize("chapter", ["enter_normal", "enter_hard"])
+def test_exploration_takes_chest_before_entering_either_chapter(chapter):
+    wf = load_workflow(WF_DIR / "exploration.yaml")
+    empty = frame_for(wf, chapter)
+    with_chest = empty.copy()
+    _paint_at(with_chest, wf, "探索_宝箱", 700, 636)
+    ctl, dev = ctl_for([with_chest, empty])
+    result = Runner(wf, ctl, clock=FakeClock(), max_actions=2).run()
+    assert [state for _, state in result.history][:2] == ["chest", chapter]
+    assert len(dev.inputs) == 2
 
 
 def test_exploration_find_pick_last_chooses_lowest_hit():
@@ -277,14 +395,47 @@ def test_exploration_rounds_done_leaves_map_and_stops_on_chapter_screen():
     wf = load_workflow(WF_DIR / "exploration.yaml")
     big = blank(40)
     paint_points(big, wf.resources["探索地图界面"]["points"])
+    dialog = frame_for(wf, "confirm_leave_map")
     frames = [frame_for(wf, "boss_appeared"), *_battle_frames(wf, 4), frame_for(wf, "settle_6"),
-              frame_for(wf, "rounds_done_leave"), big]
+              frame_for(wf, "rounds_done_leave"), dialog, dialog, big]
     ctl, dev = ctl_for(frames, advance_on_input=False)
     res = Runner(wf, ctl, params={"max_rounds": 1}, clock=FakeClock()).run()
     states = [s for _, s in res.history]
     assert res.status == "success", res.summary()
-    assert states[-2:] == ["rounds_done_leave", "rounds_done"], states
+    assert states[-3:] == ["rounds_done_leave", "confirm_leave_map", "rounds_done"], states
     assert res.variables["rounds"] >= 1
+
+
+def test_exploration_boss_loss_does_not_finish_a_round():
+    wf = load_workflow(WF_DIR / "exploration.yaml")
+    frames = [frame_for(wf, state) for state in ("boss_appeared", "settle_lose", "leave_map")]
+    ctl, dev = ctl_for(frames)
+    result = Runner(wf, ctl, params={"max_rounds": 1}, clock=FakeClock(), max_actions=3).run()
+    assert result.variables["rounds"] == 0 and result.variables["losses"] == 1
+    assert "rounds_done_leave" not in [state for _, state in result.history]
+    assert len(dev.inputs) == 3
+
+
+def test_exploration_leaves_when_swipes_are_exhausted_and_reenters():
+    wf = load_workflow(WF_DIR / "exploration.yaml")
+    chapter_map = frame_for(wf, "leave_map")
+    dialog = frame_for(wf, "confirm_leave_map")
+    frames = [chapter_map, chapter_map, dialog, dialog, frame_for(wf, "enter_hard"), chapter_map]
+    ctl, dev = ctl_for(frames, advance_on_input=False)
+    result = Runner(wf, ctl, params={"max_swipes": 1}, clock=FakeClock(), max_actions=5).run()
+    assert [state for _, state in result.history][:5] == [
+        "swipe_map", "leave_map", "confirm_leave_map", "enter_hard", "swipe_map",
+    ]
+    assert [operation[0] for operation in dev.inputs] == ["swipe", "tap", "tap", "tap", "swipe"]
+
+
+def test_exploration_sakura_courtyard_targets_explore_not_other_lanterns():
+    wf = load_workflow(WF_DIR / "exploration.yaml")
+    img = frame_for(wf, "nav_courtyard_sakura")
+    ctl, dev = ctl_for([img])
+    result = Runner(wf, ctl, clock=FakeClock(), max_actions=1).run()
+    assert result.history[0][1] == "nav_courtyard_sakura"
+    assert len(dev.inputs) == 1 and 663 <= dev.inputs[0][1] <= 687
 
 # --- account prerequisites (requires / blockers) -----------------------------------------------
 

@@ -43,18 +43,20 @@ def rect_from_oper(o) -> dict:
     return d
 
 
-def convert_colors(common: Path) -> dict:
+def convert_colors(common: Path, *, source_suffix="") -> dict:
     out = {}
-    s = (common / "multiDetectColors.ts").read_text(encoding="utf-8")
+    s = (common / ("multiDetectColors.ts" + source_suffix)).read_text(encoding="utf-8")
     lit, _ = extract_literal_after(s, r"multiDetectColors\s*:\s*\w+\s*=")
     for name, v in parse(lit, find_consts(s)).items():
         out[name] = {"type": "colors", "points": points_from_desc(v["desc"])}
-    s = (common / "multiFindColors.ts").read_text(encoding="utf-8")
+    s = (common / ("multiFindColors.ts" + source_suffix)).read_text(encoding="utf-8")
     lit, _ = extract_literal_after(s, r"multiFindColors\s*:\s*\w+\s*=")
     for name, v in parse(lit, find_consts(s)).items():
         region = v.get("region")
         entry = {"type": "find_colors", "groups": [points_from_desc(g) for g in v["desc"]]}
         entry["region"] = [int(x) for x in region[3:7]] if region else [0, 0, 1280, 720]
+        if "similar" in v:
+            entry["similarity"] = v["similar"]
         out[name] = entry
     return out
 
@@ -69,6 +71,7 @@ def convert_func(path: Path, colors: dict) -> dict | None:
     desc = (re.search(r"\bdesc\s*=\s*'([^']*)'", s) or [None, ""])[1]
     lit, _ = extract_literal_after(s, r"operator\s*:\s*[\w\[\]]+\s*=")
     operators = []
+    raw = []
     error = None
     if lit:
         try:
@@ -90,19 +93,51 @@ def convert_func(path: Path, colors: dict) -> dict | None:
                 item["oper_step_random"] = [[rect_from_oper(o) for o in step] for step in op["operStepRandom"]]
             if op.get("retest"):
                 item["retest_ms"] = int(op["retest"])
+            if "notForCnt" in op:
+                item["not_for_count"] = op["notForCnt"]
             operators.append(item)
+    config_literal, _ = extract_literal_after(s, r"\bconfig\s*=")
+    config, config_error = [], None
+    if config_literal:
+        try:
+            config = parse(config_literal, find_consts(s))
+        except ValueError as e:
+            config_error = str(e)
     has_func = "operatorFunc" in s
     return {"id": fid, "name": name, "desc": desc, "needs_translation": has_func, "parse_error": error,
-            "operators": operators}
+            "operators": operators, "raw_operators": raw, "config": config, "config_error": config_error}
 
 
 def convert_schemes(common: Path) -> dict:
-    s = (common / "schemeList.ts").read_text(encoding="utf-8")
-    out = {}
-    for m in re.finditer(r"schemeName:\s*'([^']*)'.*?list:\s*\[([^\]]*)\]", s, re.S):
-        ids = [int(x) for x in re.findall(r"\d+", m.group(2))]
-        out[m.group(1)] = ids
-    return out
+    return {item["schemeName"]: item["list"] for item in scheme_definitions(common)}
+
+
+def scheme_definitions(common: Path, *, source_suffix="") -> list[dict]:
+    """Parse the actual declaration, excluding commented examples and mutations below it.
+
+    Preserve every declared config/commonConfig override.  The source snapshot
+    remains authoritative for runtime defaults and custom methods.
+    """
+    s = (common / ("schemeList.ts" + source_suffix)).read_text(encoding="utf-8")
+    literal, _ = extract_literal_after(s, r"\b(?:const|let)\s+SchemeList\s*(?::\s*IScheme\[\])?\s*=")
+    if literal is None:
+        if s.lstrip().startswith("["):
+            literal = s
+        else:
+            raise ValueError("找不到完整的 SchemeList 数据声明")
+    items = parse(literal, find_consts(s))
+    if not isinstance(items, list):
+        raise ValueError("SchemeList 必须是数组")
+    names = set()
+    for item in items:
+        if (not isinstance(item, dict) or not isinstance(item.get("schemeName"), str)
+                or not isinstance(item.get("list"), list)
+                or any(type(fid) is not int for fid in item["list"])):
+            raise ValueError("方案缺少 schemeName/list 或包含非整数组件编号")
+        if item["schemeName"] in names:
+            raise ValueError("重复的方案名称：" + item["schemeName"])
+        names.add(item["schemeName"])
+    return items
 
 
 def convert(ass_root: str | os.PathLike, out_dir: str | os.PathLike) -> dict:
@@ -126,8 +161,9 @@ def convert(ass_root: str | os.PathLike, out_dir: str | os.PathLike) -> dict:
             report["needs_translation"].append(f"{func['id']:03d} {func['name']}")
         if func["parse_error"]:
             report["parse_errors"].append(f"{func['id']:03d}: {func['parse_error']}")
-    schemes = convert_schemes(common)
-    dump(out / "schemes.yaml", {**SOURCE, "schemes": schemes})
+    definitions = scheme_definitions(common)
+    schemes = {item["schemeName"]: item["list"] for item in definitions}
+    dump(out / "schemes.yaml", {**SOURCE, "schemes": schemes, "definitions": definitions})
     report["schemes"] = len(schemes)
     (out / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     return report

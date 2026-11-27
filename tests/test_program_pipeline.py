@@ -1,5 +1,6 @@
 """Semantic source coverage, resumability, approvals and durable agent handoff."""
 import copy
+import hashlib
 import json
 from pathlib import Path
 
@@ -8,6 +9,7 @@ import pytest
 from helpers import FakeClock, blank, fake_text_reader, register_texts
 from onmyoji_agentflow.app import App
 from onmyoji_agentflow.cli import build_parser
+from onmyoji_agentflow.convert import programs as catalog
 from onmyoji_agentflow.convert.programs import build_catalog
 from onmyoji_agentflow.device.base import Controller
 from onmyoji_agentflow.device.replay import ReplayDevice
@@ -81,6 +83,35 @@ def test_assttyys_schemes_and_unreferenced_components_all_indexed(tmp_path):
     assert entries(out)["assttyys:scheme:缺依赖"]["missing_funcs"] == [9]
 
 
+def test_only_a_pinned_assttyys_registry_can_prove_unregistered_ids_are_skipped(tmp_path, monkeypatch):
+    root, out = tmp_path / "ass", tmp_path / "out"
+    name = "001_a.ts"
+    path = root / "src/common/funcList" / name
+    put(path, "id = 1;")
+    source = root / "src/common/schemeList.ts"
+    put(source, "const SchemeList = [{schemeName:'方案', list:[24,1,24,1]}];")
+    put(out / "schemes.yaml", dump_yaml({"schemes": {"方案": [24, 1, 24, 1]}}))
+    put(out / "colors.yaml", "resources: {}")
+    pins = {}
+    for filename in catalog.ASSTTYYS_REGISTRY_PINS:
+        put(root / filename, "// pinned loader dependency")
+        pins[filename] = hashlib.sha256((root / filename).read_bytes()).hexdigest()
+    registry = json.dumps({name: hashlib.sha256(path.read_bytes()).hexdigest()}, sort_keys=True).encode()
+    monkeypatch.setattr(catalog, "ASSTTYYS_REGISTRY_PINS", pins)
+    monkeypatch.setattr(catalog, "ASSTTYYS_COMPONENT_REGISTRY", hashlib.sha256(registry).hexdigest())
+    build_catalog("assttyys", root, out)
+    entry = entries(out)["assttyys:scheme:方案"]
+    assert entry["func_ids"] == [24, 1, 24, 1] and not entry["missing_funcs"]
+    assert entry["source_dispatch"]["skipped_unregistered"] == [24, 24]
+    assert entry["source_dispatch"]["effective_func_ids"] == [1, 1]
+    assert set(pins).issubset(entry["files"])
+
+    put(path, "id = 1; // change invalidates the registry evidence")
+    build_catalog("assttyys", root, out)
+    stale = entries(out)["assttyys:scheme:方案"]
+    assert "source_dispatch" not in stale and stale["missing_funcs"] == [24, 24]
+
+
 @pytest.fixture
 def app(tmp_path):
     root, out = upstream(tmp_path)
@@ -131,6 +162,28 @@ def test_queue_no_llm_source_pagination_and_path_boundary(app):
         app.programs.source(job(app)["id"], "../../config.yaml")
 
 
+def test_all_component_conversion_and_source_filter_are_explicit(app, tmp_path):
+    source = tmp_path / "ass"
+    converted = app.ws.path / "resources/upstream/assttyys"
+    put(source / "src/common/funcList/017_demo.ts", "id = 17; operatorFunc() { return false; }")
+    put(converted / "colors.yaml", "resources: {}")
+    put(converted / "schemes.yaml", "schemes: {}")
+    build_catalog("assttyys", source, converted)
+    app.ws.git("add", "-A")
+    app.ws.git("commit", "-qm", "component fixture")
+    app.programs.index(app.ws.path, "main")
+    assert app.programs.compile(source="assttyys") == []
+    result, = app.programs.compile(include_components=True, source="assttyys")
+    assert result["status"] == "waiting_agent" and "operatorFunc" in result["message"]
+    assert all(row["status"] == "pending" for row in app.programs.list(source="oas"))
+    report = app.programs.audit()
+    assert report["summary"]["counts"] == {"assttyys:component": 1, "oas:task": 2}
+    assert report["summary"]["all_original_tasks_converted"] is False
+    assert all(row["source_snapshot_complete"] for row in report["entries"])
+    assert all(row["coverage"] == "none" for row in report["entries"])
+    assert report["summary"]["device_inputs"] == 0
+
+
 def test_complete_translation_proposed_once_never_auto_activated(app):
     app.programs.llm = llm = LLM()
     before = app.ws.head()
@@ -146,6 +199,30 @@ def test_complete_translation_proposed_once_never_auto_activated(app):
     assert llm.contexts[0]["sources"]["tasks/Component/Shared/worker.py"] == "x = 1\n"
     again = app.programs.propose(job(app)["id"], reply())
     assert again["change_id"] == result["change_id"]
+    audit = app.programs.audit()
+    demo = next(row for row in audit["entries"] if row["entry_id"] == "oas:Demo")
+    assert demo["coverage"] == "draft" and demo["translation_available"]
+    assert demo["gaps"] and not demo["semantic_complete"] and not demo["live_verified"]
+    assert audit["summary"]["all_original_tasks_converted"] is False  # Other remains pending.
+
+
+def test_external_proposal_cannot_hide_incomplete_source_dependencies(app):
+    row = app.programs._job(job(app)["id"])
+    entry = json.loads(row["entry"])
+    entry["missing_funcs"] = [999]
+    app.store.execute("UPDATE program_jobs SET entry=? WHERE id=?", (json.dumps(entry), row["id"]))
+    result = app.programs.propose(row["id"], reply())
+    assert result["status"] == "blocked" and "999" in result["message"]
+    assert not app.store.query("SELECT * FROM changes")
+
+
+def test_audit_reads_immutable_candidate_commit_after_branch_cleanup(app):
+    result = app.programs.propose(job(app)["id"], reply())
+    change = app.store.query("SELECT branch FROM changes WHERE id=?", (result["change_id"],))[0]
+    app.ws.delete_branch(change["branch"])
+    row = next(row for row in app.programs.audit()["entries"] if row["entry_id"] == "oas:Demo")
+    assert row["coverage"] == "draft" and row["translation_available"] and row["gaps"]
+    assert row["semantic_coverage"]["valid"] and not row["semantic_complete"]
 
 
 def test_pending_draft_revision_supersedes_old_draft_but_still_needs_user(app):
@@ -336,6 +413,9 @@ def test_interrupted_handoff_can_be_claimed_again_without_blind_resume(tmp_path)
 def test_cli_and_mcp_expose_queue_without_approval_shortcuts(app):
     parser = build_parser()
     assert parser.parse_args(["programs", "compile", "--limit", "2"]).limit == 2
+    args = parser.parse_args(["programs", "compile", "--include-components", "--source", "oas"])
+    assert args.include_components and args.source == "oas"
+    assert parser.parse_args(["programs", "audit", "--output", "coverage.json"]).output == "coverage.json"
     assert parser.parse_args(["handoffs", "show", "--id", "1"]).id == 1
     assert parser.parse_args(["marathon"]).repair
     assert not parser.parse_args(["marathon", "--no-repair"]).repair
@@ -345,3 +425,8 @@ def test_cli_and_mcp_expose_queue_without_approval_shortcuts(app):
     result = server.tools.call("upstream_programs", {"action": "list"}, Session())
     assert not result["isError"]
     assert len(json.loads(result["content"][0]["text"])["programs"]) == 2
+    result = server.tools.call("upstream_programs", {"action": "audit", "limit": 1}, Session())
+    assert not result["isError"]
+    page = json.loads(result["content"][0]["text"])
+    assert page["summary"]["entries"] == 2 and page["summary"]["device_inputs"] == 0
+    assert len(page["entries"]) == 1 and not page["complete"] and page["next_offset"] == 1
