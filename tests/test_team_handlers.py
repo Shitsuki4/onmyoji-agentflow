@@ -551,6 +551,196 @@ def tapped(replay, operation, index=0):
     return value[0] == "tap" and x1 <= value[1] <= x2 and y1 <= value[2] <= y2
 
 
+# Synthetic operator markers exercise the real 517 lowering/dispatcher/Runner.
+# These are portable unit fixtures, NOT a pinned upstream source, saved game
+# frame, species detector, or named-scheme lifecycle acceptance test.
+PET517_COUNTER_SLOTS = [
+    [251, 572, 284, 600], [385, 597, 421, 625], [412, 528, 452, 556],
+    [816, 362, 866, 410], [728, 350, 772, 394], [889, 377, 922, 410],
+]
+
+
+@pytest.fixture
+def pet517_counter_component():
+    operators = [
+        {"desc": [1280, 720, [[1, 40 + index, 50, 0xff0000]]],
+         "oper": [[1, 1280, 720, 100, 100, 110, 110, 0]]}
+        for index in range(12)
+    ]
+    operators[4]["oper"] = [[1, 1280, 720, *rect, 1200] for rect in PET517_COUNTER_SLOTS]
+    model = handler(517, params={"next_scheme": {"default": "__停止脚本__"}})
+    model["cases"] = []
+    model["proof"].update({
+        "source_sha256": hashlib.sha256(json.dumps(operators, sort_keys=True).encode()).hexdigest(),
+        "source_path": "synthetic/pet517-counter-unit-operators.json",
+        "scope": "synthetic-counter-order-unit-fixture",
+        "source_complete": False,
+    })
+    packet = {"handler": model, "source_obligations": [], "bookkeeping_cases": [],
+              "complete": False, "original_task_complete": False,
+              "coverage": "synthetic-counter-order-unit-fixture"}
+    team._pet_courtyard(team._Builder(packet, operators, {}))
+    model["proof"]["bookkeeping_cases"] = list(packet["bookkeeping_cases"])
+    return packet
+
+
+def _pet517_counter_screen():
+    image = blank()
+    paint_points(image, [[44, 50, "#ff0000"]])
+    return image
+
+
+def _pet517_counter_run(tmp_path, packet, *, cancel=False, changed_scene=False, initial_vars=None):
+    from test_handler_runner import MillisecondClock, SyntheticFrames
+    from onmyoji_agentflow.device.base import Controller
+    from onmyoji_agentflow.device.humanize import HumanizeConfig
+    from onmyoji_agentflow.workflow.engine import Runner
+
+    from onmyoji_agentflow.convert.scheme_lifecycle import bind_named_schemes
+
+    common = {"loopDelay": 200, "afterClickDelayBase": 0, "afterClickDelayRandom": 0}
+    options = {"common_overrides": common,
+               "supported_primitives": ("handler_control", "scheme_transition")}
+    lowered = team.team_workflow("pet517_counter_unit", [packet], **options)
+    # 517 really requires a named return target. It is NOT independently
+    # guarded-executable until the native binder resolves that dependency.
+    assert lowered["missing_primitives"] == lowered["missing_builtins"] == []
+    assert lowered["required_schemes"] == ["返回庭院"]
+    assert lowered["guarded_executable"] is False and lowered["complete"] is False
+    refused_return = handler(503, [case("unobserved_return", actions=[
+        {"fail": "synthetic counter fixture does not implement return-to-courtyard"}])])
+    return_stage = team.team_workflow("pet517_counter_unit_return", [refused_return], **options)
+    assert return_stage["guarded_executable"] and return_stage["complete"] is False
+    label = "pet517_counter_unit"
+    raw = bind_named_schemes(label, label, {
+        label: lowered["workflow"], "返回庭院": return_stage["workflow"]})
+    checkpoint = None
+    elapsed = 0
+    if initial_vars is not None:
+        # Only checkpoint-declared variables are restored; Runner's transient
+        # actions/elapsed fields are not checkpoint variables. No phase repair.
+        values = copy.deepcopy(raw["vars"])
+        values.update({key: copy.deepcopy(value) for key, value in initial_vars.items() if key in values})
+        elapsed = initial_vars.get("elapsed_ms", 0)
+        checkpoint = {"version": 1, "vars": values,
+                      "history": [{"scheme": label, "entered_ms": 0}],
+                      "elapsed_ms": elapsed, "paused_at": 1700000000.0}
+    raw["stop_when"] = f"handler_phase == 0 and elapsed_ms > {elapsed}"
+    path = tmp_path / "pet517-counter-unit.yaml"
+    path.write_text(dump_yaml(raw), encoding="utf-8")
+    workflow = load_workflow(path, [tmp_path])
+    clock = MillisecondClock()
+    screen = _pet517_counter_screen()
+    replay = SyntheticFrames([screen, blank() if changed_scene else screen])
+    controller = Controller(replay, HumanizeConfig(base_sleep_ms=0, random_sleep_ms=0),
+                            observe=False, sleep=clock.sleep)
+    control = {"cancel": False}
+    observations = []
+
+    def before_input(state, action, values):
+        observations.append({"state": state["id"], "action": copy.deepcopy(action),
+                             "counter": values["checked_yard_count"],
+                             "slot": values["pet517_rear_slot"], "time_ms": clock.ms})
+        if cancel:
+            control["cancel"] = True
+
+    result = Runner(workflow, controller, clock=clock, max_seconds=10, max_actions=2,
+                    scheme_checkpoint=checkpoint, wall_clock=lambda: 1700000000.0,
+                    before_input=before_input, should_stop=lambda: control["cancel"]).run()
+
+    # Optional coordinator-owned captures are NEW, exclusively created files.
+    # They contain synthetic unit replay observations, not game acceptance proof;
+    # assertions below run after capture, so the JSON does not claim they passed.
+    evidence_dir = os.environ.get("OAF_PET517_COUNTER_EVIDENCE_DIR")
+    if evidence_dir:
+        from datetime import datetime, timezone
+        from uuid import uuid4
+        token = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ") + "-" + uuid4().hex[:8]
+        stem = Path(evidence_dir) / ("pet517-counter-order-unit-" + token)
+        candidate = stem.with_suffix(".yaml")
+        candidate_text = dump_yaml(workflow.raw)
+        with candidate.open("x", encoding="utf-8", newline="\n") as stream:
+            stream.write(candidate_text)
+        report = {
+            "mode": "OFFLINE_SYNTHETIC_NATIVE_RUNNER_UNIT_TEST",
+            "candidate": str(candidate),
+            "candidate_sha256": hashlib.sha256(candidate_text.encode("utf-8")).hexdigest(),
+            "source_fixture": "synthetic numeric markers; real _pet_courtyard lowering",
+            "initial_vars": initial_vars, "cancel_before_dispatch": cancel,
+            "changed_scene_before_recheck": changed_scene,
+            "native_result": result.summary(), "recorded_inputs": replay.inputs,
+            "input_boundaries": observations, "controller_operations": controller.ops,
+            "assertions_run_after_capture": True, "physical_inputs": 0,
+            "named_scheme_checkpoint_coverage": "native binder with explicitly synthetic stages",
+            "checkpoint_fixture": checkpoint, "nan_execution_coverage": False,
+            "dog_feeding_proved": False, "dual_slot_complete": False,
+            "accepted": False, "original_task_complete": False,
+        }
+        with stem.with_suffix(".json").open("x", encoding="utf-8", newline="\n") as stream:
+            stream.write(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False) + "\n")
+        print("pet517 synthetic counter replay:", stem.with_suffix(".json"))
+    return result, replay, observations
+
+
+@pytest.mark.parametrize("incoming", [0, 5])
+def test_pet517_counter_advances_before_successful_dispatch(tmp_path, pet517_counter_component, incoming):
+    result, replay, observed = _pet517_counter_run(
+        tmp_path, pet517_counter_component, initial_vars={"checked_yard_count": incoming})
+    assert result.status == "success", result.summary()
+    assert result.actions == len(replay.inputs) == len(observed) == 1
+    assert tapped(replay, [1, 1280, 720, *PET517_COUNTER_SLOTS[incoming]])
+    assert observed[0]["counter"] == incoming + 1
+    assert observed[0]["slot"] == incoming and observed[0]["time_ms"] == 1500
+    assert result.variables["checked_yard_count"] == incoming + 1
+    assert result.variables["handler_phase"] == 0
+    assert replay.screenshot_calls == 2  # Cached match plus real fresh-frame recheck.
+
+
+def test_pet517_counter_predispatch_cancel_keeps_advance_without_input(tmp_path, pet517_counter_component):
+    result, replay, observed = _pet517_counter_run(tmp_path, pet517_counter_component, cancel=True)
+    assert result.status == "stopped", result.summary()
+    assert len(observed) == 1 and observed[0]["counter"] == 1
+    assert observed[0]["slot"] == 0 and observed[0]["time_ms"] == 1500
+    assert result.variables["checked_yard_count"] == 1
+    assert result.variables["handler_phase"] != 0  # Interrupted, not a resumable completed cycle.
+    assert result.actions == 0 and replay.inputs == []
+    assert replay.screenshot_calls == 2
+
+
+def test_pet517_counter_fresh_scene_refusal_keeps_advance_without_input(tmp_path, pet517_counter_component):
+    result, replay, observed = _pet517_counter_run(tmp_path, pet517_counter_component, changed_scene=True)
+    assert result.status != "success", result.summary()
+    assert replay.screenshot_calls == 2
+    assert result.variables["checked_yard_count"] == 1
+    assert result.actions == 0 and replay.inputs == [] and observed == []
+
+
+def test_pet517_counter_completed_dispatcher_resume_refreshes_frozen_slot(tmp_path, pet517_counter_component):
+    first, _, _ = _pet517_counter_run(tmp_path, pet517_counter_component)
+    assert first.status == "success" and first.variables["handler_phase"] == 0
+    assert first.variables["checked_yard_count"] == 1
+    assert first.variables["pet517_rear_slot"] == 0
+    # Resume a completed native lifecycle checkpoint from synthetic stages.
+    # The recorded source variables are preserved; the frozen slot must refresh.
+    resumed, replay, observed = _pet517_counter_run(
+        tmp_path, pet517_counter_component, initial_vars=copy.deepcopy(first.variables))
+    assert resumed.status == "success", resumed.summary()
+    assert resumed.actions == len(replay.inputs) == len(observed) == 1
+    assert tapped(replay, [1, 1280, 720, *PET517_COUNTER_SLOTS[1]])
+    assert observed[0]["slot"] == 1 and observed[0]["counter"] == 2
+    assert resumed.variables["checked_yard_count"] == 2
+    assert resumed.variables["handler_phase"] == 0
+
+
+def test_pet517_counter_boundary_six_resets_without_dispatch(tmp_path, pet517_counter_component):
+    result, replay, observed = _pet517_counter_run(
+        tmp_path, pet517_counter_component, initial_vars={"checked_yard_count": 6})
+    assert result.status == "success", result.summary()
+    assert result.variables["checked_yard_count"] == 0
+    assert result.variables["handler_phase"] == 0
+    assert result.actions == 0 and replay.inputs == [] and observed == []
+
+
 def source_fixture(monkeypatch, name, fid):
     snapshot = Path(__file__).parent / "fixtures" / name
     fixture = json.loads(snapshot.read_text(encoding="utf-8"))
