@@ -4,10 +4,12 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
+from .handlers import _condition, _expr
 from .navigation_family import compile_navigation_family
-from .oas_battle import bind_courtyard_buffs, compile_general_battle
+from .oas_battle import HUNT_OWNER, bind_courtyard_buffs, compile_general_battle
+from .oas_room_invite import PINS as ROOM_PINS
 from .oas_schedule import PINS as SCHEDULE_PINS, bind_schedule
-from .oas_switch_soul import PINS as SOUL_PINS, bind_task_presets
+from .oas_switch_soul import ASSETS as SOUL_ASSETS, PINS as SOUL_PINS, bind_numbered_preset, bind_task_presets
 from ..workflow.oas_schedule import WAKE_WORKFLOWS
 from ..workflow.schema import load_workflow
 from ..yamlio import load_yaml
@@ -18,6 +20,8 @@ HUNT_PINS = {
     HUNT_ENTRY: "6082c0aa23294257de397175abb23c8b24a1bce45ec13e7234e4fadb5e7b0d6b",
     "tasks/Hunt/config.py": "f9fe289c74d834d6527a77f7c37d8b3ff49ae628524446b3a8f067a9aba495e6",
     "tasks/Hunt/assets.py": "522801b8905722743cc72b2c092936bfc714ed070aec4350084c1dab3e5e4692",
+    **{path: pin for path, pin in ROOM_PINS.items()
+       if path in ("tasks/Component/GeneralInvite/general_invite.py", "tasks/Component/GeneralInvite/assets.py")},
 }
 
 DEMON_RETREAT_ENTRY = "tasks/DemonRetreat/script_task.py"
@@ -63,12 +67,13 @@ def compile_hunt_candidate(source_root, resource_dir, *, calibrations=None):
     """Compile pinned OAS Hunt (Kirin Mon-Thu / Netherworld Fri-Sun) workflow."""
     source, resources = Path(source_root), Path(resource_dir)
     _verify_pins(source, HUNT_PINS, "Hunt")
+    _verify_pins(source, SOUL_PINS, "SwitchSoul")
     nav = compile_navigation_family(
         source, resources, prefix="hu_nav", destination="page_hunt",
         battle_config="default", android_login=True, separate_battle_defaults=True,
         calibrations=calibrations,
     )
-    battle = compile_general_battle(source, resources, prefix="hu_battle")
+    battle = compile_general_battle(source, resources, prefix="hu_battle", owner=HUNT_OWNER)
     body = battle["workflow"]
     contract = body["oas_battle_contract"]
     outputs = contract["outputs"]
@@ -78,24 +83,35 @@ def compile_hunt_candidate(source_root, resource_dir, *, calibrations=None):
     raw["limits"]["timeout_s"] = 1800
     bind_schedule(source, raw)
     raw["params"].update(
+        hu_calendar_mode={"default": "source", "choices": ["source", "manual"]},
+        hu_kirin_time_s={"default": 68400, "min": 0, "max": 86399},
+        hu_netherworld_time_s={"default": 68400, "min": 0, "max": 86399},
         hu_in_window={"default": True},
         hu_kirin_day={"default": True},
         hu_limit_seconds={"default": 0, "min": 0, "max": 7200},
         hu_next_delay_s={"default": 0, "min": 0, "max": 172800},
     )
-    raw["params"].update(body["params"])
+    battle_settings = {key: "hu_battle_config_" + key for key in body["params"]}
+    for mode in ("kirin", "netherworld"):
+        raw["params"].update({f"hu_{mode}_{key}": spec for key, spec in body["params"].items()})
+        for key, maximum in (("soul_group", 7), ("soul_team", 4)):
+            raw["params"][f"hu_{mode}_{key}"] = {"default": -1, "choices": [-1, *range(1, maximum + 1)]}
     raw["vars"].update(
         body["vars"],
-        hu_phase="entry", hu_nav_sub=0, hu_wins=0, hu_target_delay_s=0, hu_observed_ms=0, hu_exit_reason="",
+        hu_phase="entry", hu_nav_sub=0, hu_wins=0, hu_target_delay_s=0, hu_observed_ms=0,
+        hu_target_local_s=0, hu_exit_reason="", hu_nw_fire_count=0, hu_nw_launch_ms=-1,
+        hu_soul_group=-1, hu_soul_team=-1,
     )
+    raw["vars"].update({alias: body["params"][key]["default"] for key, alias in battle_settings.items()})
     raw["resources"] = sorted(set(raw["resources"] + body["resources"] + [
         "upstream/oas/Hunt.yaml",
         "upstream/oas/Component_GeneralInvite.yaml",
         "upstream/oas/GlobalGame.yaml",
+        f"upstream/oas/{SOUL_ASSETS}.yaml",
     ]))
     docs = {
         ns: load_yaml(resources / f"{ns}.yaml")["resources"]
-        for ns in ("Hunt", "Component_GeneralInvite", "GlobalGame")
+        for ns in ("Hunt", "Component_GeneralInvite", "GlobalGame", SOUL_ASSETS)
     }
 
     def expr(val):
@@ -116,15 +132,46 @@ def compile_hunt_candidate(source_root, resource_dir, *, calibrations=None):
     def click(name, ns="Hunt", delay=1000):
         return _click_from(docs, name, ns, delay)
 
-    state("outside_window", "entry", [expr("not hu_in_window")],
+    def soul_click(ref):
+        namespace, name = ref.split("::", 1)
+        return click(name, namespace)
+
+    source_calendar = "hu_calendar_mode == 'source'"
+    today_kirin = "started_weekday <= 3"
+    tomorrow_kirin = "started_weekday < 3 or started_weekday == 6"
+    before_open = f"({today_kirin} and started_day_second < 21600) or (started_weekday >= 4 and started_day_second < 61200)"
+    state("calendar_before_open", "entry", [expr(source_calendar), expr(before_open)],
+          advance("calendar_today", hu_exit_reason="'outside_window'"))
+    state("calendar_after_close", "entry", [expr(source_calendar), expr("started_day_second > 82800")],
+          advance("calendar_tomorrow", hu_exit_reason="'outside_window'"))
+    state("outside_window", "entry", [expr(f"not ({source_calendar}) and not hu_in_window")],
           advance("done", hu_exit_reason="'outside_window'",
                   hu_target_delay_s="hu_next_delay_s", hu_observed_ms="elapsed_ms"))
-    bind_task_presets(raw, source, resources, prefix="hu", resume="route_mode", category="hunt")
+    state("begin_route", "entry", [], advance("route_mode"))
     next(step for step in raw["states"] if step["id"] == "hu_nav_returned")["when"]["all"].append(phase("unused"))
     next(step for step in raw["states"] if step["id"] == "hu_nav_drive")["when"] = phase("unused")
 
-    state("route_kirin", "route_mode", [expr("hu_kirin_day")], advance("nav_kirin", hu_nav_sub=0))
-    state("route_netherworld", "route_mode", [expr("not hu_kirin_day")], advance("nav_nw", hu_nav_sub=0))
+    kirin_route = f"(({source_calendar}) and {today_kirin}) or (hu_calendar_mode == 'manual' and hu_kirin_day)"
+    any_soul_config = " or ".join(f"hu_{mode}_soul_{field} > 0"
+                                  for mode in ("kirin", "netherworld") for field in ("group", "team"))
+    for mode, route in (("kirin", kirin_route), ("netherworld", f"not ({kirin_route})")):
+        group, team = f"hu_{mode}_soul_group", f"hu_{mode}_soul_team"
+        state(f"{mode}_soul_config_invalid", "route_mode", [expr(f"({route}) and (({group} > 0) != ({team} > 0))")],
+              {"fail": "狩猎战御魂预设需要同时设置分组和队伍"})
+        state(f"{mode}_soul_configured", "route_mode", [expr(f"({route}) and {group} > 0 and {team} > 0")],
+              advance("soul_records", hu_soul_group=group, hu_soul_team=team))
+    state("other_mode_soul_configured", "route_mode", [expr(any_soul_config)], advance("records_only", hu_nav_sub=0))
+    state("skip_soul", "route_mode", [], advance("route_nav"))
+    records = raw["navigation"]["pages"]["page_shikigami_records"]["when"]
+    state("records_only_arrived", "records_only", [records, expr("hu_nav_sub == 1")], advance("route_nav"))
+    state("records_only_drive", "records_only", [], {"navigate": {
+        "destination": "page_shikigami_records", "done_var": "hu_nav_sub", "category": "hunt"}})
+    bind_numbered_preset(raw, lambda name, where, actions, *guards: state(name, where, guards, *actions),
+                         advance, soul_click,
+                         lambda name: f"{SOUL_ASSETS}::{name}", prefix="hu", group="hu_soul_group",
+                         team="hu_soul_team", resume="route_nav", category="hunt")
+    state("route_kirin", "route_nav", [expr(kirin_route)], advance("nav_kirin", hu_nav_sub=0))
+    state("route_netherworld", "route_nav", [], advance("nav_nw", hu_nav_sub=0))
 
     kirin_page = raw["navigation"]["pages"]["page_hunt_kirin"]["when"]
     hunt_page = raw["navigation"]["pages"]["page_hunt"]["when"]
@@ -136,13 +183,16 @@ def compile_hunt_candidate(source_root, resource_dir, *, calibrations=None):
     persistent = set(contract["composition"]["interval_vars"])
     reset = {k: repr(v) if isinstance(v, str) else v for k, v in body["vars"].items() if k not in persistent}
 
+    def enter_battle(mode):
+        return advance("battle", **{alias: f"hu_{mode}_{key}" for key, alias in battle_settings.items()})
+
     # Kirin entry
     state("kirin_time_limit", "kirin_enter",
           [expr("hu_limit_seconds > 0 and elapsed_ms >= hu_limit_seconds * 1000")],
           advance("done", hu_exit_reason="'time_limit'",
                   hu_target_delay_s="hu_next_delay_s", hu_observed_ms="elapsed_ms"))
     state("kirin_battle_ready", "kirin_enter", [asset("I_PREPARE_HIGHLIGHT", "Component_GeneralBattle")],
-          {"set": reset}, advance("battle"))
+          {"set": reset}, enter_battle("kirin"))
     state("kirin_confirm", "kirin_enter", [asset("I_UI_CONFIRM", "GlobalGame")],
           click("I_UI_CONFIRM", "GlobalGame", 900))
     state("kirin_confirm_small", "kirin_enter", [asset("I_UI_CONFIRM_SAMLL", "GlobalGame")],
@@ -158,8 +208,21 @@ def compile_hunt_candidate(source_root, resource_dir, *, calibrations=None):
           [expr("hu_limit_seconds > 0 and elapsed_ms >= hu_limit_seconds * 1000")],
           advance("done", hu_exit_reason="'time_limit'",
                   hu_target_delay_s="hu_next_delay_s", hu_observed_ms="elapsed_ms"))
-    state("nw_room_fire", "nw_enter", [asset("I_FIRE", "Component_GeneralInvite")],
-          click("I_FIRE", "Component_GeneralInvite", 1000), {"set": reset}, advance("battle"))
+    room = {"any": [asset(marker, "Component_GeneralInvite") for marker in ("I_GI_EMOJI_1", "I_GI_EMOJI_2", "I_GI_SPEAK")]}
+    battle_entry = {"any": [asset(marker, "Component_GeneralBattle")
+                             for marker in ("I_PREPARE_HIGHLIGHT", "I_BATTLE_INFO")]}
+    fire = {**asset("I_FIRE", "Component_GeneralInvite"), "threshold": .7}
+    fire_tap = {"click_found": True, "use_match_size": True, "delay": 1000, "recheck": True, "recheck_retry": True}
+    state("nw_room_fire", "nw_enter", [room, fire], fire_tap,
+          advance("nw_start", hu_nw_fire_count=1, hu_nw_launch_ms="elapsed_ms"))
+    state("nw_room_started", "nw_start", [{"not": room}, battle_entry],
+          {"set": reset}, enter_battle("netherworld"))
+    state("nw_room_start_timeout", "nw_start", [expr("elapsed_ms - hu_nw_launch_ms >= 15000")],
+          {"fail": "阴界之门开战后未能核对离开房间及战斗准备"})
+    for marker in ("I_FIRE", "I_FIRE_SEA"):
+        state("nw_room_retry_" + marker.lower(), "nw_start",
+              [room, expr("hu_nw_fire_count < 3"), {**asset(marker, "Component_GeneralInvite"), "threshold": .7}],
+              fire_tap, {"inc": "hu_nw_fire_count"})
     state("nw_icon", "nw_enter", [asset("I_NW")], click("I_NW", "Hunt", 900))
     state("nw_confirm", "nw_enter", [asset("I_UI_CONFIRM", "GlobalGame")], click("I_UI_CONFIRM", "GlobalGame", 900))
     state("nw_challenge", "nw_enter", [asset("I_NW_CHALLAGE")], click("I_NW_CHALLAGE", "Hunt", 1500))
@@ -167,13 +230,27 @@ def compile_hunt_candidate(source_root, resource_dir, *, calibrations=None):
           click("I_UI_BACK_RED", "GlobalGame", 1000), advance("done", hu_exit_reason="'nw_already_done'"))
 
     for step in body["states"]:
-        step["when"] = {"all": [phase("battle"), step["when"]]}
+        step["when"] = {"all": [phase("battle"), _condition(step["when"], battle_settings)]}
+        for action in step["do"]:
+            if "set" in action:
+                action["set"] = {key: _expr(value, battle_settings) for key, value in action["set"].items()}
         if step["id"] in contract["composition"]["return_states"]:
             step["do"][-1:] = [advance("done", hu_wins=f"hu_wins + {outputs['win']}",
                                        hu_target_delay_s="hu_next_delay_s", hu_observed_ms="elapsed_ms",
                                        hu_exit_reason="'battle_done'")]
         raw["states"].append(step)
 
+    state("complete_calendar", "done", [expr(source_calendar)], advance("calendar_tomorrow"))
+    for phase_name, days_ahead, is_kirin in (
+        ("calendar_today", 0, today_kirin), ("calendar_tomorrow", 1, tomorrow_kirin),
+    ):
+        state(phase_name, phase_name, [],
+              {"set": {"hu_target_local_s": f"hu_netherworld_time_s + (hu_kirin_time_s - hu_netherworld_time_s) * ({is_kirin})"}},
+              {"stop": {"reason": "已按狩猎战与阴界之门日历预约下次运行",
+                        "result": "unknown", "verified": False,
+                        "oas_schedule": {"task": "Hunt", "local_time_seconds_var": "hu_target_local_s",
+                                         "days_ahead": days_ahead},
+                        "evidence": {"scope": "hunt_source_calendar_schedule"}}})
     state("complete_target", "done", [expr("hu_target_delay_s > 0")], {
         "stop": {
             "reason": "狩猎战/阴界之门已完成并按麒麟/阴界日程预约下次运行",
@@ -202,10 +279,16 @@ def compile_hunt_candidate(source_root, resource_dir, *, calibrations=None):
         "source_pins": {**HUNT_PINS, **SCHEDULE_PINS, **SOUL_PINS},
         "original_task_complete": False,
         "source_obligations": [*nav["source_obligations"], *battle["source_obligations"], {
-            "id": "hunt_schedule_and_live",
+            "id": "hunt_battle_variants_and_live",
             "blocking": True,
-            "requirement": "Bind Kirin/Netherworld weekday custom_next_run times and verify live battle entries",
+            "requirement": "Verify real room launch, Hunt-specific settlement on both modes, and per-mode preset application",
         }],
+        "battle_wait": contract["source_behavior"].get("hunt_wait"),
+        "mode_bindings": {"kirin": "kirin_group_team and kirin_battle_config",
+                          "netherworld": "netherworld_group_team and netherworld_battle_config"},
+        "source_calendar": {"weekday_basis": "host local time at the start of Hunt",
+                            "kirin_weekdays": [0, 1, 2, 3], "netherworld_weekdays": [4, 5, 6],
+                            "source_methods": ["check_datetime", "plan_tomorrow_hunt", "BaseTask.custom_next_run"]},
     }
     load_workflow(raw, [resources.parent.parent])
     return raw

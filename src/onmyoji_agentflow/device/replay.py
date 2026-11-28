@@ -62,3 +62,8 @@ class ReplayDevice(Device):
         self.inputs.append(("restart_app", package))
         if self.advance_on_input:
             self._advance()
+
+    def close_related_apps(self, packages, mode):
+        self.inputs.append(("close_related_apps", tuple(packages), mode))
+        if self.advance_on_input:
+            self._advance()

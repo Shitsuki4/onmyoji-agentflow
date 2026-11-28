@@ -12,6 +12,9 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs (
   id INTEGER PRIMARY KEY AUTOINCREMENT, workflow TEXT, instance TEXT, mode TEXT, status TEXT,
   failure_kind TEXT, reason TEXT, digest TEXT, started REAL, ended REAL, summary TEXT);
+CREATE TABLE IF NOT EXISTS scheme_pauses (
+  run_id INTEGER PRIMARY KEY REFERENCES runs(id), workflow_file TEXT NOT NULL, device TEXT NOT NULL, account TEXT NOT NULL,
+  checkpoint TEXT NOT NULL, resumed REAL);
 CREATE TABLE IF NOT EXISTS llm_usage (
   id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL, provider TEXT, model TEXT, purpose TEXT,
   prompt_tokens INTEGER, completion_tokens INTEGER, cost REAL, ok INTEGER);
@@ -105,7 +108,7 @@ class Store:
             return [dict(r) for r in self._conn.execute(sql, args).fetchall()]
 
     # -- runs
-    def add_run(self, workflow, instance, mode, result, digest) -> int:
+    def add_run(self, workflow, instance, mode, result, digest, *, pause_scope=None, restore_pause=None) -> int:
         s = result.summary()
         schedule = (result.evidence.get("oas_schedule")
                     if mode == "run" and result.status == "success" and result.oas_schedule else None)
@@ -116,6 +119,13 @@ class Store:
                 " VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (workflow, instance, mode, result.status, result.failure_kind, result.reason, digest,
                  finished - (result.ended - result.started), finished, json.dumps(s, ensure_ascii=False, default=str)))
+            if pause_scope is not None and mode == "run" and result.status == "paused" and result.scheme_pause:
+                device, account, workflow_file = pause_scope
+                self._conn.execute("INSERT INTO scheme_pauses(run_id,workflow_file,device,account,checkpoint) VALUES (?,?,?,?,?)",
+                                   (cur.lastrowid, workflow_file, device, account,
+                                    json.dumps(result.scheme_pause, ensure_ascii=False)))
+            if restore_pause is not None and mode == "run" and result.actions == 0 and result.status in ("failed", "stopped"):
+                self._conn.execute("UPDATE scheme_pauses SET resumed = NULL WHERE run_id = ?", (restore_pause,))
             records = []
             if mode == "run" and result.oas_wakes:
                 records.extend(
@@ -133,6 +143,15 @@ class Store:
                     WHERE excluded.finished >= oas_task_schedules.finished
                     """, records)
             return cur.lastrowid
+
+    def scheme_pause(self, run_id):
+        rows = self.query("""SELECT p.*, r.workflow, r.instance, r.digest FROM scheme_pauses AS p
+                             JOIN runs AS r ON r.id = p.run_id WHERE p.run_id = ?""", (run_id,))
+        return rows[0] if rows else None
+
+    def claim_scheme_pause(self, run_id):
+        return self.execute("UPDATE scheme_pauses SET resumed = ? WHERE run_id = ? AND resumed IS NULL",
+                            (time.time(), run_id)).rowcount == 1
 
     def oas_due_times(self, account: str) -> dict[str, float]:
         return {row["workflow"]: row["next_run"] for row in self.query(

@@ -151,7 +151,8 @@ class Supervisor:
 
     def _run_once(self, wf, instance: str, params: dict, mode: str = "run", max_actions=None, max_seconds=None,
                   observe: bool = False, initial_vars: dict | None = None,
-                   validate_params: bool = True, first_run_approved: bool = False) -> RunResult:
+                   validate_params: bool = True, first_run_approved: bool = False,
+                   scheme_checkpoint=None, resume_from=None) -> RunResult:
         if not observe:
             from ..programs import assert_current
             assert_current(wf, wf.path.parent.parent if wf.path else self.ws.path)
@@ -202,9 +203,17 @@ class Supervisor:
                             max_actions=max_actions, max_seconds=max_seconds,
                             should_stop=lambda: "immediate" if flag.is_set() else lease.stop_mode(), clock=self.clock,
                             on_event=lambda k, d: self._on_event(instance, k, d), initial_vars=initial_vars,
-                            validate_params=validate_params, before_input=before_input)
+                            validate_params=validate_params, before_input=before_input, scheme_checkpoint=scheme_checkpoint)
             oas_started_at = time.time()
+            if resume_from is not None and not self.store.claim_scheme_pause(resume_from):
+                raise WorkflowError("方案暂停记录已被恢复")
             res = runner.run()
+            restore_pause = None
+            if resume_from is not None:
+                res.evidence["resumed_from_run_id"] = resume_from
+                if res.actions == 0 and res.status in ("failed", "stopped"):
+                    restore_pause = resume_from
+                    res.evidence["scheme_resume_retryable"] = True
             if mode == "run" and not observe and res.oas_wakes:
                 from ..workflow.oas_schedule import WAKE_WORKFLOWS, wake_next_run
                 res.evidence["oas_wakes"] = [
@@ -214,18 +223,28 @@ class Supervisor:
                     for task, (delay, elapsed, *server_params) in res.oas_wakes.items()
                 ]
             if mode == "run" and not observe and res.status == "success" and res.oas_schedule:
-                from ..workflow.oas_schedule import next_run
+                from ..workflow.oas_schedule import calendar_next_run, next_run
                 finished_at = time.time()
                 reference_at, delay = finished_at, None
                 if res.oas_target is not None:
                     delay, age = res.oas_target
                     reference_at -= age
+                if res.oas_calendar_target is not None:
+                    local_time_seconds, days_ahead = res.oas_calendar_target
+                    due = calendar_next_run(finished_at, params, local_time_seconds=local_time_seconds,
+                                            days_ahead=days_ahead)
+                else:
+                    due = next_run(reference_at, params, target_delay_seconds=delay, calendar_at=finished_at)
                 res.evidence["oas_schedule"] = {"task": res.oas_schedule, "account": self.ledger.account,
-                                                "finished_at": finished_at,
-                                                "next_run": next_run(reference_at, params, target_delay_seconds=delay,
-                                                                     calendar_at=finished_at)}
-            digest = wf.digest({"humanize": self.cfg.get("humanize"), "game": self.cfg.get("game")})
-            run_id = self.store.add_run(wf.name, instance, mode, res, digest)
+                                                "finished_at": finished_at, "next_run": due}
+            digest = self._run_digest(wf)
+            pause_scope = None
+            if (res.scheme_pause and mode == "run" and not observe and max_seconds is None and max_actions is None
+                    and wf.path and wf.path.resolve().parent == (self.ws.path / "workflows").resolve()):
+                pause_scope = (lease.identity, self.ledger.account, wf.path.stem)
+                res.evidence["scheme_resume_available"] = True
+            run_id = self.store.add_run(wf.name, instance, mode, res, digest, pause_scope=pause_scope,
+                                        restore_pause=restore_pause)
         if res.last_frame is not None:
             folder = self.runs_dir / f"{run_id:06d}"
             folder.mkdir(parents=True, exist_ok=True)
@@ -237,6 +256,29 @@ class Supervisor:
                                                  encoding="utf-8")
             self.store.execute("UPDATE runs SET summary=? WHERE id=?", (json.dumps(res.summary(), ensure_ascii=False), run_id))
         return res
+
+    def _run_digest(self, wf):
+        return wf.digest({"humanize": self.cfg.get("humanize"), "game": self.cfg.get("game")})
+
+    def resume_scheme(self, run_id: int) -> RunResult:
+        """Claim one stored pause and restart only that scheme on its original device."""
+        from ..programs import assert_current
+        from ..workflow.scheme_lifecycle import resume_elapsed_ms
+
+        row = self.store.scheme_pause(run_id)
+        if row is None or row["resumed"] is not None:
+            raise WorkflowError("没有可恢复的方案暂停记录")
+        instance = row["instance"]
+        with self.execution(instance, f"scheme-resume:{run_id}") as lease:
+            if row["device"] != lease.identity or row["account"] != self.ledger.account:
+                raise WorkflowError("方案暂停记录与当前设备或账号不一致")
+            wf = self.load(row["workflow_file"])
+            if not wf.raw.get("scheme_lifecycle") or self._run_digest(wf) != row["digest"]:
+                raise WorkflowError("工作流、资源或运行配置已变化，无法恢复旧方案")
+            assert_current(wf, self.ws.path)
+            checkpoint = json.loads(row["checkpoint"])
+            resume_elapsed_ms(wf.raw, checkpoint, time.time())
+            return self._run_once(wf, instance, {}, scheme_checkpoint=checkpoint, resume_from=run_id)
 
     def _on_event(self, instance, kind, data):
         lease = getattr(self._runtime, "lease", None)
@@ -323,7 +365,7 @@ class Supervisor:
         lifecycle = wf.raw.get("scheme_lifecycle")
         while (res.status == "failed" and not lifecycle and not (call_active_var and res.variables.get(call_active_var))
                 and res.failure_kind not in ("confirm_denied", "prerequisite", "budget", "unknown_screen",
-                                             "navigation_resume", "restart_uncertain") and retries < int(
+                                             "navigation_resume", "restart_uncertain", "app_close_uncertain") and retries < int(
                 self.scfg.get("max_local_retries", 2)) and not self.stop_flags[instance].is_set()):
             if getattr(self._runtime, "lease").stop_mode():
                 break
@@ -378,7 +420,8 @@ class Supervisor:
             if res.status == "failed":
                 outcome.level = "human"
             return outcome
-        if (lifecycle or res.failure_kind in ("confirm_denied", "device", "prerequisite", "budget", "navigation_resume", "restart_uncertain")
+        if (lifecycle or res.failure_kind in ("confirm_denied", "device", "prerequisite", "budget", "navigation_resume",
+                                               "restart_uncertain", "app_close_uncertain")
                 or (call_active_var and res.variables.get(call_active_var))):
             outcome.level = "human"
             outcome.notes.append("需要你处理：" + res.reason)

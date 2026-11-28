@@ -1444,3 +1444,25 @@ def test_assttyys_close_buff_direct_named_scheme_switch_binding():
         if "scheme_transition" in action
     ]
     assert any(t.get("mode") == "rerun" and t.get("target") == "返回庭院" for t in transitions) or bound
+
+
+@pytest.mark.parametrize("config,expected", [
+    ({"afterCountOper": "关闭应用"}, "h4_arrived_close_app"),
+    ({"scheme_switch_enabled": True, "next_scheme": "__关闭应用__"}, "h4_target_rerun_named_"),
+])
+def test_assttyys_yard_binds_both_explicit_app_close_routes(config, expected):
+    location = os.environ.get("OAF_ASSTTYYS_STAGE_ROOT")
+    if not location or not (Path(location) / "resources/upstream/assttyys/programs/index.yaml").is_file():
+        pytest.skip("staged assttyys snapshot absent")
+    from onmyoji_agentflow.convert.assttyys_schemes import compile_assttyys_scheme
+
+    profile = {"packages": ["com.netease.onmyoji"], "mode": "shell"}
+    raw = compile_assttyys_scheme(location, "返回庭院", config_overrides={"503": config},
+                                  local_notifications=True, close_apps=profile)["workflow"]
+    state = next(state for state in raw["states"] if state["id"].startswith(expected))
+    operations = state["do"]
+    close_index = next(i for i, action in enumerate(operations) if "close_related_apps" in action)
+    assert operations[close_index]["close_related_apps"] == profile
+    assert operations[close_index - 1] == {"wait": 1000}
+    assert "log" in operations[close_index + 1] and operations[close_index + 2] == {"wait": 2000}
+    assert "stop" in operations[close_index + 3]

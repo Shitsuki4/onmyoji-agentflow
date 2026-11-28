@@ -12,6 +12,7 @@ from .assttyys import convert_colors, scheme_definitions
 from .handlers import AUDITED_METHODS, UnsupportedHandler, component_handler, literal_handler
 from .programs import ASSTTYYS_COMPONENT_REGISTRY, ASSTTYYS_REGISTRY_PINS, CATALOG_VERSION
 from .scheme_lifecycle import bind_named_schemes
+from ..device.adb import ANDROID_PACKAGE_PATTERN
 from ..workflow.schema import bundled_dir, load_workflow
 from ..yamlio import load_yaml
 
@@ -22,6 +23,9 @@ _CATALOG_PIN = "96e2f2e71d851f0cb42b8738bc7084c056950d20ed5a56186d713ee5285487b5
 _LOCAL_TERMINAL_TARGETS = {"__返回上个方案__", "__停止脚本__"}
 _LOCAL_RERUN_TARGETS = _LOCAL_TERMINAL_TARGETS | {"__不做动作__"}
 _LOCAL_NOTIFICATION_EFFECTS = frozenset({"source_push", "source_toast", "source_stop", "sleep"})
+_PAUSE_TARGET = "__暂停__"
+_CLOSE_APP_TARGET = "__关闭应用__"
+_CLOSE_APP_ATTEMPT = "assttyys_close_related_attempted"
 _CONFIGURED_RERUNS = {
     (0, "next_scheme"): ("after_operation", "切换方案"),
     (2, "next_scheme"): ("no_sushi_switch_enabled", True),
@@ -57,19 +61,31 @@ def _unambiguous_target(target, catalog):
             and sum(target in name for name in catalog) == 1)
 
 
-def _rerun_actions(target):
+def _rerun_actions(target, label, close_apps):
     if target == "__返回上个方案__":
         return [{"scheme_transition": {"mode": "previous"}}]
+    if target == _PAUSE_TARGET:
+        return [{"scheme_transition": {"mode": "pause"}}]
     if target == "__停止脚本__":
         return [{"log": "上游方案要求停止脚本，请查看。"}, {"stop": "上游方案要求停止脚本"}]
     if target == "__不做动作__":
         return []
+    if target == _CLOSE_APP_TARGET:
+        return _local_notification_actions([
+            {"effect": "sleep", "ms": 1000},
+            {"effect": "source_stop_related_apps"},
+            {"effect": "source_push", "text": "[${schemeHistory}]已停止，关联应用[${packageNames}]已处理，请查看。"},
+            {"effect": "sleep", "ms": 2000}, {"effect": "source_stop"},
+        ], label, close_apps=close_apps)
     return [{"scheme_transition": {"mode": "rerun", "target": target}}]
 
 
-def _local_notification_actions(effects, label):
-    """Lower pure source Push/toast/sleep/stop sequences for opt-in local_notifications."""
-    if not effects or any(effect.get("effect") not in _LOCAL_NOTIFICATION_EFFECTS for effect in effects):
+def _local_notification_actions(effects, label, *, close_apps=None):
+    """Lower local notification sequences, with app closing only for an explicit profile."""
+    supported = _LOCAL_NOTIFICATION_EFFECTS
+    if close_apps is not None:
+        supported = supported | {"source_stop_related_apps"}
+    if not effects or any(effect.get("effect") not in supported for effect in effects):
         return None
     actions, last_text, stopped = [], "", False
     for effect in effects:
@@ -78,7 +94,13 @@ def _local_notification_actions(effects, label):
             text = effect.get("text")
             if not isinstance(text, str):
                 return None
-            rendered = text.replace("${schemeHistory names joined by 、}", label)
+            rendered = text.replace("${schemeHistory names joined by 、}", label).replace("${schemeHistory}", label)
+            if "${packageNames}" in rendered:
+                if close_apps is None:
+                    return None
+                rendered = rendered.replace("${packageNames}", ",".join(close_apps["packages"]))
+                if close_apps["mode"] == "android api" and close_apps["packages"]:
+                    rendered = rendered.replace("已杀", "已请求关闭后台进程")
             if not stopped:
                 actions.append(core_handlers._local_notice(rendered))
             last_text = rendered
@@ -92,16 +114,22 @@ def _local_notification_actions(effects, label):
             if not stopped:
                 actions.append(core_handlers._local_stop(last_text or "上游方案要求停止脚本"))
                 stopped = True
+        elif kind == "source_stop_related_apps" and not stopped:
+            if close_apps["packages"]:
+                actions.append({"close_related_apps": copy.deepcopy(close_apps), "recheck": True,
+                                "attempt_var": _CLOSE_APP_ATTEMPT})
+            else:
+                actions.append(core_handlers._local_notice("未配置关联应用，不结束"))
     return actions or None
 
 
-def _source_local_notifications(packet, label):
+def _source_local_notifications(packet, label, *, close_apps=None):
     """Find blocking obligations whose entire effect is local notification/stop."""
     targets = {}
     for obligation in packet["source_obligations"]:
         if not obligation.get("blocking", True):
             continue
-        actions = _local_notification_actions(obligation.get("ordered_effects", ()), label)
+        actions = _local_notification_actions(obligation.get("ordered_effects", ()), label, close_apps=close_apps)
         if not actions:
             continue
         slot = obligation["slot"]
@@ -118,7 +146,7 @@ def _source_local_notifications(packet, label):
                 yield state, index, *match
 
 
-def _source_reruns(packet, catalog, label, *, local_notifications):
+def _source_reruns(packet, catalog, label, *, local_notifications, local_targets=_LOCAL_RERUN_TARGETS):
     """Find audited reruns whose entire effect can be bound to a pinned scheme."""
     by_slot = {handler["slot"]: handler["id"] for handler in packet["program"]["handlers"]}
     defaults = {key: spec["default"] for key, spec in packet["program"]["params"].items()}
@@ -160,7 +188,8 @@ def _source_reruns(packet, catalog, label, *, local_notifications):
                 flag = ("pushResult", True)
             if (fid, key) in _CONFIGURED_RERUNS and (flag is None or defaults.get(f"cfg_{fid}_{flag[0]}") == flag[1]):
                 target = defaults.get(f"cfg_{fid}_{key}")
-        local_target = local_notifications and isinstance(target, str) and target in _LOCAL_RERUN_TARGETS
+        local_target = target == _PAUSE_TARGET or (
+            local_notifications and isinstance(target, str) and target in local_targets)
         if ((not current and not local_target and not _unambiguous_target(target, catalog))
                 or (delay is not None and type(delay) is not int)):
             continue
@@ -175,13 +204,28 @@ def _source_reruns(packet, catalog, label, *, local_notifications):
 
 
 def compile_assttyys_scheme(stage_root, title, *, device_hash31=None,
-                            config_overrides=None, common_overrides=None, local_notifications=False):
+                            config_overrides=None, common_overrides=None, local_notifications=False,
+                            close_apps=None):
     """Return a guarded candidate and its remaining source obligations.
 
     Unknown components, mismatching catalogs and unbound targets raise an
     explicit error. The result is based on the supplied inert text, gated by
-    pinned sources. This entry point does not submit approval proposals.
+    pinned sources. ``close_apps`` binds the source package list and mode for
+    a local notification profile. An empty list represents no associated apps.
+    This entry point does not submit approval proposals.
     """
+    if close_apps is not None:
+        if (not local_notifications or not isinstance(close_apps, dict) or set(close_apps) != {"packages", "mode"}
+                or close_apps["mode"] not in ("shell", "android api") or not isinstance(close_apps["packages"], list)
+                or any(not isinstance(package, str) or not re.fullmatch(ANDROID_PACKAGE_PATTERN, package, flags=re.ASCII)
+                       for package in close_apps["packages"])):
+            raise UnsupportedHandler("close_apps requires the explicit local notification profile, mode and package list")
+    local_terminal_targets = {_PAUSE_TARGET}
+    if local_notifications:
+        local_terminal_targets.update(_LOCAL_TERMINAL_TARGETS)
+        if close_apps is not None:
+            local_terminal_targets.add(_CLOSE_APP_TARGET)
+    local_rerun_targets = local_terminal_targets | ({"__不做动作__"} if local_notifications else set())
     stage = Path(stage_root)
     resources = stage / "resources/upstream/assttyys"
     source = (resources / "programs/src").resolve()
@@ -346,6 +390,8 @@ def compile_assttyys_scheme(stage_root, title, *, device_hash31=None,
         result = team_handlers.team_workflow(
             entry["workflow"], models, scheme=scheme, config_overrides=overrides, common_overrides=common_overrides,
             supported_primitives=("handler_control", "scheme_transition"))
+        if close_apps and close_apps["packages"]:
+            result["workflow"]["vars"][_CLOSE_APP_ATTEMPT] = 0
         if retreat_bound:
             # The dispatcher owns settlement counts. The pinned 009 cutover
             # resets that count atomically after the selected tile is clicked.
@@ -404,14 +450,15 @@ def compile_assttyys_scheme(stage_root, title, *, device_hash31=None,
         label, packet = pending.pop(0)
         lowered_reruns = []
         for state, index, prefix_actions, target, delay, obligation in list(
-                _source_reruns(packet, schemes, label, local_notifications=local_notifications)):
-            if target not in _LOCAL_RERUN_TARGETS:
+                _source_reruns(packet, schemes, label, local_notifications=local_notifications,
+                               local_targets=local_rerun_targets)):
+            if target not in local_rerun_targets:
                 added = include(target)
                 if added is None:
                     continue
                 pending.extend(added.items())
-            replacement = copy.deepcopy(prefix_actions) + _rerun_actions(target)
-            if delay is not None and target != "__停止脚本__":
+            replacement = copy.deepcopy(prefix_actions) + _rerun_actions(target, label, close_apps)
+            if delay is not None and target not in ("__停止脚本__", _CLOSE_APP_TARGET):
                 replacement.append({"wait": delay})
             state["do"][index:index + 1] = replacement
             lowered_reruns.append({**obligation, "bound_target": target, "source_scheme": label})
@@ -427,7 +474,7 @@ def compile_assttyys_scheme(stage_root, title, *, device_hash31=None,
             packet["workflow"]["team_handler_contract"]["bound_source_reruns"] = lowered_reruns
         if local_notifications:
             lowered_notices = []
-            for state, index, actions, obligation in list(_source_local_notifications(packet, label)):
+            for state, index, actions, obligation in list(_source_local_notifications(packet, label, close_apps=close_apps)):
                 state["do"][index:index + 1] = copy.deepcopy(actions)
                 lowered_notices.append({**obligation, "lowered_actions": copy.deepcopy(actions), "source_scheme": label})
             if lowered_notices:
@@ -456,7 +503,7 @@ def compile_assttyys_scheme(stage_root, title, *, device_hash31=None,
         if settings.get(f"cfg_{component}_scheme_switch_enabled", {}).get("default") is not True:
             continue
         target = settings.get(f"cfg_{component}_next_scheme", {}).get("default")
-        local = local_notifications and isinstance(target, str) and target in _LOCAL_TERMINAL_TARGETS
+        local = isinstance(target, str) and target in local_terminal_targets
         if local or _unambiguous_target(target, schemes):
             handoffs.add((recipient, target))
     for packet in list(stages.values()):
@@ -468,7 +515,7 @@ def compile_assttyys_scheme(stage_root, title, *, device_hash31=None,
                     parameter = action["set"]["super_next_scheme_name"]
                     forwarded = raw["params"].get(parameter, {}).get("default")
                 recipient = action.get("scheme_transition", {}).get("target")
-                local = local_notifications and isinstance(forwarded, str) and forwarded in _LOCAL_TERMINAL_TARGETS
+                local = isinstance(forwarded, str) and forwarded in local_terminal_targets
                 if recipient in receivers and (local or _unambiguous_target(forwarded, schemes)):
                     handoffs.add((recipient, forwarded))
     for recipient, target in sorted(handoffs):
@@ -482,13 +529,13 @@ def compile_assttyys_scheme(stage_root, title, *, device_hash31=None,
                 break
         else:
             continue
-        if target not in _LOCAL_TERMINAL_TARGETS and include(target) is None:
+        if target not in local_terminal_targets and include(target) is None:
             continue
         branch = copy.deepcopy(state)
         branch["id"] += "_named_" + hashlib.sha256(target.encode()).hexdigest()[:12]
         branch["when"] = {"all": [state["when"], {"expr": f"{variable} == {target!r}"}]}
-        transition = _rerun_actions(target)
-        if delay is not None and target != "__停止脚本__":
+        transition = _rerun_actions(target, recipient, close_apps)
+        if delay is not None and target not in ("__停止脚本__", _CLOSE_APP_TARGET):
             transition.append({"wait": delay})
         branch["do"][failure:failure + 1] = transition
         recipient_raw["states"].insert(position, branch)

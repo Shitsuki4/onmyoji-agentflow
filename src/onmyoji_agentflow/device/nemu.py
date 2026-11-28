@@ -65,6 +65,11 @@ class NemuDevice(Device):
             raise DeviceError("游戏重启需要绑定到当前实例的 ADB")
         self.adb.restart_app(package)
 
+    def close_related_apps(self, packages: list[str], mode: str) -> None:
+        if self.adb is None:
+            raise DeviceError("关闭关联应用需要绑定到当前实例的 ADB")
+        self.adb.close_related_apps(packages, mode)
+
     def app_in_foreground(self, package: str) -> bool:
         return self.adb is not None and self.adb.app_in_foreground(package)
 

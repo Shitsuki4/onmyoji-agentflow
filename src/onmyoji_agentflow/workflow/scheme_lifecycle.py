@@ -23,6 +23,34 @@ def latest_scheme(history, terms):
                  if any(term in entry["scheme"] for term in terms)), None)
 
 
+def resume_elapsed_ms(raw, checkpoint, now):
+    """Validate the persisted boundary and compute the host-based source clock."""
+    if not isinstance(checkpoint, dict) or set(checkpoint) != {"version", "vars", "history", "elapsed_ms", "paused_at"}:
+        raise WorkflowError("方案暂停记录格式无效")
+    values, history = checkpoint["vars"], checkpoint["history"]
+    elapsed, paused_at = checkpoint["elapsed_ms"], checkpoint["paused_at"]
+    lifecycle, dispatch = raw["scheme_lifecycle"], raw["handler_dispatch"]
+    if (checkpoint["version"] != 1 or not isinstance(values, dict) or set(values) != set(raw["vars"])
+            or any(type(v) not in (str, int, float, bool, type(None)) or
+                   (type(v) is float and not math.isfinite(v)) for v in values.values())
+            or type(values[dispatch["phase_var"]]) is not int or values[dispatch["phase_var"]] != 0
+            or type(elapsed) is not int or elapsed < 0 or not math.isfinite(now)
+            or type(paused_at) not in (int, float) or not math.isfinite(paused_at) or not 0 <= paused_at <= now
+            or not isinstance(history, list) or not 1 <= len(history) <= MAX_SWITCHES + 1):
+        raise WorkflowError("方案暂停记录缺少可恢复的状态或时钟")
+    previous = 0
+    for entry in history:
+        if (not isinstance(entry, dict) or set(entry) != {"scheme", "entered_ms"}
+                or not isinstance(entry["scheme"], str) or entry["scheme"] not in lifecycle["schemes"]
+                or type(entry["entered_ms"]) is not int or not previous <= entry["entered_ms"] <= elapsed):
+            raise WorkflowError("方案暂停历史无效")
+        previous = entry["entered_ms"]
+    if (history[0] != {"scheme": raw["vars"][ACTIVE_SCHEME], "entered_ms": 0}
+            or history[-1]["scheme"] != values[ACTIVE_SCHEME]):
+        raise WorkflowError("方案暂停历史与当前方案不一致")
+    return elapsed + int((now - paused_at) * 1000)
+
+
 def writes_active_scheme(condition):
     quiz = condition.get("quiz_answer", {})
     return (condition.get("var") == ACTIVE_SCHEME

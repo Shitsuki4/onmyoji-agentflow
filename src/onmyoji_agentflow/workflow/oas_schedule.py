@@ -45,9 +45,16 @@ SERVER_TIMING = {name: spec for name, spec in PARAMS.items() if name != "oas_suc
 def validate_schedule(schedule, parameters, variables):
     task = schedule
     if isinstance(schedule, dict):
-        if set(schedule) != {"task", "delay_seconds_var", "observed_ms_var"}:
-            raise WorkflowError("OAS 目标调度需要 task、delay_seconds_var 和 observed_ms_var")
-        for key in ("delay_seconds_var", "observed_ms_var"):
+        fields = set(schedule)
+        if fields == {"task", "local_time_seconds_var", "days_ahead"}:
+            if type(schedule["days_ahead"]) is not int or not 0 <= schedule["days_ahead"] <= 31:
+                raise WorkflowError("OAS 日历调度的 days_ahead 必须是 0–31 的整数")
+            var_keys = ("local_time_seconds_var",)
+        elif fields == {"task", "delay_seconds_var", "observed_ms_var"}:
+            var_keys = ("delay_seconds_var", "observed_ms_var")
+        else:
+            raise WorkflowError("OAS 目标调度需要相对延迟或本地日历字段")
+        for key in var_keys:
             name = schedule[key]
             if not isinstance(name, str) or type(variables.get(name)) is not int:
                 raise WorkflowError(f"OAS 目标调度的 {key} 必须引用已声明的整数变量")
@@ -93,6 +100,13 @@ def wake_next_run(start_at, observed_at, failure_seconds, server_params=None):
     if server_params is not None:
         return next_run(due, server_params, target_delay_seconds=0, calendar_at=observed_at)
     return due
+
+
+def calendar_next_run(finished_at, params, *, local_time_seconds, days_ahead):
+    """Apply the pinned custom clock time and normal server-update precedence."""
+    day = datetime.fromtimestamp(finished_at).date() + timedelta(days=days_ahead)
+    target = datetime.combine(day, time.min) + timedelta(seconds=local_time_seconds)
+    return next_run(target.timestamp(), params, target_delay_seconds=0, calendar_at=finished_at)
 
 
 def next_run(reference_at, params, *, target_delay_seconds=None, calendar_at=None):

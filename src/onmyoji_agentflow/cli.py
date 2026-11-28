@@ -137,6 +137,12 @@ def cmd_run(args):
     return 0 if out.result.ok else 1
 
 
+def cmd_resume_scheme(args):
+    result = _app(args, interactive=True).supervisor.resume_scheme(args.run_id)
+    print(json.dumps(result.summary(), ensure_ascii=False, indent=2, default=str))
+    return 0 if result.ok else 1
+
+
 def cmd_diagnose(args):
     import cv2
     import numpy as np
@@ -609,6 +615,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--trial", type=int, default=0, help="限次试跑：最多执行这么多次操作")
     s.add_argument("--no-repair", action="store_true", help="失败时不自动修复")
     s.set_defaults(func=cmd_run)
+    s = sub.add_parser("resume-scheme", help="恢复通过上游暂停分支保存的方案")
+    s.add_argument("run_id", type=int, help="处于暂停状态的运行编号")
+    s.set_defaults(func=cmd_resume_scheme)
     s = sub.add_parser("marathon", help="连续日常：按计划循环跑多个工作流（补给、结界突破、御魂、探索），记日志、统计、留样本")
     s.add_argument("-i", "--instance", default=None)
     s.add_argument("--plan", help="计划文件（YAML）或 daily/weekly/all；不给就用默认计划")

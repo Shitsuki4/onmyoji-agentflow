@@ -1,6 +1,7 @@
 """Offline unit tests for OAS Hunt, DemonRetreat, TrueOrochi, and Secret."""
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 
@@ -35,7 +36,7 @@ def oas_stage(inert_source, converted):
 
 
 def _run(raw, root, frames, *, params=None, initial_vars=None, ocr_full=None, ocr_int=None,
-         ocr_single=None, text_reader=None):
+         ocr_single=None, text_reader=None, wall_clock=None, max_seconds=60, advance_on_input=True):
     wf = load_workflow(raw, [root])
     aliases = {}
     for name, spec in wf.resources.items():
@@ -66,13 +67,14 @@ def _run(raw, root, frames, *, params=None, initial_vars=None, ocr_full=None, oc
             return ocr_single(image, region)
         return (ocr_single or {}).get(int(image[0, 0, 0]) - 20, "")
 
-    device = ReplayDevice([blank(20 + i) for i in range(len(frames))], advance_on_input=True)
+    device = ReplayDevice([blank(20 + i) for i in range(len(frames))], advance_on_input=advance_on_input)
     clock = MillisecondClock()
     with patch.object(engine, "match_template", match):
         res = engine.Runner(
-            wf, Controller(device, sleep=clock.sleep), clock=clock, max_seconds=60,
+            wf, Controller(device, sleep=clock.sleep), clock=clock, max_seconds=max_seconds,
             params=params, full_ocr_reader=full_ocr, ocr_reader=read_int,
             single_ocr_reader=read_single, text_reader=text_reader, initial_vars=initial_vars,
+            wall_clock=wall_clock,
         ).run()
     return res, device
 
@@ -98,18 +100,121 @@ def test_hunt_kirin_and_netherworld_paths(oas_stage):
 
     res_sched, _ = _run(
         hu, stage / "resources", [()],
-        params={"hu_in_window": False, "hu_next_delay_s": 14400},
+        params={"hu_calendar_mode": "manual", "hu_in_window": False, "hu_next_delay_s": 14400},
     )
     assert res_sched.status == "success" and res_sched.variables["hu_exit_reason"] == "outside_window"
     assert res_sched.oas_target is not None and res_sched.oas_target[0] == 14400
 
     res_hu_tl, _ = _run(
         hu, stage / "resources", [("I_KIRIN_CHALLAGE",), ()],
-        params={"hu_limit_seconds": 1, "hu_next_delay_s": 14400},
+        params={"hu_calendar_mode": "manual", "hu_limit_seconds": 1, "hu_next_delay_s": 14400},
         initial_vars={"hu_phase": "kirin_enter"},
     )
     assert res_hu_tl.status == "success" and res_hu_tl.variables["hu_exit_reason"] == "time_limit"
     assert res_hu_tl.oas_target is not None and res_hu_tl.oas_target[0] == 14400
+
+
+def test_hunt_source_calendar_boundaries(oas_stage):
+    stage, src, folder = oas_stage
+    raw = compile_hunt_candidate(src, folder)
+    probe = {**raw, "stop_when": "hu_phase == 'nav_kirin' or hu_phase == 'nav_nw'"}
+    params = {"hu_kirin_time_s": 69300, "hu_netherworld_time_s": 70200}
+    cases = [
+        (datetime(2026, 11, 26, 5, 59, 59), "calendar_today", (69300, 0)),
+        (datetime(2026, 11, 26, 6), "nav_kirin", None),
+        (datetime(2026, 11, 26, 23), "nav_kirin", None),
+        (datetime(2026, 11, 26, 23, 0, 0, 1000), "calendar_tomorrow", (70200, 1)),
+        (datetime(2026, 11, 27, 16, 59, 59), "calendar_today", (70200, 0)),
+        (datetime(2026, 11, 27, 17), "nav_nw", None),
+        (datetime(2026, 11, 29, 23, 0, 1), "calendar_tomorrow", (69300, 1)),
+    ]
+    for start, phase, schedule in cases:
+        result, device = _run(probe, stage / "resources", [()], params=params,
+                              wall_clock=start.timestamp)
+        assert result.status == "success" and not device.inputs, (start, result.summary())
+        assert result.variables["hu_phase"] == phase and result.oas_calendar_target == schedule
+
+    result, _ = _run(raw, stage / "resources", [("I_NW_DONE", "I_UI_BACK_RED"), ("I_CHECK_GUILD",)],
+                     params=params, initial_vars={"hu_phase": "nw_enter"},
+                     wall_clock=datetime(2026, 11, 29, 20).timestamp)
+    assert result.status == "success" and result.oas_calendar_target == (69300, 1)
+
+
+def test_hunt_netherworld_fire_requires_room_and_a_battle_transition(oas_stage):
+    stage, src, folder = oas_stage
+    raw = compile_hunt_candidate(src, folder)
+    probe = {**raw, "stop_when": "hu_phase == 'battle'"}
+    resource_root = stage / "resources"
+    initial = {"hu_phase": "nw_enter"}
+    result, device = _run(probe, resource_root, [("I_FIRE",)], initial_vars=initial)
+    assert result.status != "success" and not device.inputs
+
+    room = ("I_FIRE", "I_GI_EMOJI_1")
+    result, device = _run(probe, resource_root, [room, ("I_PREPARE_HIGHLIGHT",)], initial_vars=initial)
+    assert result.status == "success" and result.variables["hu_phase"] == "battle"
+    assert len(device.inputs) == 1
+
+    result, device = _run(probe, resource_root, [room], initial_vars=initial)
+    assert result.failed_state == "hu_nw_room_start_timeout" and len(device.inputs) == 3
+
+
+def test_hunt_wait_closes_only_the_observed_result_and_services_late_ready(oas_stage):
+    stage, src, folder = oas_stage
+    raw = compile_hunt_candidate(src, folder)
+    initial = {"hu_phase": "battle", "hu_battle_phase": "battle_wait"}
+    result, device = _run(raw, stage / "resources", [
+        ("I_PREPARE_HIGHLIGHT",), ("I_WIN", "I_FALSE"), ("I_WIN",), ("I_REWARD",),
+    ], initial_vars=initial)
+    assert result.status == "success" and result.variables["hu_wins"] == 1, result.summary()
+    assert result.variables["hu_battle_result_marker"] == "I_WIN"
+    assert len(device.inputs) == 3
+
+    result, device = _run(raw, stage / "resources", [("I_FALSE",), ("I_NW_DONE",)], initial_vars=initial)
+    assert result.status == "success" and result.variables["hu_wins"] == 0, result.summary()
+    assert result.variables["hu_battle_result_marker"] == "I_FALSE"
+    assert len(device.inputs) == 1
+
+    result, device = _run(raw, stage / "resources", [("I_WIN",), ("I_REWARD",)],
+                          initial_vars=initial, advance_on_input=False)
+    assert result.status == "success" and result.variables["hu_wins"] == 1, result.summary()
+    assert not device.inputs
+
+
+def test_hunt_wait_does_not_treat_reward_alone_as_a_win(oas_stage):
+    stage, src, folder = oas_stage
+    raw = compile_hunt_candidate(src, folder)
+    result, device = _run(raw, stage / "resources", [("I_REWARD",)], max_seconds=485,
+                          initial_vars={"hu_phase": "battle", "hu_battle_phase": "battle_wait"})
+    assert result.failed_state == "hu_battle_hunt_wait_timeout", result.summary()
+    assert result.variables["hu_battle_hunt_reset_stuck"] is True
+    assert result.variables["hu_battle_outcome_known"] is False and not device.inputs
+    assert result.history[-1][0] >= 480
+
+
+def test_hunt_selects_mode_before_switch_soul_and_uses_independent_battle_settings(oas_stage):
+    stage, src, folder = oas_stage
+    raw = compile_hunt_candidate(src, folder)
+    resources = stage / "resources"
+    params = {"hu_calendar_mode": "manual", "hu_kirin_soul_group": 2, "hu_kirin_soul_team": 3,
+              "hu_netherworld_soul_group": 6, "hu_netherworld_soul_team": 4,
+              "hu_kirin_preset_group": 2, "hu_netherworld_preset_group": 6}
+    preset_probe = {**raw, "stop_when": "hu_phase == 'soul_records' or hu_phase == 'records_only'"}
+    for kirin, expected, phase, frames, inputs in (
+        (True, (2, 3), "kirin_enter", [("I_PREPARE_HIGHLIGHT",)], 0),
+        (False, (6, 4), "nw_enter", [("I_GI_SPEAK", "I_FIRE"), ("I_BATTLE_INFO",)], 1),
+    ):
+        config = {**params, "hu_kirin_day": kirin}
+        result, device = _run(preset_probe, resources, [()], params=config)
+        assert result.variables["hu_phase"] == "soul_records" and not device.inputs
+        assert (result.variables["hu_soul_group"], result.variables["hu_soul_team"]) == expected
+        probe = {**raw, "stop_when": "hu_phase == 'battle'"}
+        result, device = _run(probe, resources, frames, params=config, initial_vars={"hu_phase": phase})
+        assert result.status == "success" and len(device.inputs) == inputs, result.summary()
+        assert result.variables["hu_battle_config_preset_group"] == expected[0]
+
+    result, device = _run(preset_probe, resources, [()], params={**params, "hu_netherworld_soul_group": -1,
+                          "hu_netherworld_soul_team": -1, "hu_kirin_day": False})
+    assert result.variables["hu_phase"] == "records_only" and not device.inputs
 
 
 def test_demon_retreat_saturday_battle_and_reward(oas_stage):

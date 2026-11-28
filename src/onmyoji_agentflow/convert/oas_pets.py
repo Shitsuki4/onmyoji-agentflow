@@ -36,9 +36,24 @@ def compile_pets_candidate(source_root, resource_dir, *, calibrations=None, cour
     raw["name"], raw["title"] = "oas_pets_natively_staged", "宠物小屋"
     bind_schedule(source_root, raw)
     raw["params"]["pets_feast"] = {"default": True}
-    raw["vars"].update(pet_phase="navigate", pet_ap_cost=-1, pet_outcome="unknown", pet_feed_attempted=False)
+    raw["vars"].update(pet_phase="navigate", pet_ap_cost=-1, pet_ap_seen=-1,
+                       pet_outcome="unknown", pet_feed_attempted=False)
     raw["resources"] = sorted(set(raw["resources"] + ["upstream/oas/Pets.yaml"]))
     pets = load_yaml(resource_dir / "Pets.yaml")["resources"]
+    # Pets.yaml's Digit crop is two pixels tight against the glyph: on a 1280x720
+    # feed dialog the strict whole-line reader returns "。" for a leading 0 while
+    # the same crop's detector reads "0" at 0.92. Keep the source box's width and
+    # shift it 2 px left, extending 2 px above and below the glyph line, so the
+    # digit (and any 12) is read whole.
+    ap_x, ap_y, ap_w, ap_h = pets["O_PET_FEED_AP"]["roi"]
+    quote_resource = "Pets::O_PET_FEED_AP_QUOTE"
+    raw.setdefault("inline_resources", {})[quote_resource] = {
+        "type": "ocr", "mode": pets["O_PET_FEED_AP"]["mode"],
+        "roi": [ap_x - 2, ap_y - 2, ap_w, ap_h + 4],
+        "keyword": pets["O_PET_FEED_AP"].get("keyword", ""),
+        "desc": "喂食的体力（严格整行读数，含字形余量）",
+        "_source": "OnmyojiAutoScript",
+    }
 
     def phase(value):
         return {"expr": f"pet_phase == {value!r}"}
@@ -70,11 +85,15 @@ def compile_pets_candidate(source_root, resource_dir, *, calibrations=None, cour
           {"set": {"pet_outcome": "'skipped'"}}, change("exit"))
     state("feed_dialog_open", "house", [feed], change("cost"))
     state("fast_feed", "house", [feast, {"expr": "pets_feast"}], click("I_PET_FEAST"))
-    state("read_cost", "cost", [feed, {"ocr": "Pets::O_PET_FEED_AP", "var": "pet_ap_cost"}], change("decide"))
-    state("already_fed", "decide", [feed, {"expr": "pet_ap_cost == 0"}],
+    quote = {"ocr": quote_resource, "mode": "exact_quantity"}
+    same_quote = {**quote, "var": "pet_ap_seen", "test": "pet_ap_seen == pet_ap_cost"}
+    state("read_cost", "cost", [feed, {**quote, "var": "pet_ap_cost"}], change("decide"))
+    state("already_fed", "decide", [feed, same_quote, {"expr": "pet_ap_cost == 0"}],
           {"set": {"pet_outcome": "'already_done'"}}, change("exit"))
-    state("feed_once", "decide", [feed, {"expr": "pet_ap_cost > 0"}],
+    state("feed_once", "decide", [feed, same_quote, {"expr": "pet_ap_cost > 0"}],
           click("I_PET_FEED", attempt_var="pet_feed_attempted"), change("confirm_animation"))
+    state("quote_changed", "decide", [feed, {"expr": "pet_ap_seen != pet_ap_cost"}],
+          {"fail": "宠物投喂体力报价已变化或无法核对"})
     state("feed_animation_seen", "confirm_animation", [skip], change("animation"))
     state("feed_animation_finished", "animation", [{"not": skip}, {"any": [exit_, feast]}],
           {"set": {"pet_outcome": "'completed'"}}, change("exit"))
