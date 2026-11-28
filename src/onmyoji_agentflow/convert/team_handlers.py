@@ -608,9 +608,9 @@ def _demon_discovery(b):
 
 
 def _pet_courtyard(b):
-    checks = "checked_yard_count"
+    checks, slot = "checked_yard_count", "pet517_rear_slot"
     counter = [_count(517)]
-    b.model["vars"] = {checks: 0, "super_next_scheme_name": ""}
+    b.model["vars"] = {checks: 0, slot: -1, "super_next_scheme_name": ""}
     b.add("finished", b.when(9), [{"set": {"super_next_scheme_name": "next_scheme"}},
           {"scheme_transition": {"mode": "rerun", "target": "返回庭院"}}], outcome=False, counts=counter)
     entry = {"any": [b.when(index) for index in (0, 1, 2)]}
@@ -621,11 +621,14 @@ def _pet_courtyard(b):
               counts=counter)
 
     rear = b.when(4)
-    b.add("check_rear_yard", rear, counts=counter, outcome=None, internal=True)
+    # Source advances the counter before oper(), even if dispatch is cancelled.
+    # Freeze its incoming slot so the full fresh-frame recheck is not invalidated
+    # by that advance; the scene guard and native input boundary remain intact.
+    b.add("check_rear_yard", rear, [{"set": {slot: checks}}], counts=counter, outcome=None, internal=True)
     b.add("reset_rear_count", _all(rear, _expr(f"{checks} >= 6")), [{"set": {checks: 0}}], internal=True)
     for index, action in enumerate(b.actions(4)):
-        condition = _all(rear, _expr(f"{checks} == {index}"))
-        b.add(f"rear_yard_{index}", condition, [{"wait": 1500}, {**action, "recheck": True}, {"inc": checks}],
+        condition = _all(rear, _expr(f"{slot} == {index}"))
+        b.add(f"rear_yard_{index}", condition, [{"wait": 1500}, {"inc": checks}, {**action, "recheck": True}],
               counts=counter)
     b.model["proof"]["source_state_bindings"] = {"global.checked_yard_count": checks,
                                                  "superGlobal.next_scheme_name": "super_next_scheme_name"}
