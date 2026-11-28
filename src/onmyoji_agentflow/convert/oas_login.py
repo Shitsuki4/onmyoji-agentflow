@@ -319,8 +319,10 @@ class _LoginBuilder:
         self.click("cancel_video", phase, (114, 116), cancel, 0, task="GlobalGame")
         self.click("login_red_close", phase, (118, 120), RED_CLOSE, 600)
         self.click("login_yellow_close", phase, (122, 124), "I_LOGIN_YELLOW_CLOSE", 600)
-        self.block("bind_phone", phase, (125, 132), "Phone binding requires user handling",
-                   self.image("I_LOGIN_LOGIN_GOTO_BIND_PHONE"))
+        # This source branch opens a prompt only to cancel it; it does not
+        # enter a phone number or submit a binding. Enter only after dispatch.
+        self.click("open_bind_phone_prompt", phase, (125, 127), "I_LOGIN_LOGIN_GOTO_BIND_PHONE", 0,
+                   afterwards=[self.goto("bind_phone")])
         self.click("reject_foster_invite", phase, (133, 137), "I_I_REJECT", 800, task="Component_GeneralInvite")
         self.click("dismiss_genie", phase, (138, 141), "I_LOGIN_LOGIN_ONMYOJI_GENIE", 0)
 
@@ -345,6 +347,19 @@ class _LoginBuilder:
         for name in ("O_LOGIN_ENTER_GAME_ORIGIN", "O_LOGIN_ENTER_GAME"):
             self.login_ocr(name.lower(), name, 3000, login_form, (175, 177), "wait_for_role")
         self.await_frame(phase, (57, 179))
+
+        # Source self.screenshot() at login.py:128 inherits _burst. Its
+        # continuation belongs to this inner prompt, not the outer login loop.
+        self.burst("bind_phone", (127, 129))
+        self.block("bind_phone", "bind_phone", (125, 132),
+                   "Phone prompt permits only the source cancel control; unrelated confirmation requires review",
+                   {"any": [self.image("I_UI_CONFIRM", task="GlobalGame"),
+                            self.image("I_UI_CONFIRM_SAMLL", task="GlobalGame")]})
+        # Both source clicks omit interval. Reuse the existing cancel control
+        # without allocating/resetting its shared per-target cooldown.
+        self.click("cancel_bind_phone_prompt", "bind_phone", (128, 132), cancel, 0, task="GlobalGame",
+                   afterwards=[self.goto(phase)])
+        self.await_frame("bind_phone", (127, 132))
 
         self.state("role_page_timeout", "wait_for_role", (175, 177), [self.goto(phase)], guard=self.expired(5000))
         self.state("role_page_reached", "wait_for_role", (175, 177), [self.goto(phase)], chooser)
@@ -634,7 +649,10 @@ def _compile_fragment(source_root, resource_dir, prefix, *, android_login):
             "wait for a native 1280x720 screenshot before evaluating their controls.",
             "Courtyard confirmation requires three eligible frames and more than 1.5 seconds on the monotonic clock",
             "Role selection requires a complete literal OCR keyword and uses its current matched box",
-            "Phone binding pauses for review; fixed scroll click requires the collapsed scroll marker",
+            "Phone prompt cancellation follows LoginHandler._app_handle_login:125-132: dispatch the source opener, "
+            "resume inherited screenshot/_burst in the prompt phase, then dispatch only I_UI_CANCEL_SAMLL and return to login; "
+            "no phone entry or binding submission; unrelated confirmations retain the bind_phone review obligation",
+            "Fixed scroll click requires the collapsed scroll marker",
             "Role creation enters the bounded two-attempt recovery with an explicit approval for each game restart",
             "The 15-control repeated-tap rule is enforced before the triggering tap, including across login and harvest",
             "No-input recovery uses the 60 s/60 capture and LOGIN_CHECK 300 s/300 capture windows; "
