@@ -20,6 +20,7 @@ import random
 import json
 from collections import Counter, deque
 from dataclasses import dataclass, field
+from datetime import datetime
 
 import cv2
 import numpy as np
@@ -29,14 +30,14 @@ from ..log import logger
 from ..vision.colors import color_score, compare_colors, find_multi_color, mean_rgb_similar
 from ..vision.template import match_template
 from .expr import evaluate
-from .schema import SENSITIVE, Workflow
-from .scheme_lifecycle import ACTIVE_SCHEME, MAX_SWITCHES, SWITCH_DELAY_S
+from .schema import CLOSE_APPS_CONFIRMATION, SENSITIVE, Workflow
+from .scheme_lifecycle import ACTIVE_SCHEME, MAX_SWITCHES, SWITCH_DELAY_S, resume_elapsed_ms
 
 
 @dataclass
 class RunResult:
     workflow: str
-    status: str                    # success | stopped | failed | limit | observed
+    status: str                    # success | stopped | failed | limit | observed | paused
     reason: str = ""
     failure_kind: str | None = None
     failed_state: str | None = None
@@ -52,11 +53,13 @@ class RunResult:
     evidence: dict = field(default_factory=dict)
     oas_schedule: str | None = None
     oas_target: tuple[int, float] | None = None
+    oas_calendar_target: tuple[int, int] | None = None
     oas_wakes: dict[str, tuple[int | None, float] | tuple[int | None, float, dict]] = field(default_factory=dict)
+    scheme_pause: dict | None = None
 
     @property
     def ok(self) -> bool:
-        return self.status in ("success", "stopped", "limit", "observed")
+        return self.execution_ok
 
     @property
     def execution_ok(self) -> bool:
@@ -66,7 +69,7 @@ class RunResult:
         limited trial, an observation run, and a manual stop are all valid
         executions but are not business receipts.
         """
-        return self.status in ("success", "stopped", "limit", "observed")
+        return self.status in ("success", "stopped", "limit", "observed", "paused")
 
     @property
     def business_ok(self) -> bool:
@@ -103,7 +106,7 @@ class Runner:
                  max_actions: int | None = None, max_seconds: float | None = None, clock=time.monotonic,
                  on_event=None, should_stop=None, ocr_reader=None, text_reader=None, initial_vars=None,
                  validate_params: bool = True, before_input=None, after_input=None, strict_ocr=False,
-                 single_ocr_reader=None, full_ocr_reader=None):
+                 single_ocr_reader=None, full_ocr_reader=None, wall_clock=None, scheme_checkpoint=None):
         self.wf = workflow
         self.ctl = controller
         self.params = workflow.validate_params(params or {}) if validate_params else {
@@ -112,6 +115,8 @@ class Runner:
         self.max_actions = max_actions
         self.max_seconds = max_seconds
         self.clock = clock
+        self.wall_clock = wall_clock or time.time
+        self._run_calendar: dict = {}
         self.on_event = on_event or (lambda kind, data: None)
         self.should_stop = should_stop or (lambda: False)
         self.before_input = before_input or (lambda state, action, variables: None)
@@ -123,6 +128,7 @@ class Runner:
         # text_reader(img, region) -> [(text, cx, cy)]; injectable for tests (default: rapidocr)
         self.text_reader = text_reader
         self.initial_vars = dict(initial_vars or {})   # e.g. counters carried over from an earlier run
+        self.scheme_checkpoint = scheme_checkpoint
         self._text_cache: dict = {}
         self._answer_banks: dict = {}
         self._text_frame = None
@@ -146,6 +152,8 @@ class Runner:
             workflow.raw.get("navigation", {}).get("calls", {}).items() for sid in spec["states"]}
         self._restart_markers = {action["attempt_var"] for state in workflow.states
                                  for action in state.get("do", []) if "restart_app" in action}
+        self._close_app_markers = {action["attempt_var"] for state in workflow.states
+                                   for action in state.get("do", []) if "close_related_apps" in action}
         self._recent_taps = deque(maxlen=15)
 
     # ---------------------------------------------------------------- conditions
@@ -580,7 +588,17 @@ class Runner:
         return True
 
     def _env(self) -> dict:
-        return {**self.params, **self.vars, "actions": self._actions_taken, "screen_captures": self._screen_captures}
+        if not self._run_calendar:
+            self._read_run_calendar()
+        return {**self.params, **self.vars, **self._run_calendar, "actions": self._actions_taken,
+                "screen_captures": self._screen_captures}
+
+    def _read_run_calendar(self):
+        start = datetime.fromtimestamp(self.wall_clock())
+        self._run_calendar = {
+            "started_weekday": start.weekday(),
+            "started_day_second": start.hour * 3600 + start.minute * 60 + start.second + start.microsecond / 1_000_000,
+        }
 
     def diagnose_frame(self, img: np.ndarray) -> list[dict]:
         """Per state (and per blocker): does it match, and for colour conditions the fraction of
@@ -697,7 +715,7 @@ class Runner:
             operation()
             if action.get("tap_id"):
                 self._recent_taps.append(action["tap_id"])
-            elif "restart_app" in action:
+            elif "restart_app" in action or "close_related_apps" in action:
                 self._recent_taps.clear()
         finally:
             if callable(authorization):
@@ -964,6 +982,30 @@ class Runner:
                 if not self.vars.get(action["attempt_var"]):
                     raise
                 raise RunFailure("restart_uncertain", str(error), st["id"]) from error
+        elif "close_related_apps" in action:
+            from ..device.adb import ONMYOJI_PACKAGE
+            if self.vars.get(action["attempt_var"]):
+                raise RunFailure("app_close_uncertain", "关联应用已尝试关闭，需要先核对结果", st["id"])
+            boundary = self._action_boundary()
+            if boundary:
+                return boundary
+            command = action["close_related_apps"]
+            packages, mode = command["packages"], command["mode"]
+
+            def require_foreground():
+                if (self.ctl.raw_size != (1280, 720)
+                        or not self.ctl.device.app_in_foreground(ONMYOJI_PACKAGE)):
+                    raise RunFailure("prerequisite", "未核对当前模拟器的阴阳师前台，未关闭关联应用", st["id"])
+
+            require_foreground()
+            self._confirm(CLOSE_APPS_CONFIRMATION, f"使用 {mode} 关闭当前模拟器中的 {', '.join(packages)}")
+            try:
+                return self._input(st, action, lambda: self.ctl.close_related_apps(packages, mode),
+                                   prepare=require_foreground)
+            except DeviceError as error:
+                if not self.vars.get(action["attempt_var"]):
+                    raise
+                raise RunFailure("app_close_uncertain", str(error), st["id"]) from error
         elif "wait" in action:
             wait = action["wait"]
             if isinstance(wait, dict):
@@ -1112,6 +1154,8 @@ class Runner:
         lifecycle = self.wf.raw.get("scheme_lifecycle") or {}
         if not lifecycle or not self._handler_active:
             raise RunFailure("scheme_lifecycle", "方案切换缺少有效的组件扫描", state["id"])
+        if transition["mode"] == "pause":
+            return "scheme_pause"
         target = transition.get("target")
         if transition["mode"] == "previous":
             if len(self._scheme_history) == 1:
@@ -1156,6 +1200,7 @@ class Runner:
         res = RunResult(wf.name, "failed", started=self.clock())
         start = res.started
         self._run_started = start
+        self._read_run_calendar()
         self._oas_wakes = {}
         self._stop_business_result = str(wf.raw.get("default_result") or "unknown")
         self._stop_evidence = {}
@@ -1190,12 +1235,28 @@ class Runner:
             if lifecycle:
                 if self.initial_vars:
                     raise RunFailure("scheme_lifecycle", "方案生命周期缺少可验证的恢复记录")
-                self._record_scheme_entry(self.vars[ACTIVE_SCHEME], 0)
+                if self.scheme_checkpoint is None:
+                    self._record_scheme_entry(self.vars[ACTIVE_SCHEME], 0)
+                else:
+                    try:
+                        self._elapsed_offset_ms = resume_elapsed_ms(wf.raw, self.scheme_checkpoint, self.wall_clock())
+                    except WorkflowError as error:
+                        raise RunFailure("scheme_lifecycle", str(error)) from error
+                    self.vars.update(self.scheme_checkpoint["vars"])
+                    self._scheme_history = copy.deepcopy(self.scheme_checkpoint["history"])
+                    handled_var = lifecycle["schemes"][self.vars[ACTIVE_SCHEME]]["handled_var"]
+                    self.vars[handled_var] = self._elapsed_offset_ms
+                    if "core0_current_date_ms" in self.vars:
+                        self.vars["core0_current_date_ms"] = self._elapsed_offset_ms
+            elif self.scheme_checkpoint is not None:
+                raise RunFailure("scheme_lifecycle", "该工作流没有可恢复的方案生命周期")
             call_active_var = wf.raw.get("navigation", {}).get("call_active_var")
             if call_active_var and self.vars.get(call_active_var) != "":
                 raise RunFailure("navigation_resume", "上次在导航回调中途停止；缺少原生返回上下文，不能自动重放")
             if any(self.vars.get(marker) for marker in self._restart_markers):
                 raise RunFailure("restart_uncertain", "上一次游戏重启结果未核对，需要人工确认状态")
+            if any(self.vars.get(marker) for marker in self._close_app_markers):
+                raise RunFailure("app_close_uncertain", "上一次关联应用关闭结果未核对，需要人工确认状态")
             if dispatch and not valid_handler_clock:
                 raise RunFailure("handler_resume", "已保存的组件时钟不是有效的非负有限毫秒数")
             if dispatch and self.vars.get(dispatch["phase_var"], 0) != 0:
@@ -1364,6 +1425,16 @@ class Runner:
                     repeat_state, repeat_count = None, 0
                 if end:
                     kind, _, reason = end.partition(":")
+                    if kind == "scheme_pause":
+                        res.status = "observed" if observe else "paused"
+                        res.reason = "识别到上游暂停分支" if observe else "上游方案请求暂停，等待恢复"
+                        res.evidence = {"terminal_state": matched["id"], "verified": False}
+                        self.vars[dispatch["phase_var"]] = 0
+                        if not observe:
+                            res.scheme_pause = {"version": 1, "vars": {key: self.vars[key] for key in wf.raw["vars"]},
+                                                "history": copy.deepcopy(self._scheme_history),
+                                                "elapsed_ms": self.vars["elapsed_ms"], "paused_at": self.wall_clock()}
+                        break
                     if kind == "scheme_transition":
                         last_known = last_change = last_progress = self.clock()
                         prev_thumb = repeat_state = None
@@ -1379,13 +1450,19 @@ class Runner:
                             schedule = terminal.get("oas_schedule")
                             if isinstance(schedule, dict):
                                 res.oas_schedule = schedule["task"]
-                                delay = self.vars[schedule["delay_seconds_var"]]
-                                observed = self.vars[schedule["observed_ms_var"]]
-                                elapsed = self.vars["elapsed_ms"]
-                                if (type(delay) is not int or not 0 <= delay <= 3155760000 or
-                                        type(observed) is not int or not 0 <= observed <= elapsed):
-                                    raise RunFailure("workflow_fail", "OAS 目标调度缺少有效的延迟或观察时间", matched["id"])
-                                res.oas_target = (delay, (elapsed - observed) / 1000)
+                                if "local_time_seconds_var" in schedule:
+                                    local_seconds = self.vars[schedule["local_time_seconds_var"]]
+                                    if type(local_seconds) is not int or not 0 <= local_seconds < 86400:
+                                        raise RunFailure("workflow_fail", "OAS 日历调度时间无效", matched["id"])
+                                    res.oas_calendar_target = (local_seconds, schedule["days_ahead"])
+                                else:
+                                    delay = self.vars[schedule["delay_seconds_var"]]
+                                    observed = self.vars[schedule["observed_ms_var"]]
+                                    elapsed = self.vars["elapsed_ms"]
+                                    if (type(delay) is not int or not 0 <= delay <= 3155760000 or
+                                            type(observed) is not int or not 0 <= observed <= elapsed):
+                                        raise RunFailure("workflow_fail", "OAS 目标调度缺少有效的延迟或观察时间", matched["id"])
+                                    res.oas_target = (delay, (elapsed - observed) / 1000)
                             else:
                                 res.oas_schedule = schedule
                         break

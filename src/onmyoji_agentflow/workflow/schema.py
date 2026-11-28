@@ -40,9 +40,10 @@ from ..yamlio import dump_yaml, load_yaml
 from .expr import compile_expr, names_in
 
 RESTART_CONFIRMATION = "重启游戏"
-SENSITIVE = ("花勾玉", "抽卡", "购买", "出售", "分解", RESTART_CONFIRMATION)
+CLOSE_APPS_CONFIRMATION = "关闭关联应用"
+SENSITIVE = ("花勾玉", "抽卡", "购买", "出售", "分解", RESTART_CONFIRMATION, CLOSE_APPS_CONFIRMATION)
 INPUT_ACTION_KEYS = {"click", "click_random", "click_found", "select_foster", "select_foster_unit",
-                     "swipe", "back", "start_app", "restart_app"}
+                     "swipe", "back", "start_app", "restart_app", "close_related_apps"}
 SUPPORTED_IMAGE_METHODS = {"Template matching", "Masked template matching", "Multi-scale template matching", "Sift Flann", "Default"}
 FORBIDDEN_ACTION_KEYS = {
     "recharge", "send_social", "invite_return", "feed_rare", "feed_rare_unit", "feed_locked",
@@ -52,10 +53,11 @@ FORBIDDEN_ACTION_KEYS = {
 FORBIDDEN_INTENTS = FORBIDDEN_ACTION_KEYS
 CONDITION_KEYS = {"colors", "mean_color", "res", "find", "find_near", "find_column", "find_image_above", "image", "expr", "all", "any", "not", "ocr", "ocr_single", "ocr_full", "text", "text_param", "ordered_list", "image_grid", "quiz_answer", "wanted_badge", "wanted_location", "screen_size", "tap_loop", "foreground_game", "scheme_history"}
 ACTION_KEYS = {"click", "click_random", "click_found", "capture_region", "navigate", "navigation_return", "handler_control", "select_foster", "select_foster_unit", "scan_tasks", "receipt", "swipe", "back", "wait", "wait_random", "sample_int", "sample_duration", "set", "inc", "stop", "fail", "confirm",
-               "start_app", "restart_app", "scheme_transition", "log", "oas_wake"}
+               "start_app", "restart_app", "close_related_apps", "scheme_transition", "log", "oas_wake"}
 DEFAULT_LIMITS = {"timeout_s": 3600, "unknown_timeout_s": 60, "stuck_timeout_s": 90,
                   "no_progress_timeout_s": 600, "max_repeat": 20}
-RUN_METRICS = {"actions", "elapsed_s", "elapsed_ms", "screen_captures"}
+RUN_METRICS = {"actions", "elapsed_s", "elapsed_ms", "screen_captures",
+               "started_weekday", "started_day_second"}
 
 
 def bundled_dir() -> Path:
@@ -586,14 +588,15 @@ def validate_action(a, resources: dict, variables: set, where: str):
     key = next(iter(set(a) & ACTION_KEYS))
     if "tap_id" in a and (key not in ("click", "click_found", "click_random") or not _valid_tap_id(a["tap_id"])):
         raise WorkflowError(f"{where}: tap_id 只能标识点击动作")
-    if "recheck" in a and (type(a["recheck"]) is not bool or key not in ("click", "click_random", "click_found", "swipe", "restart_app")):
-        raise WorkflowError(f"{where}: recheck 只支持点击、滑动或重启动作的布尔标记")
+    if "recheck" in a and (type(a["recheck"]) is not bool or key not in (
+            "click", "click_random", "click_found", "swipe", "restart_app", "close_related_apps")):
+        raise WorkflowError(f"{where}: recheck 只支持点击、滑动、重启或关闭关联应用动作的布尔标记")
     if "recheck_retry" in a and (type(a["recheck_retry"]) is not bool or a.get("recheck") is not True
                                 or key not in ("click", "click_random", "click_found") or "attempt_var" in a):
         raise WorkflowError(f"{where}: recheck_retry 需要开启 recheck 的普通点击")
-    if "attempt_var" in a and (key not in ("click", "swipe", "restart_app") or not isinstance(a["attempt_var"], str)
+    if "attempt_var" in a and (key not in ("click", "swipe", "restart_app", "close_related_apps") or not isinstance(a["attempt_var"], str)
                                or a["attempt_var"] not in variables):
-        raise WorkflowError(f"{where}: attempt_var 需要点击、滑动或重启动作及已声明变量")
+        raise WorkflowError(f"{where}: attempt_var 需要支持重试标记的动作及已声明变量")
     forbidden = set(a) & FORBIDDEN_ACTION_KEYS
     if forbidden:
         raise WorkflowError(f"{where}: 禁止的操作 {sorted(forbidden)}")
@@ -653,6 +656,13 @@ def validate_action(a, resources: dict, variables: set, where: str):
         if (not isinstance(v, str) or not re.fullmatch(ONMYOJI_PACKAGE_PATTERN, v, flags=re.ASCII)
                 or a.get("recheck") is not True or not a.get("attempt_var")):
             raise WorkflowError(f"{where}: restart_app 需要阴阳师包名、recheck 和 attempt_var")
+    elif key == "close_related_apps":
+        from ..device.adb import ANDROID_PACKAGE_PATTERN
+        if (not isinstance(v, dict) or set(v) != {"packages", "mode"} or v["mode"] not in ("shell", "android api")
+                or not isinstance(v["packages"], list) or not v["packages"] or any(
+                    not isinstance(package, str) or not re.fullmatch(ANDROID_PACKAGE_PATTERN, package, flags=re.ASCII)
+                    for package in v["packages"]) or a.get("recheck") is not True or not a.get("attempt_var")):
+            raise WorkflowError(f"{where}: close_related_apps 需要 Android 包名列表、模式、recheck 和 attempt_var")
     elif key == "navigate":
         if (not isinstance(v, dict) or set(v) - {"destination", "done_var", "category", "timeout_s"}
                 or not isinstance(v.get("destination"), str) or not isinstance(v.get("done_var"), str)
@@ -677,11 +687,12 @@ def validate_action(a, resources: dict, variables: set, where: str):
         from .scheme_lifecycle import valid_history_terms
         valid = isinstance(v, dict) and (
             v == {"mode": "previous"}
+            or v == {"mode": "pause"}
             or (set(v) == {"mode", "contains"} and v["mode"] == "latest_matching" and valid_history_terms(v["contains"]))
             or (set(v) == {"mode", "target"} and v["mode"] == "rerun" and isinstance(v["target"], str)
                 and 0 < len(v["target"]) <= 128 and not v["target"].startswith("__")))
         if set(a) != {key} or not valid:
-            raise WorkflowError(f"{where}: scheme_transition 需要现有方案名或受限历史匹配")
+            raise WorkflowError(f"{where}: scheme_transition 需要现有方案名、受限历史匹配或暂停模式")
     elif key == "sample_int":
         if (not isinstance(v, dict) or set(v) != {"var", "min", "max"}
                 or not isinstance(v.get("var"), str) or v["var"] not in variables or v["var"] in RUN_METRICS
@@ -961,6 +972,14 @@ def validate(raw: dict, resources: dict) -> None:
                         or any(not isinstance(step, dict) or not set(step) & {"set", "inc", "log"}
                                for step in st["do"][1:])):
                     raise WorkflowError(f"{where}: restart_app 需要单独确认、必经画面或前台证据和初始为零的重启标记")
+            if "close_related_apps" in a:
+                marker_default = (raw.get("vars") or {}).get(a["attempt_var"])
+                following = st["do"][j + 1:]
+                if (type(marker_default) is not int or marker_default != 0
+                        or any(not isinstance(step, dict) or not set(step) & {"log", "wait", "stop", "set"}
+                               for step in following)
+                        or not any("stop" in step for step in following)):
+                    raise WorkflowError(f"{where}: close_related_apps 需要初始为零的标记及无后续输入的终止流程")
         if st.get("sensitive") and st["sensitive"] not in SENSITIVE:
             raise WorkflowError(f"{where}: sensitive 只能是 {SENSITIVE}")
         if st.get("on_repeat", "fail") not in ("fail", "stop"):

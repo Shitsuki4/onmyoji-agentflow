@@ -15,6 +15,7 @@ from test_handlers import case, handler
 RED = {"colors": [[40, 50, "#ff0000"]]}
 GREEN = {"colors": [[60, 70, "#00ff00"]]}
 RERUN = {"scheme_transition": {"mode": "rerun", "target": "返回庭院"}}
+PAUSE = {"scheme_transition": {"mode": "pause"}}
 
 
 def compile_stage(label, branch, *, defaults, value):
@@ -147,3 +148,104 @@ def test_rerun_rejects_untrusted_resume_at_a_target_without_history():
     result, replay, _ = run_synthetic(wf, [frame(GREEN)], initial_vars={"source_active_scheme": "返回庭院"})
     assert result.failure_kind == "scheme_lifecycle", result.summary()
     assert not replay.inputs and replay.screenshot_calls == 0
+
+
+def pause_workflow():
+    local = {"local_progress": 0, "super_next_scheme_name": "",
+             "core0_run_start_ms": 0, "core0_current_date_ms": 0}
+    existing = stages()["战斗"]
+    pause = case("pause", condition={"all": [GREEN, {"expr": "local_progress == 0"}]}, actions=[
+        {"click": [225, 225, 225, 225], "delay": 500},
+        {"set": {"local_progress": 37}}, PAUSE, {"wait": 3000},
+    ], counter=8)
+    finish = case("resume", condition={"all": [GREEN, {"expr": "local_progress == 37 and run_times_8 == 1"}]},
+                  actions=[{"stop": "重新扫描后保留暂停前状态"}])
+    program = compose_handlers("yard", [handler(7, [pause, finish], variables=local, params={"value": {"default": 52}})],
+                               common_overrides={"afterClickDelayRandom": 0})
+    target = phase_workflow(program, supported_primitives={"handler_control", "scheme_transition"},
+                            supported_builtins={"elapsed_ms"})["workflow"]
+    return bind_named_schemes("test_scheme_pause", "战斗", {"战斗": existing, "返回庭院": target})
+
+
+def test_pause_preserves_active_scheme_counts_clocks_and_fresh_scan():
+    workflow = load_workflow(pause_workflow())
+    clock = MillisecondClock()
+    device = ReplayDevice([frame(RED), frame(GREEN)], advance_on_input=True)
+    result = Runner(workflow, Controller(device, sleep=clock.sleep), clock=clock, wall_clock=lambda: 1000).run()
+    assert result.status == "paused" and not result.business_ok, result.summary()
+    assert device.inputs == [("tap", 100, 100), ("tap", 225, 225)]
+    checkpoint = result.scheme_pause
+    assert checkpoint["vars"]["handler_phase"] == 0
+    assert checkpoint["vars"]["run_times_8"] == 1 and checkpoint["vars"]["local_progress"] == 37
+    assert checkpoint["elapsed_ms"] < 3000  # The paused worker's trailing sleep is interrupted.
+    assert len(checkpoint["history"]) == 2 and checkpoint["history"][-1]["scheme"] == "返回庭院"
+
+    device = ReplayDevice([frame(GREEN)], advance_on_input=True)
+    restored = Runner(workflow, Controller(device, sleep=clock.sleep), clock=clock, wall_clock=lambda: 1060,
+                      scheme_checkpoint=checkpoint).run()
+    assert restored.status == "success" and not device.inputs, restored.summary()
+    assert restored.variables["core0_run_start_ms"] == checkpoint["vars"]["core0_run_start_ms"]
+    assert restored.variables["core0_current_date_ms"] == checkpoint["elapsed_ms"] + 60000
+    assert restored.variables["handler_last_id"] == checkpoint["vars"]["handler_last_id"]
+    assert restored.evidence["scheme_history"] == checkpoint["history"]
+
+
+@pytest.mark.parametrize("fail_after_input", [False, True])
+def test_supervisor_resumes_persisted_pause_once_on_matching_config(tmp_path, fail_after_input):
+    from onmyoji_agentflow.errors import DeviceError
+    from onmyoji_agentflow.store import Store
+    from onmyoji_agentflow.yamlio import dump_yaml
+    from test_supervisor import make_sup
+
+    frames = [frame(RED), frame(GREEN)]
+    supervisor, store, workspace, devices = make_sup(tmp_path, lambda: frames)
+    raw = pause_workflow()
+    if fail_after_input:
+        terminal = next(state for state in raw["states"] if state["id"].endswith("_h0_resume"))
+        terminal["do"][:1] = [{"click": [300, 300, 300, 300], "delay": 0}, {"fail": "模拟输入后的失败"}]
+    target = workspace.path / "workflows" / "pause-entry.yaml"
+    target.write_text(dump_yaml(raw), encoding="utf-8")
+    run = supervisor.run("pause-entry", "main", {}, repair=False).result
+    assert run.status == "paused" and run.evidence["scheme_resume_available"], run.summary()
+    run_id = run.evidence["run_id"]
+    persisted = Store(store.path)
+    try:
+        assert persisted.scheme_pause(run_id)["workflow_file"] == "pause-entry"
+        assert persisted.scheme_pause(run_id)["resumed"] is None
+        target.write_text(dump_yaml({**raw, "title": "另一个工作流版本"}), encoding="utf-8")
+        with pytest.raises(WorkflowError, match="已变化"):
+            supervisor.resume_scheme(run_id)
+        assert len(devices["all"]) == 1 and persisted.scheme_pause(run_id)["resumed"] is None
+        target.write_text(dump_yaml(raw), encoding="utf-8")
+        frames[:] = [frame(GREEN)]
+        controller_factory = supervisor.controller_factory
+
+        def offline(*_):
+            raise DeviceError("控制器启动失败")
+
+        supervisor.controller_factory = offline
+        with pytest.raises(DeviceError, match="控制器启动失败"):
+            supervisor.resume_scheme(run_id)
+        assert persisted.scheme_pause(run_id)["resumed"] is None
+
+        class NoFrame(ReplayDevice):
+            def screenshot(self):
+                raise DeviceError("设备未返回画面")
+
+        supervisor.controller_factory = lambda *_: Controller(NoFrame(frames))
+        no_frame = supervisor.resume_scheme(run_id)
+        assert no_frame.status == "failed" and no_frame.actions == 0
+        assert no_frame.evidence["scheme_resume_retryable"]
+        assert persisted.scheme_pause(run_id)["resumed"] is None
+
+        supervisor.controller_factory = controller_factory
+        resumed = supervisor.resume_scheme(run_id)
+        assert resumed.evidence["resumed_from_run_id"] == run_id
+        assert resumed.status == ("failed" if fail_after_input else "success"), resumed.summary()
+        assert devices["all"][-1].inputs == ([("tap", 300, 300)] if fail_after_input else [])
+        assert persisted.scheme_pause(run_id)["resumed"] is not None
+        with pytest.raises(WorkflowError, match="没有可恢复"):
+            supervisor.resume_scheme(run_id)
+        assert len(devices["all"]) == 2
+    finally:
+        persisted._conn.close()

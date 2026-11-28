@@ -141,6 +141,33 @@ def test_oas_target_schedule_uses_observation_time(tmp_path, delay, persists):
         assert result.status == "failed"
 
 
+@pytest.mark.parametrize("seconds,days,server,expected", [
+    (69300, 0, 32400, (26, 19, 15)), (70200, 1, 32400, (27, 19, 30)),
+    (69300, 0, 21600, (27, 6, 0)), (-1, 1, 32400, None),
+])
+def test_oas_calendar_target_is_validated_and_persisted(tmp_path, monkeypatch, seconds, days, server, expected):
+    from datetime import datetime
+    from onmyoji_agentflow.workflow.oas_schedule import PARAMS
+
+    instant = datetime(2026, 11, 26, 4, 0).timestamp()
+    monkeypatch.setattr("onmyoji_agentflow.supervisor.supervisor.time.time", lambda: instant)
+    sup, store, _, _ = make_sup(tmp_path, lambda: [blank()])
+    workflow = load_workflow({"format": 1, "name": "test_oas_calendar", "params": PARAMS,
+        "vars": {"time_of_day": seconds}, "states": [
+            {"id": "schedule", "when": {"expr": "True"}, "do": [{"stop": {
+                "reason": "预约下次", "oas_schedule": {
+                    "task": "Hunt", "local_time_seconds_var": "time_of_day", "days_ahead": days},
+            }}]},
+        ]})
+    result = sup._run_once(workflow, "main", {"oas_server_update_seconds": server}, max_seconds=20)
+    due = store.oas_due_times(sup.ledger.account)
+    if expected is None:
+        assert result.status == "failed" and not due
+    else:
+        assert result.status == "success" and result.oas_calendar_target == (seconds, days)
+        assert due == {workflow.name: datetime(2026, 11, *expected).timestamp()}
+
+
 @pytest.mark.parametrize("mode,observe,cleanup_failed", [
     ("run", False, False), ("run", False, True), ("trial", False, False), ("observe", True, False),
 ])

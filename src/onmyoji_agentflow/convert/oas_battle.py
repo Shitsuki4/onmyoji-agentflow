@@ -41,6 +41,8 @@ from .astpins import source_node_hash
 BATTLE = "tasks/Component/GeneralBattle/general_battle.py"
 BATTLE_WAIT = "tasks/Component/GeneralBattle/battle_wait.py"
 BATTLE_WAIT_PIN = "4a19487626edfcc930bad368b95b168a4561482d27cf264057fead62c55fc971"
+HUNT_OWNER = ("tasks/Hunt/script_task.py", "ScriptTask")
+HUNT_OWNER_PIN = "88ad59413e727c5d0d0453f5bd001d06b254e0f63f2eb886401db1542b99a728"
 CONFIG = "tasks/Component/GeneralBattle/config_general_battle.py"
 ASSETS = "tasks/Component/GeneralBattle/assets.py"
 BUFF = "tasks/Component/GeneralBuff/general_buff.py"
@@ -197,6 +199,14 @@ class _Sources:
             return
         path, cls = owner
         node = self.node(path, cls)
+        if (path, cls) == HUNT_OWNER:
+            # The pinned class has a reviewed MRO and overrides only the battle wait
+            # among the shared battle methods. Never use the base wait on source drift.
+            if _hash(node) != HUNT_OWNER_PIN:
+                raise _Missing(_issue("source_drift", _ref(path, node, symbol=cls),
+                    "review changed Hunt battle dispatch", expected_ast_sha256=HUNT_OWNER_PIN,
+                    actual_ast_sha256=_hash(node)))
+            return
         if node.decorator_list:
             raise _Missing(_issue("unresolved_inheritance", _ref(path, node),
                 "resolve decorated task class before assuming base helper dispatch"))
@@ -395,7 +405,7 @@ class _Builder:
                         self.image("I_REWARD", .6), self.image("I_REWARD_GOLD", .8),
                         self.image("I_BATTLE_STATE_INFO")]}
 
-    def build(self, strategy_wait=False):
+    def build(self, strategy_wait=False, hunt_wait=False):
         self.state("attempt", "entry", [{"inc": self.v("current_count")},
             self.assign(prep_started_ms="elapsed_ms", confed=False, prep_return=False,
                         outcome_known=False, win=False, returned=False, **{"return": False},
@@ -425,7 +435,9 @@ class _Builder:
         self.click_image("I_PREPARE_HIGHLIGHT", "prepare_after_setup", 800, next_phase="prepare", lines=(69, 75))
         self.state("prepare_after_setup_done", "prepare_after_setup", [self.goto("prepare")], lines=(69, 76))
         self.green()
-        if strategy_wait:
+        if hunt_wait:
+            self.hunt_results()
+        elif strategy_wait:
             self.strategy_results()
         else:
             self.results()
@@ -769,6 +781,37 @@ class _Builder:
             condition={"all": [{"not": self.image("I_REWARD")}, {"not": self.image("I_REWARD_GOLD")}]}, lines=(248, 261))
         self.state("reward_cooldown", "reward_collect", [{"wait": 0}], lines=(248, 261))
 
+    def hunt_results(self):
+        """Lower Hunt.battle_wait for both Kirin and Netherworld."""
+        first = len(self.raw["states"])
+        for key in ("hunt_started_ms", "hunt_stuck_since_ms"):
+            self.raw["vars"][self.v(key)] = -1
+        self.raw["vars"][self.v("hunt_reset_stuck")] = False
+        self.state("hunt_wait_timeout", "battle_wait", [{"fail": "狩猎战等待超时，未识别胜负"}],
+                   guard="$hunt_started_ms >= 0 and elapsed_ms - $hunt_stuck_since_ms > 300000", lines=(183, 186))
+        self.observation("observe_win", "I_WIN", self.image("I_WIN"), True, "result_win", lines=(168, 171))
+        self.observation("observe_loss", "I_FALSE", self.image("I_FALSE", .8), False, "result_loss", lines=(172, 176))
+        self.state("hunt_wait_start", "battle_wait",
+                   [self.assign(hunt_started_ms="elapsed_ms", hunt_stuck_since_ms="elapsed_ms", hunt_reset_stuck=False)],
+                   guard="$hunt_started_ms < 0", lines=(160, 166))
+        self.click_image("I_PREPARE_HIGHLIGHT", "battle_wait", 1500, recheck_retry=True,
+                         context={"not": self.any_image(("I_WIN", "I_FALSE"))}, lines=(177, 180))
+        self.raw["states"][-1]["do"].append(self.assign(hunt_stuck_since_ms="elapsed_ms"))
+        self.state("hunt_reset_stuck", "battle_wait",
+                   [self.assign(hunt_reset_stuck=True, hunt_stuck_since_ms="elapsed_ms")],
+                   guard="not $hunt_reset_stuck and elapsed_ms - $hunt_started_ms > 180000", lines=(181, 186))
+        self.state("hunt_wait", "battle_wait", [{"wait": 250}], lines=(167, 186))
+
+        for marker, phase, outcome, lines in (("I_WIN", "result_win", "return_true", (168, 171)),
+                                                ("I_FALSE", "result_loss", "return_false", (172, 176))):
+            self.click_image(marker, phase, 1000, recheck_retry=True, lines=lines)
+            self.state(phase + "_gone", phase, [self.goto(outcome)],
+                       condition={"not": self.image(marker)}, lines=lines)
+            self.state(phase + "_cooldown", phase, [{"wait": 250}], lines=lines)
+        for step in self.raw["states"][first:]:
+            step["source"]["path"] = HUNT_OWNER[0]
+            step["source"]["symbol"] = "ScriptTask.battle_wait"
+
     def strategy_results(self):
         """Lower the default BattleWait hooks used by the pinned zone overrides."""
         first = len(self.raw["states"])
@@ -907,6 +950,9 @@ def compile_general_battle(source_root, resource_dir, *, prefix="gb", current_co
         raise ValueError("current_count must be a nonnegative integer")
     sources = _Sources(source_root)
     builder = None
+    hunt_wait = owner == HUNT_OWNER
+    if hunt_wait and strategy_wait:
+        raise ValueError("Hunt has its own battle wait and cannot use the default strategy")
     try:
         sources.verify()
         sources.check_owner(owner)
@@ -921,7 +967,7 @@ def compile_general_battle(source_root, resource_dir, *, prefix="gb", current_co
                 raise ValueError("buff must contain literal BuffClass names or integer enum values")
             buffs.append(value)
         builder = _Builder(sources, resource_dir, prefix, current_count, buffs)
-        workflow = builder.build(strategy_wait=strategy_wait)
+        workflow = builder.build(strategy_wait=strategy_wait, hunt_wait=hunt_wait)
         obligations = builder.obligations
     except _Missing as error:
         obligations = (builder.obligations if builder else []) + [error.obligation]
@@ -931,7 +977,8 @@ def compile_general_battle(source_root, resource_dir, *, prefix="gb", current_co
     contract = {"version": 1, "coverage": "GeneralBattle.run_general_battle family fragment",
         "original_task_complete": False, "source_entry": _ref(BATTLE, lines=(29, 51)),
         "config_domain": "all runtime choices, including enabled presets/random/green and team 5",
-        "dispatch": ("pinned BattleWait default strategy hooks" if strategy_wait else
+        "dispatch": ("pinned Hunt ScriptTask.battle_wait" if hunt_wait else
+                     "pinned BattleWait default strategy hooks" if strategy_wait else
                      "pinned GeneralBattle.battle_wait; task overrides require separate translation"),
         "bindings": {"current_count_before": current_count, "buff": list(buff) if isinstance(buff, tuple) else buff,
                      "owner": list(owner) if owner else None},
@@ -973,6 +1020,14 @@ def compile_general_battle(source_root, resource_dir, *, prefix="gb", current_co
             "original source long-battle/click-record infrastructure is not a task completion signal"],
         "source_files": sorted(sources.files.values(), key=lambda v: v["path"]), "source_obligations": copy.deepcopy(obligations)}
     workflow["oas_battle_contract"] = contract
+    if hunt_wait:
+        contract["source_behavior"].pop("random_idle")
+        contract["source_behavior"]["hunt_wait"] = {
+            "source": _ref(HUNT_OWNER[0], lines=(149, 186), symbol="ScriptTask.battle_wait"),
+            "win_requires_title": True, "prepare_interval_ms": 1500,
+            "stuck_reset_ms": 180000, "stuck_window_ms": 300000,
+            "completion": "return the observed outcome after its title disappears",
+        }
     if strategy_wait:
         contract["source_behavior"].pop("random_idle")
         contract["source_behavior"]["strategy_wait"] = {

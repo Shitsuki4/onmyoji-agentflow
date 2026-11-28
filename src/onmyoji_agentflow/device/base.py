@@ -42,6 +42,9 @@ class Device(ABC):
     def restart_app(self, package: str) -> None:
         raise NotImplementedError
 
+    def close_related_apps(self, packages: list[str], mode: str) -> None:
+        raise NotImplementedError
+
     def app_in_foreground(self, package: str) -> bool:
         """Report whether the current window belongs to the requested game."""
         return False
@@ -140,3 +143,9 @@ class Controller:
         self.ops.append({"op": "restart_app", "package": package, "observe": self.observe})
         if not self.observe:
             self.device.restart_app(package)
+
+    def close_related_apps(self, packages: list[str], mode: str):
+        self.ops.append({"op": "close_related_apps", "packages": list(packages), "mode": mode,
+                         "observe": self.observe})
+        if not self.observe:
+            self.device.close_related_apps(packages, mode)

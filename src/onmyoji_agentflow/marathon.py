@@ -381,6 +381,8 @@ class Marathon:
             res = out.result
             if res.evidence.get("handoff_id"):
                 self.stop(f"{workflow} 已交给 agent 接管 #{res.evidence['handoff_id']}，计划暂停")
+            if res.status == "paused":
+                self.stop(f"{workflow} 的上游方案请求暂停，计划暂停")
             rec = {"workflow": workflow, "status": res.status, "reason": res.reason,
                    "failure_kind": res.failure_kind, "failed_state": res.failed_state,
                    "vars": {k: res.variables.get(k) for k in COUNTERS if k in res.variables},
@@ -519,7 +521,8 @@ class Marathon:
                     status = "needs_review" if rec.get("actions") != 0 else "blocked"
                 next_at = self.clock() + float(item.get("min_interval_min", 0)) * 60 if counted else 0
                 self.checkpoints.finish(self._item_key(item), period, status, counted, next_at, rec, self.clock())
-                if not rec.get("business_ok") and item.get("on_failure", "pause") == "pause":
+                if (rec.get("status") != "paused" and not rec.get("business_ok")
+                        and item.get("on_failure", "pause") == "pause"):
                     self.stop(f"{item['workflow']} 未取得完成回执，计划暂停；已保存检查点")
             if self._should_stop():
                 return

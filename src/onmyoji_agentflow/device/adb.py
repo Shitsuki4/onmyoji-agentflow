@@ -23,6 +23,7 @@ from .base import Device
 
 ONMYOJI_PACKAGE = "com.netease.onmyoji"
 ONMYOJI_PACKAGE_PATTERN = r"com\.netease\.onmyoji(?:\.[A-Za-z_]\w*)*"
+ANDROID_PACKAGE_PATTERN = r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+"
 
 
 def find_adb(explicit: str | None = None, mumu_root: str | None = None) -> str:
@@ -145,6 +146,34 @@ class AdbDevice(Device):
                             "--pct-syskeys", "0", "1"])
         if "Events injected: 1" not in output:
             raise DeviceError("游戏已停止，ADB 未确认重新启动")
+
+    def close_related_apps(self, packages: list[str], mode: str) -> None:
+        if (mode not in ("shell", "android api") or not packages or
+                any(not isinstance(package, str) or not re.fullmatch(ANDROID_PACKAGE_PATTERN, package, flags=re.ASCII)
+                    for package in packages)):
+            raise DeviceError("关闭关联应用需要有效的模式和 Android 包名")
+        focus = self.current_app()
+        if self._foreground_game(focus, ONMYOJI_PACKAGE) is None:
+            raise DeviceError("当前前台不是阴阳师，未关闭关联应用")
+        user = self.shell("am", "get-current-user").strip()
+        if not re.fullmatch(r"[0-9]+", user, flags=re.ASCII):
+            raise DeviceError("无法核对当前 Android 用户，未关闭关联应用")
+        installed = self.shell("pm", "list", "packages", "--user", user).splitlines()
+        missing = [package for package in packages if "package:" + package not in installed]
+        if missing or self.current_app() != focus:
+            raise DeviceError("关联应用未安装或前台已变化，未关闭关联应用")
+        command = "force-stop"
+        if mode == "android api":
+            self._run(["shell", "input", "keyevent", "KEYCODE_HOME"])
+            time.sleep(2)
+            home_focus = self.current_app()
+            if not home_focus or self._foreground_game(home_focus, ONMYOJI_PACKAGE) is not None:
+                raise DeviceError("未能核对离开游戏前台，未发出后台进程关闭命令")
+            command = "kill"
+        for package in packages:
+            self.shell("am", command, "--user", user, package)
+            time.sleep(.1)
+        time.sleep(.5)
 
     def app_in_foreground(self, package: str) -> bool:
         return self._foreground_game(self.current_app(), package) is not None
