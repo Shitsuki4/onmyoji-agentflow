@@ -484,6 +484,127 @@ def test_same_server_accept_only_evidence_blocks_before_chooser_input(login, scr
     assert not result.oas_wakes
 
 
+def test_bind_phone_prompt_opens_cancels_and_returns_without_consuming_shared_cooldown(login, screen):
+    opener = screen("I_LOGIN_LOGIN_GOTO_BIND_PHONE")
+    prompt = screen("I_UI_CANCEL_SAMLL")
+    courtyard = screen("I_BUFF_1", "I_MAIN_GOTO_SHIKIGAMI_RECORDS")
+    shared_cancel = "oas_login_interval_GlobalGame_i_ui_cancel_samll"
+    # The interval-free source cancellation bypasses, and must not reset, the
+    # existing cooldown used by other login callers of this same control.
+    result, device, snapshots = run_invitation(
+        login, [opener, prompt, courtyard], params={"enable_harvest": False},
+        initial={shared_cancel: 1_000_000})
+    assert result.status == "success", result.summary()
+    assert [entry[0] for entry in device.inputs] == ["tap", "tap"]
+    names = visited(result)
+    ordered = ["open_bind_phone_prompt", "cancel_bind_phone_prompt", "confirm_courtyard", "skip_harvest"]
+    assert [names.index(name) for name in ordered] == sorted(names.index(name) for name in ordered)
+    assert names.count("open_bind_phone_prompt") == names.count("cancel_bind_phone_prompt") == 1
+    before_cancel = next(values for state, values, _ in snapshots
+                         if state == "oas_login_cancel_bind_phone_prompt")
+    resumed_login = next(values for state, values, _ in snapshots
+                         if state == "oas_login_confirm_courtyard")
+    assert before_cancel["oas_login_phase"] == "bind_phone"
+    assert resumed_login["oas_login_phase"] == "login"
+    assert before_cancel[shared_cancel] == result.variables[shared_cancel] == 1_000_000
+    assert not result.oas_wakes
+    assert any(obligation["id"] == "oas_login_bind_phone"
+               for obligation in login.raw["harvest_contract"]["source_obligations"])
+
+
+@pytest.mark.parametrize(("selected", "expected_inputs", "phase"), [
+    ("open_bind_phone_prompt", 0, "login"),
+    ("cancel_bind_phone_prompt", 1, "bind_phone"),
+])
+def test_bind_phone_prompt_fresh_recheck_rejects_disappearing_controls(
+        login, screen, selected, expected_inputs, phase):
+    frames = [screen("I_LOGIN_LOGIN_GOTO_BIND_PHONE"), screen("I_UI_CANCEL_SAMLL"),
+              screen("I_BUFF_1", "I_MAIN_GOTO_SHIKIGAMI_RECORDS")]
+
+    def disappear(_runner, device, _clock, data):
+        if data["state"] == "oas_login_" + selected:
+            device.index = 2
+
+    result, device, _ = run_invitation(login, frames, params={"enable_harvest": False}, on_state=disappear)
+    assert result.status == "failed" and result.failure_kind == "recognition"
+    assert selected in visited(result)
+    # A stale opener dispatches nothing; a stale cancel adds nothing to the
+    # already dispatched opener. Neither failed recheck executes its goto.
+    assert len(device.inputs) == expected_inputs
+    assert all(entry[0] == "tap" for entry in device.inputs)
+    assert result.variables["oas_login_phase"] == phase
+    assert not result.oas_wakes
+
+
+@pytest.mark.parametrize("confirmation", ["I_UI_CONFIRM", "I_UI_CONFIRM_SAMLL"])
+def test_bind_phone_prompt_unknown_confirmation_requires_review_without_affirmative_input(
+        login, screen, confirmation):
+    result, device, _ = run_invitation(
+        login, [screen("I_LOGIN_LOGIN_GOTO_BIND_PHONE"), screen(confirmation)],
+        params={"enable_harvest": False})
+    assert result.status == "failed" and visited(result)[-1] == "bind_phone"
+    assert result.variables["oas_login_phase"] == "bind_phone"
+    assert [entry[0] for entry in device.inputs] == ["tap"]  # Only the known opener.
+    assert "cancel_bind_phone_prompt" not in visited(result)
+    assert not result.oas_wakes
+
+
+@pytest.mark.parametrize("choice", ["accept", "reject", "ignore"])
+def test_bind_phone_inner_burst_restores_prompt_before_cancel(login, screen, choice):
+    opener = screen("I_LOGIN_LOGIN_GOTO_BIND_PHONE")
+    panel = screen("I_UI_CANCEL_SAMLL", "I_G_ACCEPT", "I_G_REJECT", "I_G_IGNORE")
+    prompt = screen("I_UI_CANCEL_SAMLL")
+    courtyard = screen("I_BUFF_1", "I_MAIN_GOTO_SHIKIGAMI_RECORDS")
+    result, device, snapshots = run_invitation(
+        login, [opener, panel, prompt, courtyard],
+        params={"enable_harvest": False, "friend_invitation": choice})
+    assert result.status == "success", result.summary()
+    assert [entry[0] for entry in device.inputs] == ["tap", "tap", "tap"]
+    names = visited(result)
+    completed = "bind_phone_invite_" + choice + ("_acknowledged" if choice == "accept" else "_gone")
+    ordered = ["open_bind_phone_prompt", f"bind_phone_invite_{choice}_enter",
+               f"bind_phone_invite_{choice}_input", completed, "cancel_bind_phone_prompt",
+               "confirm_courtyard", "skip_harvest"]
+    assert [names.index(name) for name in ordered] == sorted(names.index(name) for name in ordered)
+    assert names.count("cancel_bind_phone_prompt") == 1
+    before_cancel = next(values for state, values, _ in snapshots
+                         if state == "oas_login_cancel_bind_phone_prompt")
+    resumed_login = next(values for state, values, _ in snapshots
+                         if state == "oas_login_confirm_courtyard")
+    assert before_cancel["oas_login_phase"] == "bind_phone"
+    assert resumed_login["oas_login_phase"] == "login"
+    assert list(result.oas_wakes) == (["WantedQuests"] if choice == "accept" else [])
+    if choice == "accept":
+        assert names.count(completed) == 1
+
+
+def test_bind_phone_inner_burst_accept_only_review_precedes_prompt_cancel(login, screen):
+    result, device, _ = run_invitation(
+        login, [screen("I_LOGIN_LOGIN_GOTO_BIND_PHONE"), screen("I_UI_CANCEL_SAMLL", "I_G_ACCEPT")],
+        params={"enable_harvest": False})
+    assert result.status == "failed" and visited(result)[-1] == "bind_phone_invitation_review"
+    assert [entry[0] for entry in device.inputs] == ["tap"]
+    assert "cancel_bind_phone_prompt" not in visited(result)
+    assert not result.oas_wakes
+
+
+def test_bind_phone_prompt_stop_before_cancel_sends_no_further_input(login, screen):
+    stopped = False
+
+    def stop_before_cancel(_runner, _device, _clock, data):
+        nonlocal stopped
+        if data["state"] == "oas_login_cancel_bind_phone_prompt":
+            stopped = True
+
+    result, device, _ = run_invitation(
+        login, [screen("I_LOGIN_LOGIN_GOTO_BIND_PHONE"), screen("I_UI_CANCEL_SAMLL")],
+        params={"enable_harvest": False}, on_state=stop_before_cancel, should_stop=lambda: stopped)
+    assert stopped and result.status == "stopped"
+    assert [entry[0] for entry in device.inputs] == ["tap"]
+    assert result.variables["oas_login_phase"] == "bind_phone"
+    assert not result.oas_wakes
+
+
 def test_empty_character_and_create_account_are_blocked_without_input(login, screen):
     for image, state in (("I_LOGIN_SPECIFIC_SERVE", "missing_login_character"),
                          ("I_CREATE_ACCOUNT", "restart_disabled")):
