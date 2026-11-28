@@ -23,6 +23,7 @@ HARVEST_PINS = {
     ('tasks/GlobalGame/assets.py', 'GlobalGameAssets'): "2d1bec38e48768ce5d08a3bc8c64aa7d2e75bea78b9d8fb698a81d4b8cab7231",
     ('tasks/base_task.py', 'BaseTask._burst'): "7f16e876cd276719011a06166abce14ca0daa37848e5fd4f5532d8804a52d7e6",
     ('tasks/base_task.py', 'BaseTask.appear'): "f350504816e2e4b29b1004a63d67dd833066726c8a2f75f6e3a0c9e593108b52",
+    ('tasks/base_task.py', 'BaseTask.click'): "a3aa167fab247793e5ac2795008d3be9bff1d3adfb853c0e5c96ca8f0e09d299",
     ('tasks/base_task.py', 'BaseTask.appear_then_click'): "6423233e67e6ced3a735c094deeb6327e9e28adf36532e70267a3a21a8beaffd",
     ('tasks/base_task.py', 'BaseTask.appear_multi_scale'): "b1edb4c8a1ecb84fabdcc55a1ba495c9ba24087cf7109ec4a0ecca85c4ab0640",
     ('tasks/base_task.py', 'BaseTask.appear_then_click_multi_scale'): "2d4f125baa64e895f4f76f8263023fef73a7d29319593bb7a1a16bdd1a7935e1",
@@ -32,6 +33,7 @@ HARVEST_PINS = {
     ('tasks/base_task.py', 'BaseTask.ui_reward_appear_click'): "230a60d4533b701cc74d074d7a4f49886464994c7eb187e508958430f0045a7a",
     ('tasks/base_task.py', 'BaseTask.wait_until_appear'): "7df1fd661f438e429b2c0c2e2e22e3868273a38decc37d090b4b2bdb363b21b7",
     ('module/base/timer.py', 'Timer'): "5469429f0bca141b576bfcee426d577f14911023fcc32dc8d0c363c37b1b57cb",
+    ('module/atom/image.py', 'RuleImage.match'): "faf95fc47c8ef9cdc46738dfd2e4b66b9aa53832e2174faeb3d5c2dd9f2705da",
     ('module/atom/image.py', 'RuleImage.match_multi_scale'): "d446053237da761b7a5c009b5c276e0fe48c77119c132436dfedcf63f3fcbb5c",
     ('module/atom/image.py', 'RuleImage.coord'): "6a6819efda5a68234667e4916f9a9bafaf6e834f1006b21b50f234d021ed68b6",
 }
@@ -54,7 +56,6 @@ LOGIN_PINS = {
     ('tasks/Restart/login.py', 'LoginHandler.app_handle_login'): "513c60e22fadc9d111cd7fa71b8e5ed42fb5d5a5a373f20b71c635fdbfe061f8",
     ('tasks/Restart/login.py', 'LoginHandler.set_specific_usr'): "b36a206712929730e6baa87f9a449aee71fd5cecb4fa5fd06767f420a73d9ee4",
     ('tasks/Restart/config.py', 'LoginCharacterConfig'): "cee195fbfd920e6f29cf95926c1fc263d484552bc4d4476faa6a4ffb07e6f9ed",
-    ('tasks/base_task.py', 'BaseTask.click'): "a3aa167fab247793e5ac2795008d3be9bff1d3adfb853c0e5c96ca8f0e09d299",
     ('tasks/base_task.py', 'BaseTask.ocr_appear'): "a8b4579fbca1274dfdeba4dfe2dc012738be7d682c6631946c0d716b281d1cd5",
     ('tasks/base_task.py', 'BaseTask.ocr_appear_click'): "899b7ffb2045f42e893eb7e750f7959d416fc33514188fee298423764c8aee8b",
     ('module/atom/ocr.py', 'RuleOcr.coord'): "f766c4a32388b66ab7fa6cf9da8891b7621de01fc3e94337855e335d8ebe75eb",
@@ -149,7 +150,8 @@ class _LoginBuilder:
         return {"res": self.asset(name, task), **options}
 
     def click(self, state, phase, lines, target, interval, *, task="Restart", button=None,
-              context=(), threshold=None, afterwards=(), guard=None, clock_reset=False, rect=None):
+              context=(), threshold=None, afterwards=(), guard=None, clock_reset=False, rect=None,
+              projected_rect=None, before=()):
         name = target[0] if isinstance(target, tuple) else target
         interval_key = self.var("interval_" + task + "_" + name.lower())
         end = []
@@ -160,7 +162,9 @@ class _LoginBuilder:
             end.append({"set": {interval_key: "elapsed_ms"}})
         if clock_reset:
             end.append(self.set(idle_since="elapsed_ms"))
-        if rect is not None:
+        if projected_rect is not None:
+            click = {"click_found": True, "projected_rect": projected_rect}
+        elif rect is not None:
             click = {"click": rect}
         elif button:
             click = {"click": self.asset(button, task)}
@@ -170,7 +174,7 @@ class _LoginBuilder:
             control = button if name in ("I_LOGIN_SCROOLL_CLOSE", "I_LOGIN_SPECIFIC_SERVE") and button else name
             click["tap_id"] = f"{task}::{control}"
             end.append(self.reset_stall_window(long_wait=False))
-        self.state(state, phase, lines, [{**click, "recheck": True, "delay": 0}, *end, *afterwards],
+        self.state(state, phase, lines, [*before, {**click, "recheck": True, "delay": 0}, *end, *afterwards],
                    *context, self.image(target, task=task, threshold=threshold), guard=guard)
 
     def block(self, name, phase, lines, requirement, *checks):
@@ -461,8 +465,21 @@ class _LoginBuilder:
             self.click(name, phase, (line, line + 2), target, interval, clock_reset=True)
         self.block("soul_overflow", phase, (242, 247), "Soul overflow requires an identified dialog and an explicit disposition",
                    self.image("I_UI_CONFIRM_SAMLL", task="GlobalGame"))
-        self.block("zidu_overlay", phase, (248, 255), "The shifted Zidu click needs fresh evidence for its destination",
-                   self.image("I_HARVEST_ZIDU"))
+        confirmation = {"any": [self.image("I_UI_CONFIRM", task="GlobalGame"),
+                                self.image("I_UI_CONFIRM_SAMLL", task="GlobalGame")]}
+        # Keep the source obligation for unrelated confirmation evidence;
+        # recognizing the pose menu never authorizes an affirmative input.
+        self.block("zidu_overlay", phase, (248, 255),
+                   "Zidu background dismissal cannot handle an unrelated confirmation",
+                   self.image("I_HARVEST_ZIDU"), confirmation)
+        # Source match() overwrites x/y before each subtraction, not after it.
+        # appear(1) -> click(2) -> appear(1) replaces the same named Timer at
+        # every limit switch, so this isolated branch has no fixed cooldown.
+        # Reset harvest idle on recognition even when the input recheck fails.
+        # The helper keeps Zidu LAST in the condition, owning the fresh box.
+        self.click("close_zidu_overlay", phase, (248, 255), "I_HARVEST_ZIDU", 0,
+                   context=[{"not": confirmation}], before=[self.set(idle_since="elapsed_ms")],
+                   projected_rect=["match_x - 200", "match_y - 200", "match_w", "match_h"])
         self.state("visit_courtyard", phase, (257, 262),
                    [self.goto("courtyard_enter", since="elapsed_ms", courtyard_claims=0)],
                    guard=f"enable_courtyard_affairs and not {self.var('courtyard_done')}")
@@ -634,6 +651,11 @@ def _compile_fragment(source_root, resource_dir, prefix, *, android_login):
         "adaptations": ["Exact resolution required for every input, including during nested source loops",
                         "Fresh positive evidence before input and bounded native run",
                         "Per-target cooldown with current call's interval; source recreates timers on interval switches",
+                        "Zidu harvest:248-255 resets idle on positive recognition before input; a fresh source marker supplies "
+                        "the last match box, projected once by (-200,-200) with current width/height and whole-frame bounds. "
+                        "The same-name appear(1)/click(2) Timer replacements imply no fixed cooldown in this isolated branch; "
+                        "unrelated confirmations retain the zidu_overlay review obligation. Dispatch resumes harvest, "
+                        "not verified closure or task completion; source resources are unchanged",
                         "Invitation reject/ignore requires both the invitation and selected button; acceptance needs a bound WantedQuests schedule",
                         "Mail bulk collection confirmation requires the preceding claim action, exact modal title and confirm-button evidence"],
     }
