@@ -1,4 +1,5 @@
 """Fixed upstream harvest and deterministic ReplayDevice state transitions."""
+import ast
 import copy
 import os
 from pathlib import Path
@@ -10,6 +11,7 @@ import pytest
 from helpers import FakeClock, blank, fake_text_reader, register_texts
 from onmyoji_agentflow.convert.navigation_family import _bind_body
 from onmyoji_agentflow.convert.oas import convert_task
+from onmyoji_agentflow.convert.oas_battle import _Sources
 from onmyoji_agentflow.convert.oas_login import LOGIN, compile_android_login, compile_login_harvest
 from onmyoji_agentflow.device.adb import AdbDevice, ONMYOJI_PACKAGE
 from onmyoji_agentflow.device.base import Controller
@@ -44,6 +46,25 @@ def harvest(fixed_assets):
 def login(fixed_assets):
     upstream, resources = fixed_assets
     return load_workflow(compile_android_login(upstream, resources / "upstream/oas"), [resources])
+
+
+def test_harvest_rejects_changed_plain_zidu_match_body(fixed_assets, monkeypatch):
+    upstream, resources = fixed_assets
+    original_node = _Sources.node
+
+    def changed_node(sources, relative, selector):
+        node = original_node(sources, relative, selector)
+        if (relative, selector) == ("module/atom/image.py", "RuleImage.match"):
+            # Mutate only the parsed copy; do not edit or execute upstream.
+            node = copy.deepcopy(node)
+            node.body = [ast.Return(value=ast.Constant(value=False))]
+        return node
+
+    monkeypatch.setattr(_Sources, "node", changed_node)
+    with pytest.raises(ValueError, match=(
+        r"Review changed login/harvest source: module/atom/image\.py::RuleImage\.match$"
+    )):
+        compile_login_harvest(upstream, resources / "upstream/oas")
 
 
 @pytest.fixture
@@ -114,6 +135,58 @@ def run_invitation(wf, frames, *, params=None, initial=None, on_state=None, shou
     runner = engine.Runner(wf, Controller(device, sleep=clock.sleep), params, clock=clock,
                            initial_vars=initial, on_event=record, should_stop=should_stop)
     return runner.run(), device, snapshots
+
+
+@pytest.fixture
+def zidu_replay(request, tmp_path, monkeypatch):
+    """Synthetic pixels, not saved/live game evidence; matching and Runner are native.
+
+    Only an isolated workflow copy binds seeded Zidu/jade/confirm templates and
+    synthetic search ROIs spanning the motion/boundary cases. Other template
+    calls are suppressed to isolate this branch; none of these four templates
+    receives an injected match box. Production assets/ROIs remain untouched.
+    """
+    source = request.getfixturevalue(request.param)
+    original_resources = copy.deepcopy(source.resources)
+    raw = copy.deepcopy(source.raw)
+    raw["resources"] = []
+    raw["inline_resources"] = copy.deepcopy(source.resources)
+    rng = np.random.default_rng(20261128)
+    templates, paths = {}, set()
+    for task, name, shape, roi in (
+        ("Restart", "I_HARVEST_ZIDU", (37, 53, 3), [190, 190, 670, 350]),
+        ("Restart", "I_HARVEST_JADE", (23, 31, 3), [980, 500, 60, 40]),
+        ("GlobalGame", "I_UI_CONFIRM", (19, 29, 3), [990, 90, 60, 50]),
+        ("GlobalGame", "I_UI_CONFIRM_SAMLL", (21, 33, 3), [990, 90, 60, 50]),
+    ):
+        template = rng.integers(20, 236, size=shape, dtype=np.uint8)
+        path = tmp_path / (name + ".png")
+        ok, encoded = cv2.imencode(".png", template)
+        assert ok
+        path.write_bytes(encoded.tobytes())
+        templates[name] = template
+        paths.add(str(path))
+        raw["inline_resources"][task + "::" + name].update(
+            path=str(path), roi=roi, roi_expand=0,
+            threshold=.99, method="Template matching")
+    real_match = engine.match_template
+
+    def match(image, path, *args, **kwargs):
+        if str(path) not in paths:
+            return False, 0.0, (0, 0, 0, 0)
+        return real_match(image, path, *args, **kwargs)
+
+    def frame(**positions):
+        image = blank()
+        for name, (x, y) in positions.items():
+            template = templates[name]
+            height, width = template.shape[:2]
+            image[y:y + height, x:x + width] = template
+        return image
+
+    monkeypatch.setattr(engine, "match_template", match)
+    yield load_workflow(raw), frame, "oas_" + request.param
+    assert source.resources == original_resources
 
 
 def test_mail_opens_marks_read_and_requires_bulk_claim_confirmation(harvest, screen):
@@ -366,6 +439,199 @@ def test_scaled_match_and_recheck_on_real_mail_template(harvest):
     assert result.status == "limit" and "open_mail_icon" in visited(result)
     [(_, x, y)] = device.inputs
     assert 260 <= x <= 260 + width and 490 <= y <= 490 + height
+
+
+@pytest.mark.parametrize("zidu_replay", ["harvest", "login"], indirect=True)
+def test_zidu_uses_fresh_moved_box_and_rematches_without_accumulation_or_cooldown(zidu_replay):
+    wf, frame, prefix = zidu_replay
+    selected, dispatches, runners = [], [], []
+
+    def record(runner, device, clock, data):
+        if data["state"] == prefix + "_harvest_wait":
+            # Fast-forward only the final idle wait, after both input frames.
+            clock.ms += 5001
+        if data["state"] == prefix + "_close_zidu_overlay":
+            runners.append(runner)
+            selected.append(runner._found_box)
+            if len(selected) == 1:
+                # The marker moves after recognition, before the input recheck.
+                device.index = 1
+
+            def before_input(_state, _action, variables):
+                dispatches.append((runner._found_box, variables[prefix + "_idle_since"], clock.ms,
+                                   variables[prefix + "_phase"]))
+
+            runner.before_input = before_input
+
+    result, device, _ = run_invitation(wf, [
+        frame(I_HARVEST_ZIDU=(760, 460)),
+        frame(I_HARVEST_ZIDU=(785, 475)),
+        frame(I_HARVEST_ZIDU=(800, 490)),
+        frame(),
+    ], params={"enable_mail": False, "enable_courtyard_affairs": False},
+        initial={prefix + "_phase": "harvest", prefix + "_idle_since": -9000}, on_state=record)
+    assert result.status == "success", result.summary()
+    assert selected == [(760, 460, 53, 37), (800, 490, 53, 37)]
+    assert [entry[0] for entry in dispatches] == [(785, 475, 53, 37), (800, 490, 53, 37)]
+    assert all(idle == stamp and phase == "harvest" for _, idle, stamp, phase in dispatches)
+    assert [op["rect"] for op in runners[0].ctl.ops] == [
+        [585, 275, 638, 312], [600, 290, 653, 327]]
+    assert len(device.inputs) == 2 and visited(result).count("close_zidu_overlay") == 2
+    # Wait-driven virtual time: neither a 1000 nor a 2000 ms gate was invented.
+    assert 0 <= device.input_times[1] - device.input_times[0] < 1000
+    assert result.business_result == "unknown" and not result.oas_wakes
+
+
+@pytest.mark.parametrize("zidu_replay", ["harvest", "login"], indirect=True)
+def test_zidu_single_background_close_continues_parent_harvest_to_jade(zidu_replay):
+    wf, frame, prefix = zidu_replay
+    runners, jade_taps, zidu_input_end = [], [], []
+    initial = {prefix + "_phase": "harvest", prefix + "_idle_since": -9000}
+    if prefix == "oas_login":
+        initial.update(oas_login_stall_ms=-500, oas_login_stall_captures=-3, oas_login_stall_long=True)
+
+    def record(runner, _device, clock, data):
+        runners.append(runner)
+        if data["state"] == prefix + "_close_zidu_overlay":
+            after_input = runner.after_input
+
+            def record_input_end(state, action, variables):
+                after_input(state, action, variables)
+                if state["id"] == prefix + "_close_zidu_overlay":
+                    # Controller has finished its press wait; stall reset follows.
+                    zidu_input_end.append((clock.ms, runner._screen_captures))
+
+            runner.after_input = record_input_end
+        if data["state"] == prefix + "_jade":
+            jade_taps.append(list(runner._recent_taps))
+
+    result, device, snapshots = run_invitation(wf, [
+        frame(I_HARVEST_ZIDU=(785, 475)), frame(I_HARVEST_JADE=(990, 510)), frame(),
+    ], params={"enable_mail": False, "enable_courtyard_affairs": False}, initial=initial, on_state=record)
+    assert result.status == "success", result.summary()
+    names = visited(result)
+    assert names.count("close_zidu_overlay") == 1 and names.count("jade") == 1
+    assert names.index("close_zidu_overlay") < names.index("jade") < names.index("idle_complete")
+    assert [op["rect"] for op in runners[0].ctl.ops] == [[585, 275, 638, 312], [990, 510, 1021, 533]]
+    assert len(device.inputs) == 2
+    jade_vars = next(variables for name, variables, _ in snapshots if name == prefix + "_jade")
+    assert jade_vars[prefix + "_phase"] == "harvest" and jade_vars[prefix + "_idle_since"] == 0
+    if prefix == "oas_login":
+        assert jade_taps == [["Restart::I_HARVEST_ZIDU"]]
+        [(click_ended_ms, click_captures)] = zidu_input_end
+        assert click_ended_ms > device.input_times[0]
+        assert jade_vars["oas_login_stall_ms"] == click_ended_ms
+        assert jade_vars["oas_login_stall_captures"] == click_captures
+        assert click_captures > initial["oas_login_stall_captures"]
+        assert jade_vars["oas_login_stall_long"] is False
+    assert result.business_result == "unknown" and not result.oas_wakes
+
+
+@pytest.mark.parametrize("zidu_replay", ["harvest", "login"], indirect=True)
+@pytest.mark.parametrize("changed", ["lost_marker", "confirmation"])
+def test_zidu_failed_recheck_preserves_recognition_idle_reset_without_input(zidu_replay, changed):
+    wf, frame, prefix = zidu_replay
+    runners, recognized_idle = [], []
+    after = frame() if changed == "lost_marker" else frame(
+        I_HARVEST_ZIDU=(785, 475), I_UI_CONFIRM=(1000, 100))
+
+    def change(runner, device, _clock, data):
+        if data["state"] == prefix + "_close_zidu_overlay":
+            runners.append(runner)
+            recognized_idle.append(data["vars"][prefix + "_idle_since"])
+            device.index = 1
+
+    result, device, _ = run_invitation(wf, [frame(I_HARVEST_ZIDU=(785, 475)), after],
+        params={"enable_mail": False, "enable_courtyard_affairs": False},
+        initial={prefix + "_phase": "harvest", prefix + "_idle_since": -9000}, on_state=change)
+    assert result.status == "failed" and result.failure_kind == "recognition"
+    assert recognized_idle == [-9000] and result.variables[prefix + "_idle_since"] == 0
+    assert result.variables[prefix + "_phase"] == "harvest"
+    assert result.actions == 0 and not device.inputs and not runners[0].ctl.ops
+    assert not runners[0]._recent_taps and not result.oas_wakes
+
+
+@pytest.mark.parametrize("zidu_replay", ["harvest", "login"], indirect=True)
+@pytest.mark.parametrize("position", [(199, 475), (785, 199)])
+def test_zidu_out_of_frame_projection_never_clamps_or_dispatches(zidu_replay, position):
+    wf, frame, prefix = zidu_replay
+    runners = []
+    result, device, _ = run_invitation(wf, [frame(I_HARVEST_ZIDU=position)],
+        params={"enable_mail": False, "enable_courtyard_affairs": False},
+        initial={prefix + "_phase": "harvest", prefix + "_idle_since": -9000},
+        on_state=lambda runner, *_: runners.append(runner))
+    assert result.status == "failed" and visited(result)[-1] == "close_zidu_overlay"
+    assert result.actions == 0 and not device.inputs and not runners[0].ctl.ops
+    assert result.variables[prefix + "_idle_since"] == 0
+    assert result.variables[prefix + "_phase"] == "harvest" and not result.oas_wakes
+    assert not runners[0]._recent_taps
+
+
+@pytest.mark.parametrize("zidu_replay", ["harvest", "login"], indirect=True)
+@pytest.mark.parametrize("confirmation", ["I_UI_CONFIRM", "I_UI_CONFIRM_SAMLL"])
+def test_zidu_unrelated_confirmation_keeps_review_and_sends_no_input(zidu_replay, confirmation):
+    wf, frame, prefix = zidu_replay
+    runners = []
+    result, device, _ = run_invitation(wf, [frame(**{
+        "I_HARVEST_ZIDU": (785, 475), confirmation: (1000, 100),
+    })], params={"enable_mail": False, "enable_courtyard_affairs": False},
+        initial={prefix + "_phase": "harvest"},
+        on_state=lambda runner, *_: runners.append(runner))
+    assert result.status == "failed"
+    assert visited(result)[-1] == ("soul_overflow" if confirmation.endswith("SAMLL") else "zidu_overlay")
+    assert "close_zidu_overlay" not in visited(result)
+    assert result.actions == 0 and not device.inputs and not runners[0].ctl.ops
+    assert result.variables[prefix + "_phase"] == "harvest" and not result.oas_wakes
+
+
+@pytest.mark.parametrize("zidu_replay", ["harvest", "login"], indirect=True)
+def test_zidu_stop_at_final_dispatch_boundary_sends_no_input(zidu_replay):
+    wf, frame, prefix = zidu_replay
+    stopped, authorized_idle, runners = False, [], []
+
+    def record(runner, _device, _clock, data):
+        if data["state"] == prefix + "_close_zidu_overlay":
+            runners.append(runner)
+
+            def stop(_state, _action, variables):
+                nonlocal stopped
+                authorized_idle.append(variables[prefix + "_idle_since"])
+                stopped = True
+
+            runner.before_input = stop
+
+    result, device, _ = run_invitation(wf, [frame(I_HARVEST_ZIDU=(785, 475))],
+        params={"enable_mail": False, "enable_courtyard_affairs": False},
+        initial={prefix + "_phase": "harvest", prefix + "_idle_since": -9000},
+        on_state=record, should_stop=lambda: stopped)
+    assert result.status == "stopped" and authorized_idle == [0]
+    assert result.actions == 0 and not device.inputs and not runners[0].ctl.ops
+    assert result.variables[prefix + "_phase"] == "harvest" and not result.oas_wakes
+    assert not runners[0]._recent_taps
+
+
+@pytest.mark.parametrize("zidu_replay", ["login"], indirect=True)
+def test_zidu_android_tap_loop_handoff_does_not_send_another_input(zidu_replay):
+    wf, frame, prefix = zidu_replay
+    device = ReplayDevice([frame(I_HARVEST_ZIDU=(785, 475))])
+    seeded = []
+
+    def seed_history(kind, _data):
+        if kind == "start":
+            # run() clears history before this event and before state selection.
+            assert not seeded
+            runner._recent_taps.extend(["Restart::I_HARVEST_ZIDU"] * 9)
+            seeded.append(len(runner._recent_taps))
+
+    runner = engine.Runner(wf, Controller(device, sleep=lambda _: None),
+        params={"enable_mail": False, "enable_courtyard_affairs": False, "allow_login_restart": False},
+        initial_vars={prefix + "_phase": "harvest"}, clock=FakeClock(.05), on_event=seed_history)
+    result = runner.run()
+    assert seeded == [9]
+    assert result.status == "failed", result.summary()
+    assert "loop" in visited(result)[-1] and "close_zidu_overlay" not in visited(result)
+    assert result.actions == 0 and not device.inputs and not runner.ctl.ops
+    assert not result.oas_wakes
 
 
 def test_courtyard_stops_after_three_completions_and_runs_only_once(harvest, screen):
