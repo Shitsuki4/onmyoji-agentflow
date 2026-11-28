@@ -80,6 +80,42 @@ def visited(result):
     return [name.removeprefix("oas_harvest_").removeprefix("oas_login_") for _, name in result.history]
 
 
+def run_invitation(wf, frames, *, params=None, initial=None, on_state=None, should_stop=None):
+    """Native Runner with time advanced by waits, not by the number of clock reads."""
+    class Clock:
+        ms = 0
+
+        def __call__(self):
+            return self.ms / 1000
+
+        def sleep(self, seconds):
+            self.ms += round(seconds * 1000)
+
+    clock = Clock()
+
+    class TimedReplay(ReplayDevice):
+        def __init__(self):
+            super().__init__(frames, advance_on_input=True)
+            self.input_times = []
+
+        def tap(self, x, y, press_ms=40):
+            self.input_times.append(clock.ms)
+            super().tap(x, y, press_ms)
+
+    device = TimedReplay()
+    snapshots = []
+
+    def record(kind, data):
+        if kind == "state":
+            snapshots.append((data["state"], dict(data["vars"]), dict(runner._oas_wakes)))
+            if on_state:
+                on_state(runner, device, clock, data)
+
+    runner = engine.Runner(wf, Controller(device, sleep=clock.sleep), params, clock=clock,
+                           initial_vars=initial, on_event=record, should_stop=should_stop)
+    return runner.run(), device, snapshots
+
+
 def test_mail_opens_marks_read_and_requires_bulk_claim_confirmation(harvest, screen):
     modal = register_texts(screen("I_UI_CONFIRM"), [("全部领取", 628, 84), ("确定", 763, 573)])
     frames = [screen("I_HARVEST_MAIL"), screen("I_READ_ALL_MAIL"), screen("I_HARVEST_MAIL_ALL"),
@@ -122,17 +158,196 @@ def test_harvest_invitation_dispositions_and_scheduling_follow_policy(harvest, s
 
 
 def test_harvest_invitation_unchanged_or_unidentified_does_not_wake(harvest, screen):
-    for policy, inputs_expected, markers in (
-        ("accept", 1, ("I_G_ACCEPT", "I_G_REJECT")),
-        ("accept", 0, ("I_G_ACCEPT",)),
-        ("reject", 0, ("I_G_ACCEPT",)),
-        ("ignore", 0, ("I_G_ACCEPT",)),
+    for policy, guarded, markers in (
+        ("accept", True, ("I_G_ACCEPT", "I_G_REJECT")),
+        ("accept", False, ("I_G_ACCEPT",)),
+        ("reject", False, ("I_G_ACCEPT",)),
+        ("ignore", False, ("I_G_ACCEPT",)),
     ):
         result, inputs = run(harvest, [screen(*markers)], use_inputs=True, params={
             "friend_invitation": policy, "enable_courtyard_affairs": False, "enable_mail": False,
         })
-        assert result.status == "failed" and len(inputs) == inputs_expected
+        assert result.status == "failed"
+        if guarded:
+            # Source retries an ineffective click; native retries remain bounded.
+            assert 1 < len(inputs) <= 10
+            assert visited(result)[-1] == "harvest_invite_accept_verify_timeout"
+        else:
+            assert not inputs
+            assert visited(result)[-1] == "harvest_invitation_review"
         assert not result.oas_wakes
+
+
+@pytest.mark.parametrize("parent", ["login", "harvest", "same_server"])
+@pytest.mark.parametrize("choice", ["reject", "ignore"])
+def test_invitation_selected_button_disappearance_restores_parent_and_stall(login, screen, parent, choice):
+    initial = {"oas_login_phase": parent, "oas_login_since": 6543,
+               "oas_login_stall_long": True, "oas_login_stall_ms": -500,
+               "oas_login_stall_captures": -3, "oas_login_court_samples": 2}
+    result, device, snapshots = run_invitation(
+        login, [screen("I_G_ACCEPT", "I_G_REJECT", "I_G_IGNORE"), screen("I_G_ACCEPT")],
+        initial=initial, params={"friend_invitation": choice, "enable_harvest": False})
+    names = visited(result)
+    assert names.count(f"{parent}_invite_{choice}_input") == 1
+    assert f"{parent}_invite_{choice}_gone" in names
+    # The remaining accept-only marker still blocks in the restored parent;
+    # it must not strand us in reject/ignore or authorize a different input.
+    assert result.status == "failed" and names[-1] == parent + "_invitation_review"
+    assert len(device.inputs) == 1 and not result.oas_wakes
+    assert result.variables["oas_login_phase"] == parent
+    assert result.variables["oas_login_since"] == 6543
+    assert result.variables["oas_login_court_samples"] == 2
+    assert result.variables["oas_login_stall_long"] is True
+    gone = next(variables for name, variables, _ in snapshots if name.endswith(f"_invite_{choice}_gone"))
+    assert gone["oas_login_stall_long"] is False  # Successful input reset the short window.
+    for key in ("oas_login_stall_ms", "oas_login_stall_captures"):
+        assert result.variables[key] == gone[key]  # Completion must not reset that window again.
+
+
+@pytest.mark.parametrize(("choice", "button"), [("reject", "I_G_REJECT"), ("ignore", "I_G_IGNORE")])
+def test_invitation_accept_marker_loss_alone_does_not_complete_selected_disposition(harvest, screen, choice, button):
+    def clear_after_wait(_runner, device, _clock, data):
+        if data["state"].endswith(f"_invite_{choice}_wait"):
+            device.index = 2
+
+    result, device, _ = run_invitation(
+        harvest, [screen("I_G_ACCEPT", button), screen(button), screen()],
+        params={"friend_invitation": choice, "enable_mail": False, "enable_courtyard_affairs": False},
+        on_state=clear_after_wait)
+    assert result.status == "success"
+    names = visited(result)
+    assert names.index(f"harvest_invite_{choice}_wait") < names.index(f"harvest_invite_{choice}_gone")
+    assert len(device.inputs) == 1 and not result.oas_wakes
+
+
+@pytest.mark.parametrize("workflow", ["harvest", "login"])
+def test_invitation_accept_retries_after_cooldown_and_wakes_only_after_ack(request, screen, workflow):
+    wf = request.getfixturevalue(workflow)
+    parent = "harvest" if workflow == "harvest" else "login"
+    prefix = "oas_" + workflow + "_"
+    panel = screen("I_G_ACCEPT", "I_G_REJECT")
+    done = screen() if workflow == "harvest" else screen("I_BUFF_1", "I_MAIN_GOTO_SHIKIGAMI_RECORDS")
+    params = {"enable_mail": False, "enable_courtyard_affairs": False}
+    if workflow == "login":
+        params["enable_harvest"] = False
+    result, device, snapshots = run_invitation(wf, [panel, panel, done], params=params)
+    names = visited(result)
+    assert result.status == "success", result.summary()
+    assert len(device.inputs) == 2 and device.input_times[1] - device.input_times[0] >= 800
+    assert names.count(parent + "_invite_accept_input") == 1
+    assert names.count(parent + "_invite_accept_retry") == 1
+    assert names.count(parent + "_invite_accept_acknowledged") == 1
+    assert list(result.oas_wakes) == ["WantedQuests"]
+    ack = next(i for i, (name, _, _) in enumerate(snapshots) if name.endswith("_invite_accept_acknowledged"))
+    assert all(not wakes for _, _, wakes in snapshots[:ack + 1])
+    assert snapshots[ack + 1][2].keys() == {"WantedQuests"}
+    if workflow == "login":
+        assert snapshots[ack][1][prefix + "stall_long"] is False
+        assert snapshots[ack + 1][1][prefix + "stall_long"] is True
+    started = next(variables[prefix + "invite_started"] for name, variables, _ in snapshots
+                   if name.endswith("_invite_accept_input"))
+    assert result.variables[prefix + "invite_started"] == started  # Retry did not renew the budget.
+    assert all(stamp - started < 8000 for stamp in device.input_times)
+    ack_state = next(state for state in wf.states if state["id"].endswith(parent + "_invite_accept_acknowledged"))
+    assert sum("oas_wake" in action for action in ack_state["do"]) == 1
+
+
+@pytest.mark.parametrize("workflow", ["harvest", "login"])
+def test_persistent_guarded_invitation_retries_only_within_original_deadline(request, screen, workflow):
+    wf = request.getfixturevalue(workflow)
+    params = {"enable_mail": False, "enable_courtyard_affairs": False}
+    if workflow == "login":
+        params["enable_harvest"] = False
+    result, device, snapshots = run_invitation(wf, [screen("I_G_ACCEPT", "I_G_REJECT")], params=params)
+    assert result.status == "failed"
+    parent = "harvest" if workflow == "harvest" else "login"
+    assert visited(result)[-1] == parent + "_invite_accept_verify_timeout"
+    started = result.variables["oas_" + workflow + "_invite_started"]
+    assert 1 < len(device.inputs) <= 10
+    assert all(0 <= stamp - started < 8000 for stamp in device.input_times)
+    assert all(later - earlier >= 800 for earlier, later in zip(device.input_times, device.input_times[1:]))
+    assert result.variables["elapsed_ms"] - started >= 8000
+    assert not result.oas_wakes and all(not wakes for _, _, wakes in snapshots)
+    assert not any("recover_loop" in name for name in visited(result))
+
+
+@pytest.mark.parametrize("pending", ["harvest_invite_accept", "harvest_invite_accept_verify"])
+def test_invitation_deadline_precedes_initial_or_retry_input_at_exact_boundary(harvest, screen, pending):
+    result, device, _ = run_invitation(harvest, [screen("I_G_ACCEPT", "I_G_REJECT")], initial={
+        "oas_harvest_phase": pending, "oas_harvest_invite_started": -8000})
+    assert result.status == "failed" and visited(result) == [pending + "_timeout"]
+    assert not device.inputs and not result.oas_wakes
+
+
+@pytest.mark.parametrize("dispatch", ["input", "retry"])
+def test_invitation_deadline_is_rechecked_when_input_state_was_selected_earlier(harvest, screen, dispatch):
+    def expire(runner, _device, clock, data):
+        if data["state"] == "oas_harvest_harvest_invite_accept_" + dispatch:
+            clock.ms = runner.vars["oas_harvest_invite_started"] + 8000
+
+    panel = screen("I_G_ACCEPT", "I_G_REJECT")
+    result, device, _ = run_invitation(harvest, [panel], on_state=expire)
+    assert result.failure_kind == "recognition"
+    assert visited(result)[-1] == "harvest_invite_accept_" + dispatch
+    assert len(device.inputs) == (0 if dispatch == "input" else 1)
+    assert not result.oas_wakes
+
+
+def test_invitation_disappearing_before_first_input_expires_without_waking(harvest, screen):
+    def disappear(_runner, device, _clock, data):
+        if data["state"].endswith("_invite_accept_enter"):
+            device.index = 1
+
+    result, device, snapshots = run_invitation(
+        harvest, [screen("I_G_ACCEPT", "I_G_REJECT"), screen()], on_state=disappear,
+        params={"enable_mail": False, "enable_courtyard_affairs": False})
+    assert result.status == "success"
+    assert "harvest_invite_accept_expired" in visited(result)
+    assert not any(name.endswith("_acknowledged") for name in visited(result))
+    assert not device.inputs and not result.oas_wakes
+    assert all(not wakes for _, _, wakes in snapshots)
+
+
+@pytest.mark.parametrize(("policy", "remaining"), [
+    ("accept", ("I_G_ACCEPT",)),
+    ("only_jade", ("I_G_ACCEPT", "I_G_REJECT")),
+])
+def test_invitation_retry_withholds_input_when_companion_or_reward_is_lost(harvest, screen, policy, remaining):
+    panel = screen("I_G_ACCEPT", "I_G_REJECT", "I_G_JADE")
+    result, device, _ = run_invitation(harvest, [panel, screen(*remaining)],
+                                        params={"friend_invitation": policy})
+    assert result.status == "failed" and visited(result)[-1] == "harvest_invite_accept_verify_timeout"
+    assert len(device.inputs) == 1 and "harvest_invite_accept_retry" not in visited(result)
+    assert not result.oas_wakes
+
+
+@pytest.mark.parametrize("changed", [(), ("I_G_ACCEPT", "I_G_JADE"), ("I_G_ACCEPT", "I_G_REJECT")])
+def test_invitation_retry_rechecks_stale_accept_companion_and_reward(harvest, screen, changed):
+    panel = screen("I_G_ACCEPT", "I_G_REJECT", "I_G_JADE")
+
+    def change(_runner, device, _clock, data):
+        if data["state"].endswith("_invite_accept_retry"):
+            device.index = 2  # Change after selection but before Runner's fresh input recheck.
+
+    result, device, _ = run_invitation(harvest, [panel, panel, screen(*changed)],
+                                        params={"friend_invitation": "only_jade"}, on_state=change)
+    assert result.failure_kind == "recognition"
+    assert visited(result)[-1] == "harvest_invite_accept_retry"
+    assert len(device.inputs) == 1 and not result.oas_wakes
+
+
+def test_invitation_retry_cancellation_does_not_dispatch_or_wake(harvest, screen):
+    stopped = False
+
+    def stop(_runner, _device, _clock, data):
+        nonlocal stopped
+        if data["state"].endswith("_invite_accept_retry"):
+            stopped = True
+
+    panel = screen("I_G_ACCEPT", "I_G_REJECT")
+    result, device, _ = run_invitation(harvest, [panel], on_state=stop, should_stop=lambda: stopped)
+    assert result.status == "stopped" and len(device.inputs) == 1
+    assert not result.oas_wakes
 
 
 def test_scaled_match_and_recheck_on_real_mail_template(harvest):
@@ -227,6 +442,46 @@ def test_selected_character_is_literal_and_clicks_only_a_complete_box(login, scr
     assert "confirm_same_server" in visited(result)
     (_, x, y), _ = inputs
     assert 150 <= x <= 200 and 160 <= y <= 185
+
+
+@pytest.mark.parametrize("choice", ["accept", "reject", "ignore"])
+def test_same_server_invitation_interrupt_resumes_character_confirmation(login, screen, choice):
+    chooser = screen("I_LOGIN_SPECIFIC_SERVE")
+    panel = screen("I_LOGIN_SPECIFIC_SERVE", "I_G_ACCEPT", "I_G_REJECT", "I_G_IGNORE")
+    courtyard = screen("I_BUFF_1", "I_MAIN_GOTO_SHIKIGAMI_RECORDS")
+    seen = []
+
+    def read(_image, _region, keyword, _score):
+        seen.append(keyword)
+        return FullOcrArea((150, 160, 50, 25), keyword_complete=True)
+
+    result, inputs = run(login, [chooser, panel, chooser, courtyard], use_inputs=True,
+                         params={"login_character": "角色[.*]", "enable_harvest": False,
+                                 "friend_invitation": choice}, full_ocr_reader=read)
+    assert result.status == "success", result.summary()
+    assert len(inputs) == 3 and seen == ["角色[.*]", "角色[.*]"]
+    names = visited(result)
+    completed = "same_server_invite_" + choice + ("_acknowledged" if choice == "accept" else "_gone")
+    ordered = ["select_character", f"same_server_invite_{choice}_enter",
+               f"same_server_invite_{choice}_input", completed, "confirm_same_server",
+               "same_server_cleared", "confirm_courtyard", "skip_harvest"]
+    assert [names.index(name) for name in ordered] == sorted(names.index(name) for name in ordered)
+    assert names.count("confirm_same_server") == 1 and "start_harvest" not in names
+    assert list(result.oas_wakes) == (["WantedQuests"] if choice == "accept" else [])
+    if choice == "accept":
+        assert names.count("same_server_invite_accept_acknowledged") == 1
+    assert result.variables["oas_login_stall_long"] is False
+
+
+def test_same_server_accept_only_evidence_blocks_before_chooser_input(login, screen):
+    chooser = screen("I_LOGIN_SPECIFIC_SERVE")
+    panel = screen("I_LOGIN_SPECIFIC_SERVE", "I_G_ACCEPT")
+    result, inputs = run(login, [chooser, panel], use_inputs=True,
+                         params={"login_character": "角色", "enable_harvest": False},
+                         full_ocr_reader=lambda *_: FullOcrArea((150, 160, 50, 25), keyword_complete=True))
+    assert result.status == "failed" and visited(result)[-1] == "same_server_invitation_review"
+    assert len(inputs) == 1 and "confirm_same_server" not in visited(result)
+    assert not result.oas_wakes
 
 
 def test_empty_character_and_create_account_are_blocked_without_input(login, screen):

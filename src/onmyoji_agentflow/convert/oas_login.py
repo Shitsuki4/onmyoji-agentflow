@@ -204,7 +204,7 @@ class _LoginBuilder:
                 enter.append(self.set(stall_saved_long=self.var("stall_long")))
                 leave.append(self.set(stall_long=self.var("stall_saved_long")))
             self.state(handling + "_enter", phase, lines, enter, accept, policy, button)
-            self.state(handling + "_gone", handling, lines, leave, {"not": accept})
+            self.state(handling + "_gone", handling, lines, leave, {"not": button})
             self.click(handling + "_input", handling, lines, marker, 800, task=task, context=[accept])
             self.await_frame(handling, lines)
 
@@ -227,15 +227,28 @@ class _LoginBuilder:
             leave.append(self.set(stall_long=self.var("stall_saved_long")))
         self.state(accepting + "_enter", phase, lines, enter, invitation_panel, accept, approved_policy)
         self.state(accepting + "_expired", accepting, lines, leave, {"not": accept})
-        self.click(accepting + "_input", accepting, lines, "I_G_ACCEPT", 800, task=task,
-                   context=[invitation_panel, approved_policy], afterwards=[self.goto(verifying)])
         self.state(accepting + "_acknowledged", verifying, lines, [
             {"oas_wake": {"task": "WantedQuests", "server_params": timing}},
             *leave,
         ], {"not": accept})
+        # Completion is distinct from input eligibility: only a dispatched tap
+        # enters verify. Persistent panels hit the original absolute deadline
+        # before either initial input or retry, including tap-loop recovery.
         for pending in (accepting, verifying):
             self.state(pending + "_timeout", pending, lines, [{"fail": "协作邀请在时限内未确认处理完成"}],
                        guard=f"elapsed_ms - {clock} >= 8000")
+        within_deadline = f"elapsed_ms - {clock} < 8000"
+        for state, pending, afterwards in (
+            (accepting + "_input", accepting, [self.goto(verifying)]),
+            (accepting + "_retry", verifying, []),
+        ):
+            # Both states share the per-button 800 ms cooldown and recheck all
+            # evidence and the deadline on the fresh pre-input frame. Retrying
+            # never resets invite_started or relaxes the companion-button guard.
+            self.click(state, pending, lines, "I_G_ACCEPT", 800, task=task,
+                       context=[invitation_panel, approved_policy],
+                       afterwards=afterwards, guard=within_deadline)
+        for pending in (accepting, verifying):
             self.await_frame(pending, lines)
 
         self.block(phase + "_invitation_review", phase, lines,
@@ -336,6 +349,9 @@ class _LoginBuilder:
         self.state("role_page_timeout", "wait_for_role", (175, 177), [self.goto(phase)], guard=self.expired(5000))
         self.state("role_page_reached", "wait_for_role", (175, 177), [self.goto(phase)], chooser)
         self.await_frame("wait_for_role", (175, 177))
+        # Source self.screenshot() here calls BaseTask.screenshot -> _burst.
+        # Resume this inner chooser loop, not the outer login phase.
+        self.burst("same_server", (145, 149))
         self.state("same_server_cleared", "same_server", (146, 152), [self.goto(phase)], {"not": chooser})
         self.click("confirm_same_server", "same_server", (146, 149), "I_LOGIN_SPECIFIC_SERVE", 2000,
                    button="C_LOGIN_ENSURE_LOGIN_CHARACTER_IN_SAME_SVR")

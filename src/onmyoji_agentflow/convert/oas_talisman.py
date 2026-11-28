@@ -98,7 +98,7 @@ def compile_talisman_candidate(source_root, resource_dir, *, calibrations=None):
     state("task_enter", "task_probe", [task], advance("task_claim", tp_timer="elapsed_ms"))
     state("task_unavailable", "task_probe", [pass_page], advance("level_probe"))
     state("task_reward_seen", "task_claim", [reward], dismiss_reward, {"wait": 500}, advance("task_animation"))
-    state("task_reward_timeout", "task_claim", [expr("elapsed_ms - tp_timer >= 10000")],
+    state("task_reward_timeout", "task_claim", [expr("elapsed_ms - tp_timer > 10000")],
           {"wait": 500}, clear_unverified, advance("level_probe"))
     state("task_bulk_claim", "task_claim", [bulk], click("I_TP_GET_ALL"), count_claim)
     state("task_animation_dismiss", "task_animation", [reward], dismiss_reward)
@@ -119,7 +119,7 @@ def compile_talisman_candidate(source_root, resource_dir, *, calibrations=None):
               click(asset, 800), count_claim, reset_timer, {"set": {"tp_level_picked": True}})
     state("level_reward_seen", "level_claim", [reward], dismiss_reward, receipt, reset_timer,
           {"set": {"tp_level_picked": False}})
-    state("level_idle", "level_claim", [pass_page, expr("elapsed_ms - tp_timer >= 2000")],
+    state("level_idle", "level_claim", [expr("elapsed_ms - tp_timer > 2000")],
           clear_unverified, advance("optional_soul"))
     state("level_bulk_claim", "level_claim", [bulk], click("I_TP_GET_ALL", 2100), count_claim, reset_timer)
 
@@ -133,7 +133,7 @@ def compile_talisman_candidate(source_root, resource_dir, *, calibrations=None):
     soul_pick = marker("I_TP_SOUL_2")
     soul_done = marker("I_TP_SOUL_3")
     state("soul_found", "soul_search", [soul_card], advance("soul_open"))
-    state("soul_timeout", "soul_search", [court, expr("elapsed_ms - tp_timer >= 5000")], advance("finished"))
+    state("soul_timeout", "soul_search", [expr("elapsed_ms - tp_timer > 5000")], advance("finished"))
     state("soul_picker", "soul_open", [soul_pick], advance("soul_select"))
     state("soul_open_card", "soul_open", [soul_card],
           {"click_found": True, "use_match_size": True, "delay": 1000, "recheck": True})
